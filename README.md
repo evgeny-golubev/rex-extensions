@@ -1,6 +1,6 @@
 # Rex extensions for Claude Code
 
-Three extensions for the Rex terminal (by Superlogical) on macOS
+Three extensions for the [Rex](https://www.superlogical.com) terminal on macOS
 that make it a better home for Claude Code:
 
 | Extension | What it does |
@@ -61,13 +61,12 @@ Switch tabs with `1` `2` `3`, `Tab` or `←` `→`. Scroll with the wheel,
 
 ### crab-pond
 
-A strip of 3-row pixel crabs (drawn with Unicode 16 octant characters) along
-the bottom 8% of the tab, left to right:
+A strip along the bottom 8% of each Claude tab. Here it's given room for
+three rows, with sample crabs:
 
-```text
-5h ░░░░░░ 4% ↺4h7m   [crab]  Add rate-limit guard    [crab] Review the diff   [crab] bun test
-7d ▓▓▓▓░░ 63% ↺1d17h   Opus 5.5 · up 2d1h               reviewer · 3m           Claude's shell · 12s
-```
+![crab-pond](docs/crab-pond.png)
+
+Left to right:
 
 - your 5-hour and weekly Claude limits, with the time to each reset;
 - the tab's main Claude, dressed by model and effort (wizard, scientist,
@@ -86,7 +85,7 @@ tabs and splits in their directories, and types
 
 ## Requirements
 
-- macOS with Rex installed (the `rex` CLI and its Lua runtime).
+- macOS with [Rex](https://www.superlogical.com) installed.
 - [Claude Code](https://claude.com/claude-code) for changes-pane and
   crab-pond.
 - A terminal font with Unicode 16 octant characters for crab-pond (Rex draws

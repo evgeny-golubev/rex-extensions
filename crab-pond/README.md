@@ -4,6 +4,8 @@ Opens a `Crabs` pane along the bottom 8% of every Rex tab that runs Claude
 Code, and closes it when the last Claude in the tab exits. The pane shows what
 runs in that tab as animated pixel crabs, left to right:
 
+![crab-pond](../docs/crab-pond.png)
+
 - **Usage limits**: Claude's 5-hour and weekly limits, one under the other,
   with the time to each reset.
 - **The tab's main Claude**, with its session name, model and uptime. It's the
