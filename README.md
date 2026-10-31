@@ -90,10 +90,7 @@ tabs and splits in their directories, and types
   crab-pond.
 - A terminal font with Unicode 16 octant characters for crab-pond (Rex draws
   them itself).
-- Optional, for crab-pond's limits, model names and outfits: a Claude Code
-  status line command that saves its input to
-  `~/.claude/state/statusline/<session_id>.json`. See
-  [crab-pond/README.md](crab-pond/README.md).
+- `jq`, for crab-pond's status line line (`brew install jq`).
 
 ## Install
 
@@ -119,6 +116,20 @@ tabs and splits in their directories, and types
 
 4. For changes-pane, turn off Claude Code's own diff panel by setting
    `"diffSidebarOpen": false` in `~/.claude.json`.
+
+5. For crab-pond, have Claude Code's status line command save its input,
+   which gives the crabs their names, models, outfits, subagents and your
+   usage limits. Add these lines after your status line script reads stdin
+   into `$input`:
+
+   ```bash
+   sid=$(echo "$input" | jq -r '.session_id // empty')
+   [ -n "$sid" ] && mkdir -p ~/.claude/state/statusline && printf '%s' "$input" > ~/.claude/state/statusline/"$sid".json
+   ```
+
+   No status line yet? See
+   [crab-pond's setup](crab-pond/README.md#claude-code-status-line) for a
+   complete script and the `settings.json` entry.
 
 To update, `git -C ~/.config/rex/extensions pull`, then restart the watchers:
 

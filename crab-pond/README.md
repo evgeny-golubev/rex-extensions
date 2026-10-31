@@ -60,10 +60,11 @@ started and the programs under them. Only executable names are read, never
 command arguments, which can hold secrets.
 
 Session names, models, effort (which picks Claude's outfit) and the limits
-come from Claude Code's status line input, which
-`~/.claude/statusline-command.sh` saves to
-`~/.claude/state/statusline/<session>.json`. Without that line, Claude crabs
-are plain and the limits are left out. Nothing is sent anywhere.
+come from Claude Code's status line input, which your status line command
+saves to `~/.claude/state/statusline/<session>.json` (see
+[Claude Code status line](#claude-code-status-line)). The subagent crabs
+need it too: it names the session's transcript. Without it, Claude crabs are
+plain and the limits and subagents are left out. Nothing is sent anywhere.
 
 The crab art is redrawn at half size after
 [crab-band](https://github.com/MaxHarfen/crab-band) (MIT), whose crab follows
@@ -78,12 +79,57 @@ Rex `init.lua`:
 require("extensions.crab-pond")
 ```
 
-Then run `rex config reload`. To load a changed `watcher.lua`, stop the
-running watcher first; the crab panes reopen with the new `pond.lua`:
+Then run `rex config reload`, and save Claude Code's status line input as
+below. To load a changed `watcher.lua`, stop the running watcher first; the
+crab panes reopen with the new `pond.lua`:
 
 ```sh
 pkill -f 'crab-pond/watcher\.lua'; rex config reload
 ```
+
+### Claude Code status line
+
+Claude Code passes each session's details (model, effort, session name, rate
+limits, transcript path) to its status line command as JSON on stdin. The
+pond reads them from a copy saved per session. It needs `jq`.
+
+If you already have a status line script (`"statusLine"` in
+`~/.claude/settings.json`), add this after the line that reads stdin into
+`$input`:
+
+```bash
+# Read JSON input from stdin
+input=$(cat)
+
+# Save the input for the Rex crab-pond extension
+sid=$(echo "$input" | jq -r '.session_id // empty')
+[ -n "$sid" ] && mkdir -p ~/.claude/state/statusline && printf '%s' "$input" > ~/.claude/state/statusline/"$sid".json
+```
+
+If you have none, save this as `~/.claude/statusline-command.sh`:
+
+```bash
+#!/bin/bash
+# Read JSON input from stdin
+input=$(cat)
+
+# Save the input for the Rex crab-pond extension
+sid=$(echo "$input" | jq -r '.session_id // empty')
+[ -n "$sid" ] && mkdir -p ~/.claude/state/statusline && printf '%s' "$input" > ~/.claude/state/statusline/"$sid".json
+echo "$input" | jq -r '.model.display_name'
+```
+
+and point Claude Code at it in `~/.claude/settings.json`:
+
+```json
+{
+  "statusLine": { "type": "command", "command": "bash ~/.claude/statusline-command.sh" }
+}
+```
+
+Claude Code runs the command as the session updates, so the crabs pick up a
+running session after its next reply. The saved files are small; remove
+`~/.claude/state/statusline/` any time to clear them.
 
 ## Behavior
 
