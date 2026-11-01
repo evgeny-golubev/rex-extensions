@@ -39,10 +39,10 @@ local function shell(id, label)
 	}
 end
 
-local clients, views, processes, created, timers, stopped
+local clients, views, processes, created, timers, stopped, written
 
 local function reset()
-	clients, created, timers, stopped = {}, {}, {}, false
+	clients, created, timers, stopped, written = {}, {}, {}, false, {}
 	views = {
 		["session:1"] = {
 			session_id = "session:1",
@@ -119,7 +119,11 @@ rex = {
 		error("unexpected call " .. method)
 	end,
 	block = {
-		call = function(_, _, params)
+		call = function(_, method, params)
+			if method == "write" then
+				table.insert(written, { block_id = params.block_id, data = params.data })
+				return {}
+			end
 			return processes[params.block_id]
 		end,
 	},
@@ -206,6 +210,49 @@ local ok, err = pcall(function()
 	equal(created[1].initial_windows[1].layout.block.options.initial_input, "claude --resume abc-123\n", "restored input")
 	equal(read_json(snapshot .. ".prev").instance_id, "server-1", "previous snapshot")
 	equal(read_json(snapshot).instance_id, "server-2", "new snapshot")
+
+	-- In a session Rex brought back itself, Claude resumes in the pane that
+	-- ran it: matched by directory, once its shell is up.
+	local function saved_work(cwd)
+		return {
+			label = "work",
+			initial_windows = { {
+				layout = {
+					split = {
+						direction = "right",
+						ratio = 0.5,
+						before = { block = { label = "shell", options = { cwd = "/src/app" } } },
+						after = { block = { label = "agent", options = { cwd = cwd, initial_input = "claude --resume abc-123\n" } } },
+					},
+				},
+			} },
+		}
+	end
+	reset()
+	processes["block:1"] = { foreground = { pid = 51, argv0 = "-zsh", cwd = "/src/app" } }
+	processes["block:2"] = { foreground = { pid = 52, argv0 = "-zsh", cwd = "/src/app/sub" } }
+	write(snapshot, assert(real.json.encode({ instance_id = "server-1", sessions = { saved_work("/src/app/sub") } })))
+	run()
+	equal(#created, 0, "no session created for an open one")
+	equal(#written, 1, "claude resumed")
+	equal(written[1].block_id, "block:2", "pane with the same directory")
+	equal(written[1].data, "claude --resume abc-123\n", "resume command")
+
+	-- In another directory, it changes to Claude's first.
+	reset()
+	processes["block:1"] = { foreground = { pid = 51, argv0 = "zsh", cwd = "/src/app" } }
+	processes["block:2"] = { foreground = { pid = 52, argv0 = "zsh", cwd = "/home" } }
+	write(snapshot, assert(real.json.encode({ instance_id = "server-1", sessions = { saved_work("/it's/here") } })))
+	run()
+	equal(written[1].block_id, "block:2", "pane in the same place")
+	equal(written[1].data, "cd '/it'\\''s/here' && claude --resume abc-123\n", "cd before resuming")
+
+	-- A pane already running Claude, or another program, is left alone.
+	reset()
+	processes["block:1"] = { foreground = { pid = 51, argv0 = "zsh", cwd = "/src/app" } }
+	write(snapshot, assert(real.json.encode({ instance_id = "server-1", sessions = { saved_work("/src/app/sub") } })))
+	run()
+	equal(#written, 0, "pane running claude")
 
 	-- A changes pane isn't saved; the pane beside it takes its place.
 	reset()

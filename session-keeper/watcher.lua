@@ -1,5 +1,8 @@
 -- Remembers every session's tabs, splits and working directories, and brings
--- them back once after the Rex server restarts (reboot, update, crash).
+-- them back once after the Rex server restarts (reboot, update, crash). Rex
+-- now brings sessions back itself, with new IDs and without the programs
+-- that ran in them, so for those this only resumes Claude Code in the panes
+-- that ran it.
 -- init.lua starts it with every config load (`rex do --all watcher.lua`); it
 -- then saves a snapshot a second after each layout, label, directory or
 -- program change. `state=/tmp/x.json` points it at another snapshot file.
@@ -91,6 +94,10 @@ local function terminal_options(session_id, block_id)
 	return { cwd = cwd(r) }
 end
 
+local function is_helper(label)
+	return label ~= nil and (label:sub(1, 9) == "Changes: " or label == "Crabs")
+end
+
 --- Turns a `session.view` layout node into a `session.create` layout node, or
 --- nil when nothing in it is kept. Changes panes are left out: the
 --- changes-pane extension opens them again beside the resumed Claude.
@@ -111,7 +118,7 @@ local function capture(node, view, blocks)
 		}
 	end
 	local b = blocks[node.block_id]
-	if b.label and (b.label:sub(1, 9) == "Changes: " or b.label == "Crabs") then
+	if is_helper(b.label) then
 		return nil
 	end
 	local block = { flavor = b.flavor, label = b.label, options = {} }
@@ -176,6 +183,155 @@ schedule = function(delay)
 	pending = rex.after(delay, save)
 end
 
+-- Restoring ------------------------------------------------------------------
+
+--- The sessions once their list has stayed the same for 3 seconds, as Rex's
+--- own restore adds them a moment after the server starts; at most 20.
+local function settled_sessions()
+	local last, same = nil, 0
+	for _ = 1, 20 do
+		local list = check(rex.call("session.list")).sessions
+		local ids = {}
+		for _, s in ipairs(list) do
+			ids[#ids + 1] = s.session_id
+		end
+		table.sort(ids)
+		local key = table.concat(ids, ",")
+		if key == last then
+			same = same + 1
+			if same >= 3 then
+				return list
+			end
+		else
+			last, same = key, 0
+		end
+		rex.sleep(1)
+	end
+	return check(rex.call("session.list")).sessions
+end
+
+--- A snapshot layout's blocks, in order.
+local function saved_panes(node, out)
+	out = out or {}
+	if node.split then
+		saved_panes(node.split.before, out)
+		saved_panes(node.split.after, out)
+	elseif node.block then
+		out[#out + 1] = node.block
+	end
+	return out
+end
+
+--- An open layout's terminal block IDs, in order, without helper panes.
+local function open_panes(node, blocks, out)
+	out = out or {}
+	if node.split then
+		open_panes(node.split.before, blocks, out)
+		open_panes(node.split.after, blocks, out)
+	else
+		local b = blocks[node.block_id]
+		if b and b.creator_name == terminal and not is_helper(b.label) then
+			out[#out + 1] = node.block_id
+		end
+	end
+	return out
+end
+
+local shells = { zsh = true, bash = true, fish = true, sh = true, dash = true, ksh = true, tcsh = true }
+
+local function program(r)
+	local argv0 = r and r.foreground and r.foreground.argv0
+	return argv0 and argv0:match("[^/]*$"):gsub("^%-", "")
+end
+
+local function quote(text)
+	return "'" .. text:gsub("'", "'\\''") .. "'"
+end
+
+--- Types a saved `claude --resume` into an open pane once its shell is up:
+--- a pane already running Claude, or another program, is left alone.
+local function resume_in(session_id, block_id, saved)
+	local r
+	for _ = 1, 20 do
+		r = rex.block.call(terminal, "process", { session_id = session_id, block_id = block_id })
+		if r and r.foreground then
+			break
+		end
+		rex.sleep(0.5)
+	end
+	if not shells[program(r) or ""] then
+		return false
+	end
+	local input = saved.initial_input
+	local here = r and cwd(r)
+	if saved.cwd and here ~= saved.cwd then
+		input = "cd " .. quote(saved.cwd) .. " && " .. input
+	end
+	local _, err = rex.block.call(terminal, "write", { session_id = session_id, block_id = block_id, data = input })
+	if err ~= nil then
+		rex.log("warn", "resuming Claude: " .. err)
+		return false
+	end
+	return true
+end
+
+--- Resumes the Claude sessions of a saved session in the open one Rex brought
+--- back. Each saved tab is matched by its label, or else its place; each
+--- Claude pane in it by its directory, or else its place.
+local function resume_claudes(open, saved)
+	local view = check(rex.call("session.attach", { session_id = open.session_id })).view
+	local windows = {}
+	for _, w in ipairs(view.windows) do
+		for _, l in ipairs(w.layers) do
+			if l.kind == "tiled" and l.layout then
+				local blocks = {}
+				for _, b in ipairs(l.blocks) do
+					blocks[b.block_id] = b
+				end
+				windows[#windows + 1] = { label = w.label, panes = open_panes(l.layout, blocks) }
+			end
+		end
+	end
+	local taken = {}
+	for i, sw in ipairs(saved.initial_windows or {}) do
+		local window
+		for _, w in ipairs(windows) do
+			if sw.window_label and w.label == sw.window_label and not taken[w] then
+				window = w
+			end
+		end
+		window = window or (not taken[windows[i]] and windows[i]) or nil
+		if window then
+			taken[window] = true
+			local used, dirs = {}, {}
+			local function dir_of(id)
+				if dirs[id] == nil then
+					local r = rex.block.call(terminal, "process", { session_id = open.session_id, block_id = id })
+					dirs[id] = r and cwd(r) or false
+				end
+				return dirs[id]
+			end
+			for j, block in ipairs(saved_panes(sw.layout)) do
+				local o = block.options or {}
+				if o.initial_input then
+					local target
+					for _, id in ipairs(window.panes) do
+						if not target and not used[id] and dir_of(id) == o.cwd then
+							target = id
+						end
+					end
+					local at = window.panes[j]
+					target = target or (at and not used[at] and at) or nil
+					if target then
+						used[target] = true
+						resume_in(open.session_id, target, o)
+					end
+				end
+			end
+		end
+	end
+end
+
 for _, c in ipairs(check(rex.call("client.list")).clients) do
 	if c.info and c.info.label == client_label then
 		rex.stop(0)
@@ -185,16 +341,20 @@ check(rex.call("client.set_label", { label = client_label }))
 check(rex.exec({ "mkdir", "-p", (path:match("^(.*)/")) }))
 
 local status = check(rex.call("server.status"))
-local sessions = check(rex.call("session.list")).sessions
 local snapshot = read_snapshot()
 
 if snapshot and snapshot.instance_id ~= status.instance_id then
 	local open = {}
-	for _, s in ipairs(sessions) do
-		open[s.label] = true
+	for _, s in ipairs(settled_sessions()) do
+		open[s.label] = s
 	end
 	for _, s in ipairs(snapshot.sessions) do
-		if not open[s.label] then
+		if open[s.label] then
+			local ok, err = pcall(resume_claudes, open[s.label], s)
+			if not ok then
+				rex.log("warn", "resuming in " .. s.label .. ": " .. tostring(err))
+			end
+		else
 			local _, err = rex.call("session.create", s)
 			if err ~= nil then
 				rex.log("warn", "restoring " .. s.label .. ": " .. err)
