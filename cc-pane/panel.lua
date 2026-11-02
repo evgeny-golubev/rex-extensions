@@ -400,6 +400,9 @@ function M.record(state, r)
 		state.branch = r.gitBranch
 	end
 	if r.type == "assistant" then
+		state.effort = r.perTurnEffort or r.effort or state.effort
+	end
+	if r.type == "assistant" then
 		assistant(state, r)
 	elseif r.type == "user" then
 		user(state, r)
@@ -547,6 +550,18 @@ function M.context_lines(state, cols)
 	heading(out, "Open", #open == 0 and "none" or nil)
 	add(out, open)
 
+	local summary = M.summary_lines(state.summary)
+	if #summary > 0 then
+		heading(out, "From the last summary")
+		for _, s in ipairs(summary) do
+			if s.heading then
+				out[#out + 1] = dim .. s.heading .. reset
+			else
+				add(out, M.wrap(s.text:gsub("^%s+", ""), cols, "  ", "    "))
+			end
+		end
+	end
+
 	local decided = {}
 	for i = #state.decisions, 1, -1 do
 		local d = state.decisions[i]
@@ -577,17 +592,6 @@ function M.context_lines(state, cols)
 		add(out, M.wrap(state.prompts[i].text, cols, cyan .. "› " .. reset, "  ", 6))
 	end
 
-	local summary = M.summary_lines(state.summary)
-	if #summary > 0 then
-		heading(out, "From the last summary")
-		for _, s in ipairs(summary) do
-			if s.heading then
-				out[#out + 1] = dim .. s.heading .. reset
-			else
-				add(out, M.wrap(s.text:gsub("^%s+", ""), cols, "  ", "    "))
-			end
-		end
-	end
 	return out
 end
 
@@ -606,6 +610,7 @@ function M.activity_lines(state, cols, root, changed)
 		{ "Title", state.title },
 		{ "Branch", state.branch },
 		{ "Model", state.model },
+		{ "Reasoning", state.effort },
 		{ "Context", state.context and (math.floor(state.context / 1000) .. "k tokens") },
 		{ "Compacted", state.compactions > 0 and (state.compactions .. "×") or nil },
 		{ "Claude time", state.claude_ms > 0 and duration(state.claude_ms) or nil },
@@ -732,8 +737,9 @@ end
 
 local found = {}
 
---- The transcript of the Claude with this process ID, from the session file
---- Claude Code writes for each running Claude.
+--- The transcript and current directory of the Claude with this process ID,
+--- from the session file Claude Code writes for each running Claude. /cd
+--- changes the directory there, and moves the transcript with it.
 function M.transcript(pid)
 	local dirs = { os.getenv("CLAUDE_CONFIG_DIR"), home .. "/.claude" }
 	for _, dir in pairs(dirs) do
@@ -743,13 +749,13 @@ function M.transcript(pid)
 			local f = path and io.open(path, "rb")
 			if f then
 				f:close()
-				return path
+				return path, s.cwd
 			end
 			if found[s.sessionId] == nil then
 				local r = exec({ "/usr/bin/find", dir .. "/projects", "-maxdepth", "2", "-name", s.sessionId .. ".jsonl" })
 				found[s.sessionId] = r and r.ok and r.stdout:match("[^\n]+") or false
 			end
-			return found[s.sessionId] or nil
+			return found[s.sessionId] or nil, s.cwd
 		end
 	end
 end
@@ -811,11 +817,39 @@ function M.status(out, root)
 	return result
 end
 
+--- Moves the pane to the repository of the directory Claude works in.
+local function follow(cwd)
+	if not cwd or cwd == panel.cwd then
+		return
+	end
+	panel.cwd = cwd
+	local r = exec({ "git", "-C", cwd, "rev-parse", "--show-toplevel" })
+	local root = r and r.ok and (r.stdout:gsub("%s+$", "")) or cwd
+	if root ~= panel.root then
+		panel.root = root
+		panel.scroll.Diff = 0
+		rex.call("session.set_block_label", {
+			session_id = panel.session_id,
+			block_id = panel.block_id,
+			label = "Changes: " .. (root:match("[^/]+$") or root),
+		})
+	end
+end
+
 local function gather()
 	local size = rex.block.call(terminal, "size", { session_id = panel.session_id, block_id = panel.block_id })
 	if size and size.columns then
 		panel.cols, panel.rows = size.columns, size.rows
 	end
+
+	local process = panel.claude
+		and rex.block.call(terminal, "process", { session_id = panel.session_id, block_id = panel.claude })
+	local pid = M.claude_pid(process)
+	local path, cwd
+	if pid then
+		path, cwd = M.transcript(pid)
+	end
+	follow(cwd)
 
 	-- One status call: git status runs slowly in big repositories, and the
 	-- pane takes no keys while it runs.
@@ -832,10 +866,6 @@ local function gather()
 		end
 	end
 
-	local process = panel.claude
-		and rex.block.call(terminal, "process", { session_id = panel.session_id, block_id = panel.claude })
-	local pid = M.claude_pid(process)
-	local path = pid and M.transcript(pid)
 	if path then
 		if path ~= panel.state.path then
 			panel.state = M.new_state()

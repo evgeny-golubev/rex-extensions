@@ -459,6 +459,26 @@ local ok2, err2 = pcall(function()
 	has(frame, "2–3 of 4", "position")
 	hasnt(P.frame(tabs, "Diff", { "a" }, 0, 40, 4), " of ", "position when everything fits")
 	hasnt(frame, "\r\na\27", "scrolled past the first line")
+
+	-- The reasoning level, the latest one, from Claude's own records only.
+	local levels = P.new_state()
+	P.record(levels, { type = "assistant", effort = "xhigh", message = { content = {} } })
+	equal(levels.effort, "xhigh", "effort")
+	P.record(levels, { type = "assistant", effort = "xhigh", perTurnEffort = "medium", message = { content = {} } })
+	equal(levels.effort, "medium", "this turn's level wins")
+	P.record(levels, { type = "assistant", isSidechain = true, perTurnEffort = "low", message = { content = {} } })
+	equal(levels.effort, "medium", "a subagent's level is ignored")
+	P.record(levels, { type = "assistant", message = { content = {} } })
+	equal(levels.effort, "medium", "kept when a record has none")
+	has(plain(P.activity_lines(levels, 60, "/src", {})), "Reasoning   medium", "reasoning in Activity")
+	hasnt(plain(P.activity_lines(P.new_state(), 60, "/src", {})), "Reasoning", "no level known")
+
+	-- The summary comes right after Open.
+	local order = P.new_state()
+	order.summary = "## Next step\nFinish it\n"
+	local shown = plain(P.context_lines(order, 60))
+	equal(shown:find("Open", 1, true) < shown:find("From the last summary", 1, true), true, "Open first")
+	equal(shown:find("From the last summary", 1, true) < shown:find("Decisions", 1, true), true, "summary before Decisions")
 end)
 if not ok2 then
 	error(err2, 0)

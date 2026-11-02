@@ -11,17 +11,18 @@ The pane has these tabs, redrawn every 2 seconds:
 
 | Tab | Section | What's in it |
 | --- | --- | --- |
-| **1 Activity** | Session | Title, branch, model, context size, how often it was compacted, and Claude's working time |
+| **1 Activity** | Session | Title, branch, model, reasoning level, context size, how often it was compacted, and Claude's working time |
 | | Files Claude edited | Newest first, with an edit count. ● means the file still has uncommitted changes, ○ that it doesn't |
 | | Tests | The latest test runs and whether they passed. A run counts as a test by its command: `pytest`, `npm test`, `go test`, a script named test or spec |
 | | Failed commands | The latest failures, with their first error line |
 | **2 Context** | Open | Questions and plans waiting for your answer, questions at the end of Claude's last reply, and unfinished tasks |
+| | From the last summary | The current state, next step and pending work from the latest compaction |
 | | Decisions | Your answers, with any notes; plans you approved or rejected; actions you rejected, with what you said |
 | | Requests | Your last 5 prompts, including slash commands and messages sent while Claude worked |
-| | From the last summary | The current state, next step and pending work from the latest compaction |
 | **3 Diff** | | `git status` and `git diff --stat` against `HEAD`. Only shown in a git repository |
 
-The pane opens in the repository's root, or in Claude's folder outside one.
+The pane uses the root of the repository Claude works in, or Claude's folder
+outside one.
 
 Press a tab's number, `Tab` or `←` `→` to switch. Scroll with the mouse
 wheel, `j` / `k` or `↑` `↓`, `Space` / `b` or `Page Down` / `Page Up`, and
@@ -80,6 +81,10 @@ The palette shows whichever of Disable and Enable applies. For a key, bind
   is found by a second look a second after its shell starts.
 - The changes pane takes 20% of the width, and focus stays on the Claude
   pane.
+- The pane follows Claude's directory: after `/cd`, the Diff tab, the changed
+  marks and the pane's label switch to the new directory's repository within
+  a couple of seconds. The Diff tab covers the whole repository, not only the
+  folder Claude is in.
 - A changes pane you close stays closed until Claude starts again in that pane,
   or you run Show Changes Pane.
 - When the watcher starts, it replaces leftover changes panes with new ones.
