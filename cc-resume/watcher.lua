@@ -17,7 +17,7 @@ local path = rex.args.state or (home .. "/.config/rex/state/sessions.json")
 
 --- Marks this script's server connection, so a second copy started by
 --- `rex config reload` sees the first one and quits.
-local client_label = "claude-resume"
+local client_label = "cc-resume"
 
 --- Claude Code writes its process file a few seconds after it starts, so a
 --- save that finds claude without one is repeated, up to this many times.
@@ -100,7 +100,7 @@ end
 
 --- Turns a `session.view` layout node into a `session.create` layout node, or
 --- nil when nothing in it is kept. Changes panes are left out: the
---- changes-pane extension opens them again beside the resumed Claude.
+--- cc-pane extension opens them again beside the resumed Claude.
 local function capture(node, view, blocks)
 	if node.split then
 		local s = node.split

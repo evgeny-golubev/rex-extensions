@@ -1,4 +1,4 @@
-# Claude Resume for Rex
+# CC Resume for Rex
 
 Resumes Claude Code after the Rex server restarts (reboot, update, crash). Rex
 brings back sessions, tabs and splits itself, but not the programs in them; this
@@ -12,11 +12,11 @@ event-driven `rex do` watcher.
 
 ## Install
 
-Place this directory at `~/.config/rex/extensions/claude-resume/` and add to
+Place this directory at `~/.config/rex/extensions/cc-resume/` and add to
 your Rex `init.lua`:
 
 ```lua
-require("extensions.claude-resume")
+require("extensions.cc-resume")
 ```
 
 Then run `rex config reload`. Every config load starts a watcher; a new one
@@ -24,7 +24,7 @@ quits when another is already connected, so to load a changed `watcher.lua`,
 stop the running one first:
 
 ```sh
-pkill -f 'claude-resume/watcher\.lua'; rex config reload
+pkill -f 'cc-resume/watcher\.lua'; rex config reload
 ```
 
 ## Behavior and state
@@ -51,13 +51,13 @@ pkill -f 'claude-resume/watcher\.lua'; rex config reload
 ## Manual use
 
 ```sh
-rex do --all ~/.config/rex/extensions/claude-resume/watcher.lua state=/tmp/x.json
+rex do --all ~/.config/rex/extensions/cc-resume/watcher.lua state=/tmp/x.json
 ```
 
 ## Tests
 
 ```sh
-rex do ~/.config/rex/extensions/claude-resume/test.lua
+rex do ~/.config/rex/extensions/cc-resume/test.lua
 ```
 
 The tests mock Rex around a temporary directory; they don't touch live

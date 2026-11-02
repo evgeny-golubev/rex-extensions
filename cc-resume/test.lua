@@ -1,4 +1,4 @@
--- Run: rex do ~/.config/rex/extensions/claude-resume/test.lua
+-- Run: rex do ~/.config/rex/extensions/cc-resume/test.lua
 -- Mocks the Rex API around real files in a temporary directory: it doesn't
 -- touch live sessions or the real snapshot.
 local real, real_getenv = rex, os.getenv
@@ -278,7 +278,7 @@ local ok, err = pcall(function()
 
 	-- A second copy quits and leaves the first one's snapshot alone.
 	reset()
-	clients = { { info = { label = "claude-resume" } } }
+	clients = { { info = { label = "cc-resume" } } }
 	run()
 	equal(stopped, true, "second copy stopped")
 	equal(read_json(snapshot), nil, "second copy's snapshot")
@@ -288,4 +288,4 @@ real.exec({ "/bin/rm", "-rf", tmp })
 if not ok then
 	error(err, 0)
 end
-return "claude-resume: all tests passed"
+return "cc-resume: all tests passed"
