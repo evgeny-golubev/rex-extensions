@@ -49,6 +49,13 @@ show_image() {
 	done
 }
 
+is_markdown() {
+	case "$(printf '%s' "$file" | tr 'A-Z' 'a-z')" in
+	*.md | *.markdown | *.mdown | *.mkd) return 0 ;;
+	esac
+	return 1
+}
+
 draw_image() {
 	local size rows cols cw ch place first=1 chunk
 	size=$(stty size </dev/tty)
@@ -81,6 +88,19 @@ is_binary && notice "This is a binary file, so it isn't shown: $file"
 
 # less -R passes colours only and shows other control bytes as text, so a file
 # holding terminal codes can't move the cursor or clear the screen.
+# Formatted lines don't match the file's, so a request for a line skips glow.
+if [ -z "$line" ] && is_markdown && command -v glow >/dev/null 2>&1; then
+	width=$(stty size </dev/tty)
+	width=${width#* }
+	[ "${width:-0}" -gt 0 ] 2>/dev/null || width=80
+	[ "$width" -gt 100 ] && width=100
+	# Piped, glow's default style drops all formatting, so one must be named.
+	if formatted=$(glow -s "${GLAMOUR_STYLE:-dark}" -w "$width" -- "$file" 2>/dev/null) && [ -n "$formatted" ]; then
+		printf '%s\n' "$formatted" | less -R -P"q closes"
+		exit 0
+	fi
+fi
+
 start=()
 [ -n "$line" ] && start=("+${line}g")
 if command -v bat >/dev/null 2>&1; then

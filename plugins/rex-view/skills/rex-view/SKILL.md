@@ -18,4 +18,6 @@ Show the file with one command:
 
 If the command fails, relay its message. It explains what's wrong: the file is missing, or this isn't a Rex terminal.
 
+Markdown is formatted by `glow` if it's installed, otherwise it's shown like any other text. Passing a `line` skips formatting, because formatted lines don't match the file's.
+
 Syntax colours come from `bat`. Without it, the float shows plain text with a notice to run `brew install bat`; pass that on if the user asks why there are no colours, and don't install it unasked.
