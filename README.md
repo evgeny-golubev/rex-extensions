@@ -16,45 +16,10 @@ anywhere and no AI is involved.
 
 ### changes-pane
 
-A pane on the right, 30% of the tab, beside the Claude pane:
+A pane on the right, 20% of the tab, beside the Claude pane. Its three tabs,
+with made-up data:
 
-```text
- 1 Activity   2 Context   3 Diff                     1–24 of 41
-
-Session
-Title       Add rate-limit guard to embeddings
-Branch      feat/rate-limit
-Model       claude-opus-5-5
-Context     86k tokens
-Compacted   1×
-Claude time 42m
-
-Files Claude edited 3
-  ● src/embeddings/guard.ts ×4
-  ● src/embeddings/guard.test.ts ×2
-    README.md
-
-Tests
-  ✓ bun test guard
-  ✗ bun test
-```
-
-```text
- 1 Activity   2 Context   3 Diff
-
-Open
-? Should the guard also cover batch requests?
-▸ Update the README
-
-Decisions
-✓ Which limit should apply?
-  → 60 requests a minute
-✗ Rejected Bash: rm -rf dist
-  “keep the build output”
-
-Requests last 5 of 12
-› add a rate-limit guard to the embedding actions
-```
+![changes-pane Activity, Context and Diff tabs](docs/changes-pane.png)
 
 Switch tabs with `1` `2` `3`, `Tab` or `←` `→`. Scroll with the wheel,
 `j` `k`, `↑` `↓`, `Space` `b` or `g`. Drag to select text.

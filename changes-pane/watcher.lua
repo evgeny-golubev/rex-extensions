@@ -18,7 +18,7 @@ local client_label = "changes-pane"
 local label_prefix = "Changes: "
 
 --- The share of the split the Claude pane keeps.
-local claude_ratio = 0.7
+local claude_ratio = 0.8
 
 --- Claude pane block ID -> { session_id, changes = block ID or nil }. An
 --- entry stays while Claude runs even without a changes pane (the user

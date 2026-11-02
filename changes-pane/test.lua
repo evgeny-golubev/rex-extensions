@@ -115,7 +115,7 @@ local ok, err = pcall(function()
 	equal(split.anchor_id, "block:1", "anchor")
 	equal(split.direction, "horizontal", "direction")
 	equal(split.side, "after", "side")
-	equal(split.ratio, 0.7, "ratio")
+	equal(split.ratio, 0.8, "ratio")
 	equal(split.focus, false, "focus")
 	equal(split.layout.block.label, "Changes: app", "label")
 	equal(split.layout.block.options.cwd, "/src/app", "cwd is the repository root")
@@ -127,7 +127,7 @@ local ok, err = pcall(function()
 	fire()
 	equal(resized[1].before_block_id, "block:1", "resized left")
 	equal(resized[1].after_block_id, "block:changes1", "resized right")
-	equal(resized[1].ratio, 0.7, "resized ratio")
+	equal(resized[1].ratio, 0.8, "resized ratio")
 
 	-- The same Claude doesn't get a second pane, and a command it runs in the
 	-- foreground doesn't close it.

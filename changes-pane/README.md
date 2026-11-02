@@ -5,6 +5,8 @@ Code, and closes it when Claude exits or its pane closes. It stands in for
 Claude Code's own diff panel; turn that one off with `"diffSidebarOpen": false`
 in `~/.claude.json`.
 
+![Activity, Context and Diff tabs, with made-up data](../docs/changes-pane.png)
+
 The pane has these tabs, redrawn every 2 seconds:
 
 - **Activity**: the session's title, branch, model, context size,
@@ -72,7 +74,7 @@ pkill -f 'changes-pane/watcher\.lua'; rex config reload
 - Claude is recognised by its program name, `claude`, in the foreground or as
   the parent of the foreground command. A pane started as `rex split -- claude`
   is found by a second look a second after its shell starts.
-- The changes pane takes 30% of the width, and focus stays on the Claude
+- The changes pane takes 20% of the width, and focus stays on the Claude
   pane.
 - A changes pane you close stays closed until Claude starts again in that pane.
 - When the watcher starts, it replaces leftover changes panes with new ones.
