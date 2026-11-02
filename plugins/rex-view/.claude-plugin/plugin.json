@@ -1,6 +1,6 @@
 {
   "name": "rex-view",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Show images, Markdown and source code in a floating pane over the Rex tab Claude runs in",
   "author": {
     "name": "Evgeny Golubev"
