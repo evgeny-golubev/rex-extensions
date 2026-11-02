@@ -3,7 +3,7 @@
 -- (Context); and, in a git repository, the uncommitted changes (Diff). The
 -- watcher passes the Claude pane's block ID and its directory (the
 -- repository root, in one) as `claude=` and `cwd=`. The session is read from Claude Code's own files, so
--- no Claude Code setting is needed. With CHANGES_PANE_TEST set, this file
+-- no Claude Code setting is needed. With CC_PANE_TEST set, this file
 -- returns its functions instead of running.
 
 local M = {}
@@ -941,7 +941,7 @@ local function key(k)
 	end
 end
 
-if CHANGES_PANE_TEST then
+if CC_PANE_TEST then
 	return M
 end
 

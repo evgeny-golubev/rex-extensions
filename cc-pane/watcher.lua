@@ -12,9 +12,9 @@ local rex_binary = home
 
 --- Marks this script's server connection, so a second copy started by
 --- `rex config reload` sees the first one and quits.
-local client_label = "changes-pane"
+local client_label = "cc-pane"
 
---- Every changes pane's label starts with this; claude-resume skips them.
+--- Every changes pane's label starts with this; cc-resume skips them.
 local label_prefix = "Changes: "
 
 --- The share of the split the Claude pane keeps.

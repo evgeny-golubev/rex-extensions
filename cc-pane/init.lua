@@ -9,11 +9,11 @@ local rex_binary = home
 rex.exec.start({
 	"/bin/sh",
 	"-c",
-	'mkdir -p ~/.config/rex/state; for i in 1 2 3 4 5 6 7 8 9 10; do "$@" && break; sleep 1; done 2>>~/.config/rex/state/changes-pane.log',
+	'mkdir -p ~/.config/rex/state; for i in 1 2 3 4 5 6 7 8 9 10; do "$@" && break; sleep 1; done 2>>~/.config/rex/state/cc-pane.log',
 	"sh",
 	rex_binary,
 	"--autostart=false",
 	"do",
 	"--all",
-	home .. "/.config/rex/extensions/changes-pane/watcher.lua",
+	home .. "/.config/rex/extensions/cc-pane/watcher.lua",
 }, { detach = true, stdout = false, stderr = false })

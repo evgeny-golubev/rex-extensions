@@ -1,4 +1,4 @@
--- Run: rex do ~/.config/rex/extensions/changes-pane/test.lua
+-- Run: rex do ~/.config/rex/extensions/cc-pane/test.lua
 -- Mocks the Rex API: it doesn't touch live sessions or panes.
 local real = rex
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)")
@@ -180,7 +180,7 @@ local ok, err = pcall(function()
 
 	-- A second copy quits.
 	reset()
-	clients = { { info = { label = "changes-pane" } } }
+	clients = { { info = { label = "cc-pane" } } }
 	run()
 	equal(stopped, true, "second copy stopped")
 	equal(#splits, 0, "second copy's panes")
@@ -191,9 +191,9 @@ if not ok then
 end
 
 -- The viewer, on a made-up transcript.
-CHANGES_PANE_TEST = true
+CC_PANE_TEST = true
 local P = dofile(dir .. "panel.lua")
-CHANGES_PANE_TEST = nil
+CC_PANE_TEST = nil
 
 local function plain(lines)
 	return (table.concat(lines, "\n"):gsub("\27%[[%d;?]*%a", ""))
@@ -397,4 +397,4 @@ end)
 if not ok2 then
 	error(err2, 0)
 end
-return "changes-pane: all tests passed"
+return "cc-pane: all tests passed"

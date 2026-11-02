@@ -1,11 +1,11 @@
-# Changes Pane for Rex
+# CC Pane for Rex
 
 Opens a `Changes: <folder>` pane to the right of every pane that runs Claude
 Code, and closes it when Claude exits or its pane closes. It stands in for
 Claude Code's own diff panel; turn that one off with `"diffSidebarOpen": false`
 in `~/.claude.json`.
 
-![Activity, Context and Diff tabs, with made-up data](../docs/changes-pane.png)
+![Activity, Context and Diff tabs, with made-up data](../docs/cc-pane.png)
 
 The pane has these tabs, redrawn every 2 seconds:
 
@@ -51,22 +51,22 @@ transcript format is Claude Code's own and undocumented, so an update to it
 can empty these tabs.
 
 Not a native Rex extension format: a config module launches a separate
-event-driven `rex do` watcher, like claude-resume.
+event-driven `rex do` watcher, like cc-resume.
 
 ## Install
 
-Place this directory at `~/.config/rex/extensions/changes-pane/` and add to
+Place this directory at `~/.config/rex/extensions/cc-pane/` and add to
 your Rex `init.lua`:
 
 ```lua
-require("extensions.changes-pane")
+require("extensions.cc-pane")
 ```
 
 Then run `rex config reload`. To load a changed `watcher.lua`, stop the running
 watcher first:
 
 ```sh
-pkill -f 'changes-pane/watcher\.lua'; rex config reload
+pkill -f 'cc-pane/watcher\.lua'; rex config reload
 ```
 
 ## Behavior
@@ -78,9 +78,9 @@ pkill -f 'changes-pane/watcher\.lua'; rex config reload
   pane.
 - A changes pane you close stays closed until Claude starts again in that pane.
 - When the watcher starts, it replaces leftover changes panes with new ones.
-- claude-resume doesn't save changes panes; they come back with the resumed
+- cc-resume doesn't save changes panes; they come back with the resumed
   Claude.
-- Errors go to `~/.config/rex/state/changes-pane.log`; the pane shows its
+- Errors go to `~/.config/rex/state/cc-pane.log`; the pane shows its
   own.
 
 ## Files
@@ -92,7 +92,7 @@ pkill -f 'changes-pane/watcher\.lua'; rex config reload
 ## Tests
 
 ```sh
-rex do ~/.config/rex/extensions/changes-pane/test.lua
+rex do ~/.config/rex/extensions/cc-pane/test.lua
 ```
 
 The tests mock Rex and use a made-up transcript; they don't touch live
