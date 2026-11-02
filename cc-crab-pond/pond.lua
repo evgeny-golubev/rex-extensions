@@ -958,7 +958,7 @@ local function tick()
 	rex.after(0.25, tick)
 end
 
-if CRAB_POND_TEST then
+if CC_CRAB_POND_TEST then
 	return M
 end
 

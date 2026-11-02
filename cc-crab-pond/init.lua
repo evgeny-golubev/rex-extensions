@@ -9,11 +9,11 @@ local rex_binary = home
 rex.exec.start({
 	"/bin/sh",
 	"-c",
-	'mkdir -p ~/.config/rex/state; for i in 1 2 3 4 5 6 7 8 9 10; do "$@" && break; sleep 1; done 2>>~/.config/rex/state/crab-pond.log',
+	'mkdir -p ~/.config/rex/state; for i in 1 2 3 4 5 6 7 8 9 10; do "$@" && break; sleep 1; done 2>>~/.config/rex/state/cc-crab-pond.log',
 	"sh",
 	rex_binary,
 	"--autostart=false",
 	"do",
 	"--all",
-	home .. "/.config/rex/extensions/crab-pond/watcher.lua",
+	home .. "/.config/rex/extensions/cc-crab-pond/watcher.lua",
 }, { detach = true, stdout = false, stderr = false })

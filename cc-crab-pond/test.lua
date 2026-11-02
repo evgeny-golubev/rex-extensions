@@ -1,4 +1,4 @@
--- Run: rex do ~/.config/rex/extensions/crab-pond/test.lua
+-- Run: rex do ~/.config/rex/extensions/cc-crab-pond/test.lua
 -- Mocks the Rex API: it doesn't touch live sessions or panes.
 local real = rex
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)")
@@ -187,7 +187,7 @@ local ok, err = pcall(function()
 
 	-- A second copy quits.
 	reset()
-	clients = { { info = { label = "crab-pond" } } }
+	clients = { { info = { label = "cc-crab-pond" } } }
 	run()
 	equal(stopped, true, "second copy stopped")
 	equal(#splits, 0, "second copy's panes")
@@ -197,9 +197,9 @@ if not ok then
 	error(err, 0)
 end
 
-CRAB_POND_TEST = true
+CC_CRAB_POND_TEST = true
 local P = dofile(dir .. "pond.lua")
-CRAB_POND_TEST = nil
+CC_CRAB_POND_TEST = nil
 
 ok, err = pcall(function()
 	-- Programs get crabs by what they do.
@@ -374,4 +374,4 @@ end)
 if not ok then
 	error(err, 0)
 end
-return "crab-pond: all tests passed"
+return "cc-crab-pond: all tests passed"

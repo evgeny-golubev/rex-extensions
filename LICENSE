@@ -22,7 +22,7 @@ SOFTWARE.
 
 ---
 
-The crab art in crab-pond/sprites.lua is redrawn after crab-band
+The crab art in cc-crab-pond/sprites.lua is redrawn after crab-band
 (https://github.com/MaxHarfen/crab-band), used under its license:
 
 MIT License
