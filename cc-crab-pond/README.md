@@ -7,7 +7,8 @@ runs in that tab as animated pixel crabs, left to right:
 ![cc-crab-pond](../docs/cc-crab-pond.png)
 
 - **Usage limits**: Claude's 5-hour and weekly limits, one under the other,
-  with the time to each reset.
+  with the percentage used and the time to each reset. The bar is green,
+  yellow from 70% and red from 90%.
 - **The tab's main Claude**, with its session name, model and uptime. It's the
   focused Claude pane in the tab, or the last one that was.
 - **A crab for everything else in the tab**: each Claude's subagents, named
@@ -18,10 +19,15 @@ runs in that tab as animated pixel crabs, left to right:
   command failed is on fire.
 
 Crabs with the same title and description are one crab with a count, such
-as `waiting ×3` or `xcodebuild ×2`, and waiting crabs come last. Busy crabs show how long they've run (the
-longest, for a group): background shells and pane programs from the process
-list, subagents from the start of their transcripts. A subagent counts as
-running while its transcript changed in the last 10 minutes.
+as `waiting ×3` or `xcodebuild ×2`, and waiting crabs come last. Busy crabs
+show how long they've run (the longest, for a group): background shells and
+pane programs from the process list, subagents from the start of their
+transcripts. A subagent counts as running while its transcript changed in the
+last 10 minutes.
+
+A crab's text reads, top to bottom: its name; its model, type or folder; and
+its uptime. A shell's second line says `zzz`, `✓ zzz` after a command that
+succeeded, or `exit 2!` after one that failed.
 
 | Crab | Outfit |
 | --- | --- |

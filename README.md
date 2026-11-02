@@ -24,18 +24,28 @@ files and logs (`~/.config/rex/state/`).
 
 ### cc-pane
 
-A pane on the right, 20% of the tab, that opens and closes with Claude. It
-replaces Claude Code's own diff panel.
+**Answers "what has this Claude done, and what's still waiting on me?"** without
+scrolling back through the conversation.
 
-Its three tabs, with made-up data:
+A pane on the right, 20% of the tab, opens by itself when Claude starts in a
+pane and closes when Claude exits. Focus stays on Claude. It replaces Claude
+Code's own diff panel.
 
-![cc-pane's Activity, Context and Diff tabs](docs/cc-pane.png)
+![cc-pane's Activity, Context and Diff tabs, with made-up data](docs/cc-pane.png)
 
-| Tab | Shows |
-| --- | --- |
-| **1 Activity** | Title, branch, model, context size, compactions and working time; files Claude edited (● while they have uncommitted changes); test runs; failed commands with their first error line |
-| **2 Context** | Open questions, plans and tasks; your decisions and rejections, with what you said; your last 5 requests; where the last compaction summary left things |
-| **3 Diff** | `git status` and `git diff --stat`, in a git repository |
+The tabs redraw every 2 seconds:
+
+| Tab | Section | What's in it |
+| --- | --- | --- |
+| **1 Activity** | Session | Title, branch, model, context size, how often it was compacted, and Claude's working time |
+| | Files Claude edited | Newest first, with an edit count. ● means the file still has uncommitted changes, ○ that it doesn't |
+| | Tests | The latest test runs and whether they passed. A run counts as a test by its command: `pytest`, `npm test`, `go test`, a script named test or spec |
+| | Failed commands | The latest failures, with their first error line |
+| **2 Context** | Open | Questions and plans waiting for your answer, questions at the end of Claude's last reply, and unfinished tasks |
+| | Decisions | Your answers, with any notes; plans you approved or rejected; actions you rejected, with what you said |
+| | Requests | Your last 5 prompts, including slash commands and messages sent while Claude worked |
+| | From the last summary | The current state, next step and pending work from the latest compaction |
+| **3 Diff** | | `git status` and `git diff --stat` against `HEAD`. Only shown in a git repository |
 
 | Keys | Action |
 | --- | --- |
@@ -45,38 +55,138 @@ Its three tabs, with made-up data:
 | `g` | Back to the top |
 | Drag | Select text |
 
+Keys need the pane focused. Everything comes from what Claude Code records in
+its transcript, so a decision made in plain conversation, not through a question
+or plan prompt, doesn't appear under Decisions. The transcript format is
+undocumented, so a Claude Code update can empty the Activity and Context tabs.
+
 [More about cc-pane](cc-pane/README.md).
 
 ### cc-crab-pond
 
-A strip along the bottom 8% of each Claude tab. Here it's given room for three
+**Shows everything running in a tab at a glance:** which Claude, how close you
+are to your limits, what its subagents and background jobs are doing, and what
+just failed.
+
+A strip along the bottom 8% of each tab that runs Claude. It opens with the
+first Claude in the tab and closes with the last. Here it's given room for three
 rows, with sample crabs:
 
 ![cc-crab-pond](docs/cc-crab-pond.png)
 
-Left to right:
+**Usage limits** sit on the far left: your 5-hour and weekly Claude limits, each
+with the percentage used and the time to its reset (`↺`). The bar is green, turns
+yellow at 70% and red at 90%.
 
-- your 5-hour and weekly Claude limits, with the time to each reset;
-- the tab's main Claude, dressed by model and effort (wizard, scientist,
-  crown, cowboy, ninja, musician, gardener);
-- a crab for each subagent, dressed by the job in its title (review →
-  magnifying glass, debug → diving mask, git → flag, …);
-- a crab for each background shell, monitor and program in the tab's other
-  panes (editors, git, builds, servers, ssh); a failed command is on fire,
-  an idle shell sleeps.
+**Every other crab is one thing running in the tab.** Read it in four parts:
+
+| Part | Tells you | In the picture |
+| --- | --- | --- |
+| Body colour | What kind of thing it is | Blue is an editor, violet a server |
+| Hat and prop | Its job, or for a Claude its model and effort | The wrench on `bun` means build or test |
+| Movement | Its state | See the states below |
+| Three lines of text | Its name, then its model, type or folder, then how long it's been running | `Rate-limit guard`, `Opus 5.5`, `up 1h12m` |
+
+**The first crab is the tab's main Claude:** the focused Claude pane, or the last
+one that was. It shows the session name, model and uptime, and its outfit shows
+the model and effort:
+
+| Model | Outfit |
+| --- | --- |
+| Fable | Wizard |
+| Opus, effort max | Scientist |
+| Opus, effort xhigh | Painter |
+| Opus, effort high | Crown |
+| Opus, effort medium or unknown | Cowboy |
+| Opus, effort low | Ninja |
+| Sonnet | Musician |
+| Haiku | Gardener |
+
+**Subagents** are lighter peach, titled with the task Claude gave them. The first
+word of their type or task that names a job picks the outfit, matched at the
+start of a word, so "reviewing" counts as "review". With no match they get a
+random outfit, which stays the same for that task.
+
+| Words such as | Outfit |
+| --- | --- |
+| search, find, explore, research | Explorer |
+| plan, architect, spec | Clipboard |
+| review, audit, check, verify | Magnifying glass |
+| build, test, fix, implement | Hard hat and wrench |
+| code, edit, refactor, rewrite | Sunglasses and a screen |
+| git, commit, merge, PR | Flag |
+| server, docker, API, deploy | Server rack |
+| debug, trace, crash, bug | Diving mask |
+| agent, automate, script | Robot antenna |
+| analyse, benchmark, measure | Scientist |
+| design, UI, CSS, layout | Painter |
+| docs, README, write, summarise | Musician |
+| clean, remove, upgrade, migrate | Gardener |
+| quick, small, simple | Ninja |
+| lead, coordinate, manage | Crown |
+| generate, convert, transform | Wizard |
+
+**Background shells, monitors and the programs in the tab's other panes** are
+coloured by what the program does. Other Claudes in the tab appear under their
+session names.
+
+| Colour | Kind | Outfit | Programs |
+| --- | --- | --- | --- |
+| Sky blue | Claude's monitor | Magnifying glass | Claude watching a command's output |
+| Blue | Editor | Sunglasses and a screen | nvim, vim, helix, emacs, nano, zed |
+| Red | Git | Flag | git, gh, lazygit, tig, jj |
+| Yellow | Build or test | Hard hat and wrench | go, cargo, make, npm, bun, node, python, pytest, xcodebuild |
+| Violet | Server | Server rack | docker, kubectl, psql, redis, nginx, terraform |
+| Purple | Remote | Diving mask | ssh, mosh, scp, rsync, tailscale |
+| Teal | Agent CLI | Robot antenna | codex, gemini, aider, opencode, goose |
+| Green | Anything else | None | |
+| Gray | Shell | Nightcap | zsh, bash, fish |
+
+**A crab's state shows in how it moves:**
+
+| You see | It means |
+| --- | --- |
+| Bobbing, stepping and waving | Busy, with its uptime on the last line |
+| Faded, eyes shut, with a drifting `Z` | Idle or waiting. A shell's second line says `zzz`, or `✓ zzz` if its last command succeeded |
+| On fire, with `exit 2!` | The shell's last command failed, with that exit code |
+
+**Crowded tabs stay readable.** Identical crabs merge into one with a count, such
+as `docker ×2` or `waiting ×3`, showing the longest uptime, and waiting crabs come
+last. A taller pane wraps the crabs onto more rows. When they still don't fit, a
+plain gray crab with `+N` counts the rest.
+
+**It needs one setup step.** Session names, models, effort, limits and subagents
+come from Claude Code's status line, which has to save its input
+([step 5 of Install](#extensions-1)). Without that, Claude crabs are plain, and limits and
+subagents are missing. Background jobs come from the process list, and only
+executable names are read, never arguments, which can hold secrets.
 
 [More about cc-crab-pond](cc-crab-pond/README.md).
 
 ### cc-resume
 
-Nothing on screen. After a reboot, update or crash, Rex brings back sessions,
-tabs and splits, but not the programs that ran in them. cc-resume:
+**Gets your Claude conversations back after a reboot, Rex update or crash.** Rex
+brings back sessions, tabs and splits, but not the programs that ran in them, so
+without this you'd have a tab of empty shells. It has nothing on screen.
 
-1. waits until Rex has finished restoring;
-2. finds each pane that ran Claude Code, by tab and directory;
-3. types `claude --resume <session>` into its shell, in the right directory,
-   leaving alone any pane that's already running something;
-4. recreates any session Rex didn't bring back.
+| When | What it does |
+| --- | --- |
+| While you work | About a second after a layout, label, directory or program changes, saves every session to `~/.config/rex/state/sessions.json`, with the conversation ID of each Claude |
+| After the server restarts | Waits until the session list has been stable for 3 seconds, at most 20 |
+| | Finds each pane that ran Claude: the tab by label or position, the pane by directory or position |
+| | Once that pane's shell is ready, types `claude --resume <session>`, with a `cd` first if the directory differs |
+| | Recreates any session Rex didn't bring back, with its tabs and splits |
+
+It restores once per server run, and keeps the snapshot it used as
+`sessions.json.prev`. Panes already running something are left alone.
+
+Limits to know:
+
+- Claude resumes with default flags, because the model and permission mode it
+  started with aren't known.
+- Other programs, such as ssh or nvim, come back as a shell in their last
+  directory.
+- cc-pane and cc-crab-pond panes aren't saved. They reopen when Claude resumes.
 
 [More about cc-resume](cc-resume/README.md).
 
