@@ -1,0 +1,22 @@
+#!/bin/bash
+# Opens a file in a floating pane in this Rex tab: show <path> [line]
+set -u
+if [ $# -lt 1 ] || [ $# -gt 2 ]; then
+	echo "usage: show <path> [line]" >&2
+	exit 2
+fi
+if [ -z "${REX_SESSION:-}" ] || [ -z "${REX_BLOCK:-}" ]; then
+	echo "rex-view: not running in a Rex terminal (REX_SESSION and REX_BLOCK aren't set)" >&2
+	exit 1
+fi
+if [ ! -f "$1" ]; then
+	echo "rex-view: no such file: $1" >&2
+	exit 1
+fi
+if [ -n "${2:-}" ] && ! [[ "$2" =~ ^[1-9][0-9]*$ ]]; then
+	echo "rex-view: line must be a positive number: $2" >&2
+	exit 2
+fi
+here=$(cd "$(dirname "$0")" && pwd)
+path="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+exec rex do "$here/show.lua" "path=$path" "line=${2:-}" "viewer=$here/viewer"

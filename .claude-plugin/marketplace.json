@@ -1,0 +1,14 @@
+{
+  "name": "rex-extensions",
+  "description": "Claude Code plugins for the Rex terminal",
+  "owner": {
+    "name": "Evgeny Golubev"
+  },
+  "plugins": [
+    {
+      "name": "rex-view",
+      "source": "./plugins/rex-view",
+      "description": "Show images, Markdown and source code in a floating pane over the Rex tab Claude runs in"
+    }
+  ]
+}

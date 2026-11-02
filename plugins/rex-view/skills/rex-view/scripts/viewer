@@ -1,0 +1,91 @@
+#!/bin/bash
+# Draws one file in the floating pane: viewer <path> [line]
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+file=$1
+line=${2:-}
+
+notice() {
+	printf '\n  %s\n\n  Press any key to close' "$1"
+	read -rsn1
+	exit 0
+}
+
+is_binary() {
+	local all text
+	all=$(head -c 8192 "$file" | wc -c)
+	text=$(head -c 8192 "$file" | LC_ALL=C tr -d '\000' | wc -c)
+	[ "$all" -ne "$text" ]
+}
+
+# Kitty graphics takes PNG, so other formats are converted first.
+show_image() {
+	local png=$file tmp=""
+	case "$(printf '%s' "$file" | tr 'A-Z' 'a-z')" in
+	*.png) ;;
+	*)
+		tmp=$(mktemp -d -t rex-view)
+		png=$tmp/image.png
+		sips -s format png "$file" --out "$png" >/dev/null 2>&1 || { rm -rf "$tmp"; notice "Can't read this image: $file"; }
+		;;
+	esac
+	trap '[ -n "$tmp" ] && rm -rf "$tmp"; printf "\033_Ga=d,q=2\033\\\\\033[?25h\033[?1049l"' EXIT
+	local iw ih
+	iw=$(sips -g pixelWidth "$png" | awk '/pixelWidth/{print $2}')
+	ih=$(sips -g pixelHeight "$png" | awk '/pixelHeight/{print $2}')
+	[ -n "$iw" ] && [ -n "$ih" ] || notice "Can't read this image: $file"
+
+	local resized=1
+	trap 'resized=1' WINCH
+	printf '\033[?1049h\033[?25l'
+	while :; do
+		if [ "$resized" = 1 ]; then
+			resized=0
+			draw_image "$png" "$iw" "$ih"
+		fi
+		# The timeout lets a resize that arrives during a wait redraw.
+		if IFS= read -rsn1 -t 1 k; then
+			case "$k" in q | Q | $'\033') exit 0 ;; esac
+		fi
+	done
+}
+
+draw_image() {
+	local size rows cols cw ch place first=1 chunk
+	size=$(stty size </dev/tty)
+	rows=$((${size% *} - 1))
+	cols=${size#* }
+	local px
+	px=$(rex block call -s "$REX_SESSION" -b "$REX_BLOCK" size 2>/dev/null)
+	cw=$(printf '%s' "$px" | sed -n 's/.*"cell_width_px":\([0-9]*\).*/\1/p')
+	ch=$(printf '%s' "$px" | sed -n 's/.*"cell_height_px":\([0-9]*\).*/\1/p')
+	[ -n "$cw" ] && [ -n "$ch" ] || { cw=1; ch=2; }
+	# Scales to the rows if that fits the width, else to the columns.
+	if [ $((rows * ch * $2 / $3 / cw)) -le "$cols" ]; then place="r=$rows"; else place="c=$cols"; fi
+	printf '\033_Ga=d,q=2\033\\\033[2J\033[H'
+	while IFS= read -r chunk; do
+		if [ "$first" = 1 ]; then
+			printf '\033_Ga=T,f=100,%s,q=2,m=1;%s\033\\' "$place" "$chunk"
+			first=0
+		else
+			printf '\033_Gm=1;%s\033\\' "$chunk"
+		fi
+	done < <(base64 -i "$1" -b 4096)
+	printf '\033_Gm=0;\033\\\033[%d;1Hq closes' "$((rows + 1))"
+}
+
+case "$(printf '%s' "$file" | tr 'A-Z' 'a-z')" in
+*.png | *.jpg | *.jpeg | *.gif | *.webp) show_image; exit 0 ;;
+esac
+
+is_binary && notice "This is a binary file, so it isn't shown: $file"
+
+# less -R passes colours only and shows other control bytes as text, so a file
+# holding terminal codes can't move the cursor or clear the screen.
+start=()
+[ -n "$line" ] && start=("+${line}g")
+if command -v bat >/dev/null 2>&1; then
+	highlight=()
+	[ -n "$line" ] && highlight=(--highlight-line "$line")
+	exec bat --paging=always --pager="less -R ${start[*]}" --style=numbers --color=always "${highlight[@]}" -- "$file"
+fi
+exec less -N "${start[@]}" -P"bat is not installed so this is plain text - to get colours run brew install bat - q closes" -- "$file"
