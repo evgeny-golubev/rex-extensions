@@ -137,7 +137,7 @@ running session after its next reply. The saved files are small; remove
   there and Rex re-balances the tab, it's sized again.
 - A crab pane you close stays closed until the tab has no Claude left.
 - When the watcher starts, it replaces leftover crab panes with new ones.
-- session-keeper doesn't save crab panes; they come back with the resumed
+- claude-resume doesn't save crab panes; they come back with the resumed
   Claude.
 - Watcher errors go to `~/.config/rex/state/crab-pond.log`; the pane shows
   its own.

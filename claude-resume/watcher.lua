@@ -17,7 +17,7 @@ local path = rex.args.state or (home .. "/.config/rex/state/sessions.json")
 
 --- Marks this script's server connection, so a second copy started by
 --- `rex config reload` sees the first one and quits.
-local client_label = "session-keeper"
+local client_label = "claude-resume"
 
 --- Claude Code writes its process file a few seconds after it starts, so a
 --- save that finds claude without one is repeated, up to this many times.

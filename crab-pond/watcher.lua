@@ -13,7 +13,7 @@ local rex_binary = home
 --- `rex config reload` sees the first one and quits.
 local client_label = "crab-pond"
 
---- The crab pane's label; session-keeper skips panes with it.
+--- The crab pane's label; claude-resume skips panes with it.
 local label = "Crabs"
 
 --- The share of the tab the panes above the crab pane keep.

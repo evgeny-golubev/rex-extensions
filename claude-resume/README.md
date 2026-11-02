@@ -1,20 +1,22 @@
-# Session Keeper for Rex
+# Claude Resume for Rex
 
-Saves every session's tabs, splits, labels and working directories, and brings
-them back once after the Rex server restarts (reboot, update, crash). Panes that
-were running Claude Code reopen with `claude --resume <session>` typed into a
-shell, so the conversation continues in the same directory.
+Resumes Claude Code after the Rex server restarts (reboot, update, crash). Rex
+brings back sessions, tabs and splits itself, but not the programs in them; this
+extension types `claude --resume <session>` into each pane that ran Claude Code,
+so the conversation continues in the same directory. It saves every session's
+tabs, splits, labels and directories, so a session Rex didn't bring back is
+recreated too.
 
 Not a native Rex extension format: a config module launches a separate
 event-driven `rex do` watcher.
 
 ## Install
 
-Place this directory at `~/.config/rex/extensions/session-keeper/` and add to
+Place this directory at `~/.config/rex/extensions/claude-resume/` and add to
 your Rex `init.lua`:
 
 ```lua
-require("extensions.session-keeper")
+require("extensions.claude-resume")
 ```
 
 Then run `rex config reload`. Every config load starts a watcher; a new one
@@ -22,7 +24,7 @@ quits when another is already connected, so to load a changed `watcher.lua`,
 stop the running one first:
 
 ```sh
-pkill -f 'session-keeper/watcher\.lua'; rex config reload
+pkill -f 'claude-resume/watcher\.lua'; rex config reload
 ```
 
 ## Behavior and state
@@ -49,13 +51,13 @@ pkill -f 'session-keeper/watcher\.lua'; rex config reload
 ## Manual use
 
 ```sh
-rex do --all ~/.config/rex/extensions/session-keeper/watcher.lua state=/tmp/x.json
+rex do --all ~/.config/rex/extensions/claude-resume/watcher.lua state=/tmp/x.json
 ```
 
 ## Tests
 
 ```sh
-rex do ~/.config/rex/extensions/session-keeper/test.lua
+rex do ~/.config/rex/extensions/claude-resume/test.lua
 ```
 
 The tests mock Rex around a temporary directory; they don't touch live

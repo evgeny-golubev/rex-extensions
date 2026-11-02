@@ -14,7 +14,7 @@ local rex_binary = home
 --- `rex config reload` sees the first one and quits.
 local client_label = "changes-pane"
 
---- Every changes pane's label starts with this; session-keeper skips them.
+--- Every changes pane's label starts with this; claude-resume skips them.
 local label_prefix = "Changes: "
 
 --- The share of the split the Claude pane keeps.

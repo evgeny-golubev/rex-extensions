@@ -5,7 +5,7 @@ that make it a better home for Claude Code:
 
 | Extension | What it does |
 | --- | --- |
-| [session-keeper](session-keeper/) | Saves every session's tabs and splits, and brings them back after the Rex server restarts, resuming Claude Code conversations. |
+| [claude-resume](claude-resume/) | After the Rex server restarts, resumes Claude Code conversations in the panes they ran in, and brings back any session Rex didn't. |
 | [changes-pane](changes-pane/) | A side pane next to each Claude with tabs for its activity, the session's open questions and decisions, and the uncommitted git changes. |
 | [crab-pond](crab-pond/) | A strip along the bottom of each Claude tab showing the Claudes, subagents and background jobs there as animated pixel crabs, plus your usage limits. |
 
@@ -77,11 +77,13 @@ Left to right:
   panes (editors, git, builds, servers, ssh); a failed command is on fire,
   an idle shell sleeps.
 
-### session-keeper
+### claude-resume
 
-Nothing on screen. After a reboot, update or crash it reopens your sessions,
-tabs and splits in their directories, and types
-`claude --resume <session>` in panes that ran Claude Code.
+Nothing on screen. Rex brings back sessions, tabs and splits after a reboot,
+update or crash, but not the programs that ran in them. claude-resume finds
+each pane that ran Claude Code and types `claude --resume <session>` into its
+shell, in the right directory. It also recreates any session Rex didn't bring
+back.
 
 ## Requirements
 
@@ -103,7 +105,7 @@ tabs and splits in their directories, and types
 2. Add the ones you want to `~/.config/rex/init.lua`:
 
    ```lua
-   require("extensions.session-keeper")
+   require("extensions.claude-resume")
    require("extensions.changes-pane")
    require("extensions.crab-pond")
    ```
@@ -143,7 +145,7 @@ Each extension's README covers its behaviour, state files and logs
 ## Tests
 
 ```sh
-rex do ~/.config/rex/extensions/session-keeper/test.lua
+rex do ~/.config/rex/extensions/claude-resume/test.lua
 rex do ~/.config/rex/extensions/changes-pane/test.lua
 rex do ~/.config/rex/extensions/crab-pond/test.lua
 ```

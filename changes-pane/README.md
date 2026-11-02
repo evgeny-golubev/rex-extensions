@@ -49,7 +49,7 @@ transcript format is Claude Code's own and undocumented, so an update to it
 can empty these tabs.
 
 Not a native Rex extension format: a config module launches a separate
-event-driven `rex do` watcher, like session-keeper.
+event-driven `rex do` watcher, like claude-resume.
 
 ## Install
 
@@ -76,7 +76,7 @@ pkill -f 'changes-pane/watcher\.lua'; rex config reload
   pane.
 - A changes pane you close stays closed until Claude starts again in that pane.
 - When the watcher starts, it replaces leftover changes panes with new ones.
-- session-keeper doesn't save changes panes; they come back with the resumed
+- claude-resume doesn't save changes panes; they come back with the resumed
   Claude.
 - Errors go to `~/.config/rex/state/changes-pane.log`; the pane shows its
   own.
