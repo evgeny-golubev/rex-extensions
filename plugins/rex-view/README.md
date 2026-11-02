@@ -38,7 +38,7 @@ To update, run `claude plugin marketplace update rex-extensions`, then
 From a clone of this repository:
 
 ```sh
-plugins/rex-view/skills/rex-view/scripts/show docs/changes-pane.png
+plugins/rex-view/skills/rex-view/scripts/show docs/cc-pane.png
 plugins/rex-view/skills/rex-view/scripts/show README.md 120
 ```
 

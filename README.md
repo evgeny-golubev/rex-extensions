@@ -5,13 +5,11 @@ Make the [Rex](https://www.superlogical.com) terminal a better home for
 doing and what you decided with it, watch your agents as pixel crabs, get your
 conversations back after a restart, and let Claude show you files.
 
-![The changes-pane's Activity, Context and Diff tabs](docs/changes-pane.png)
-
 | | Name | What you get | Runs as |
 | --- | --- | --- | --- |
-| Extension | [changes-pane](#changes-pane) | A side pane with each Claude's activity, open questions, decisions and uncommitted changes | Pane beside Claude |
-| Extension | [crab-pond](#crab-pond) | Claudes, subagents and background jobs as animated crabs, plus your usage limits | Strip along the tab's bottom |
-| Extension | [claude-resume](#claude-resume) | Claude Code conversations resumed after the Rex server restarts | Background watcher |
+| Extension | [cc-pane](#cc-pane) | A side pane with each Claude's activity, open questions, decisions and uncommitted changes | Pane beside Claude |
+| Extension | [cc-crab-pond](#cc-crab-pond) | Claudes, subagents and background jobs as animated crabs, plus your usage limits | Strip along the tab's bottom |
+| Extension | [cc-resume](#cc-resume) | Claude Code conversations resumed after the Rex server restarts | Background watcher |
 | Skill | [rex-view](#rex-view) | Claude shows images, Markdown and source code in a floating pane | Plugin, version 0.1.0 |
 
 **Contents:** [Extensions](#extensions) · [Skills](#skills) ·
@@ -24,10 +22,14 @@ conversations back after a restart, and let Claude show you files.
 Rex loads these from `init.lua`. Each one's README covers its behaviour, state
 files and logs (`~/.config/rex/state/`).
 
-### changes-pane
+### cc-pane
 
 A pane on the right, 20% of the tab, that opens and closes with Claude. It
 replaces Claude Code's own diff panel.
+
+Its three tabs, with made-up data:
+
+![cc-pane's Activity, Context and Diff tabs](docs/cc-pane.png)
 
 | Tab | Shows |
 | --- | --- |
@@ -43,14 +45,14 @@ replaces Claude Code's own diff panel.
 | `g` | Back to the top |
 | Drag | Select text |
 
-The picture above uses made-up data. [More about changes-pane](changes-pane/README.md).
+[More about cc-pane](cc-pane/README.md).
 
-### crab-pond
+### cc-crab-pond
 
 A strip along the bottom 8% of each Claude tab. Here it's given room for three
 rows, with sample crabs:
 
-![crab-pond](docs/crab-pond.png)
+![cc-crab-pond](docs/cc-crab-pond.png)
 
 Left to right:
 
@@ -63,12 +65,12 @@ Left to right:
   panes (editors, git, builds, servers, ssh); a failed command is on fire,
   an idle shell sleeps.
 
-[More about crab-pond](crab-pond/README.md).
+[More about cc-crab-pond](cc-crab-pond/README.md).
 
-### claude-resume
+### cc-resume
 
 Nothing on screen. After a reboot, update or crash, Rex brings back sessions,
-tabs and splits, but not the programs that ran in them. claude-resume:
+tabs and splits, but not the programs that ran in them. cc-resume:
 
 1. waits until Rex has finished restoring;
 2. finds each pane that ran Claude Code, by tab and directory;
@@ -76,7 +78,7 @@ tabs and splits, but not the programs that ran in them. claude-resume:
    leaving alone any pane that's already running something;
 4. recreates any session Rex didn't bring back.
 
-[More about claude-resume](claude-resume/README.md).
+[More about cc-resume](cc-resume/README.md).
 
 ## Skills
 
@@ -104,7 +106,7 @@ with a notice saying how to install it.
 | Needed for | What |
 | --- | --- |
 | Everything | macOS with [Rex](https://www.superlogical.com) and [Claude Code](https://claude.com/claude-code) |
-| crab-pond | A terminal font with Unicode 16 octant characters (Rex draws them itself), and `jq` for the status line (`brew install jq`) |
+| cc-crab-pond | A terminal font with Unicode 16 octant characters (Rex draws them itself), and `jq` for the status line (`brew install jq`) |
 | rex-view colours, optional | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
 
 ## Install
@@ -121,9 +123,9 @@ with a notice saying how to install it.
 2. Add the ones you want to `~/.config/rex/init.lua`:
 
    ```lua
-   require("extensions.claude-resume")
-   require("extensions.changes-pane")
-   require("extensions.crab-pond")
+   require("extensions.cc-resume")
+   require("extensions.cc-pane")
+   require("extensions.cc-crab-pond")
    ```
 
 3. Load them:
@@ -132,10 +134,10 @@ with a notice saying how to install it.
    rex config reload
    ```
 
-4. For changes-pane, turn off Claude Code's own diff panel by setting
+4. For cc-pane, turn off Claude Code's own diff panel by setting
    `"diffSidebarOpen": false` in `~/.claude.json`.
 
-5. For crab-pond, have Claude Code's status line command save its input,
+5. For cc-crab-pond, have Claude Code's status line command save its input,
    which gives the crabs their names, models, outfits, subagents and your
    usage limits. Add these lines after your status line script reads stdin
    into `$input`:
@@ -146,7 +148,7 @@ with a notice saying how to install it.
    ```
 
    No status line yet? See
-   [crab-pond's setup](crab-pond/README.md#claude-code-status-line) for a
+   [cc-crab-pond's setup](cc-crab-pond/README.md#claude-code-status-line) for a
    complete script and the `settings.json` entry.
 
 ### Skills
@@ -178,9 +180,9 @@ claude plugin update rex-view@rex-extensions
 
 ```text
 .claude-plugin/marketplace.json   the plugin marketplace
-claude-resume/                    extension
-changes-pane/                     extension
-crab-pond/                        extension
+cc-resume/                    extension
+cc-pane/                     extension
+cc-crab-pond/                        extension
 plugins/rex-view/                 skill, as a plugin
 docs/                             pictures
 ```
@@ -193,9 +195,9 @@ Nothing is sent anywhere and no AI is involved.
 ## Tests
 
 ```sh
-rex do ~/.config/rex/extensions/claude-resume/test.lua
-rex do ~/.config/rex/extensions/changes-pane/test.lua
-rex do ~/.config/rex/extensions/crab-pond/test.lua
+rex do ~/.config/rex/extensions/cc-resume/test.lua
+rex do ~/.config/rex/extensions/cc-pane/test.lua
+rex do ~/.config/rex/extensions/cc-crab-pond/test.lua
 rex do ~/.config/rex/extensions/plugins/rex-view/test.lua
 ```
 
