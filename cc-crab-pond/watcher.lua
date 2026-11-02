@@ -5,6 +5,9 @@
 
 local terminal = "com.superlogical.terminal"
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)")
+local settings = dofile(dir .. "settings.lua")
+--- Where settings.json lives; the tests point it elsewhere.
+local base = CC_CRAB_POND_TEST_BASE or dir
 local home = os.getenv("HOME") or ""
 local rex_binary = home
 	.. "/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
@@ -167,7 +170,11 @@ local function claude_started(session_id, block_id)
 	end
 	tab.claudes = tab.claudes + 1
 	if tab.crabs == nil then
-		tab.crabs = open(session_id, window_id, block_id)
+		if settings.auto_show(base) then
+			tab.crabs = open(session_id, window_id, block_id)
+		else
+			tab.crabs = false
+		end
 	end
 end
 
@@ -214,6 +221,26 @@ update = function(session_id, block_id, foreground, ancestors, rechecked)
 	end
 end
 
+--- Opens the crab pane in the focused pane's tab, Claude or not. In a tab
+--- without Claude it stays until the user closes it.
+local function show(session_id, focused)
+	if owners[focused] then
+		return
+	end
+	local window_id = window_of(session_id, focused)
+	if not window_id then
+		return
+	end
+	local tab = tabs[window_id]
+	if not tab then
+		tab = { session_id = session_id, claudes = 0 }
+		tabs[window_id] = tab
+	end
+	if not tab.crabs then
+		tab.crabs = open(session_id, window_id, focused) or false
+	end
+end
+
 for _, c in ipairs(check(rex.call("client.list")).clients) do
 	if c.info and c.info.label == client_label then
 		rex.stop(0)
@@ -242,6 +269,13 @@ for _, s in ipairs(check(rex.call("session.list")).sessions) do
 	end
 end
 
+rex.every(0.5, function()
+	local request = settings.take_show_request(base)
+	if request then
+		show(request.session_id, request.block_id)
+	end
+end)
+
 rex.on("session_created", function(_, ev)
 	local _, err = rex.call("session.attach", { session_id = ev.session_id })
 	if err ~= nil then
@@ -263,10 +297,14 @@ rex.on("block_closed", function(ctx, ev)
 		refit(ctx.session_id)
 	end
 	if owners[id] then
-		local tab = tabs[owners[id]]
+		local window_id = owners[id]
+		local tab = tabs[window_id]
 		owners[id] = nil
 		if tab then
 			tab.crabs = false
+			if tab.claudes <= 0 then
+				tabs[window_id] = nil
+			end
 		end
 	elseif claude_panes[id] then
 		claude_stopped(id)

@@ -28,6 +28,18 @@ local function reset()
 	}
 end
 
+
+-- settings.json in a throwaway folder, never the real one.
+local test_base = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "") .. "/"
+CC_PANE_TEST_BASE = test_base
+local S = dofile(dir .. "settings.lua")
+local poll
+
+local function request_show(block_id)
+	S.request_show(test_base, "session:1", block_id)
+	poll()
+end
+
 local function run()
 	local ok, err = pcall(assert(loadfile(dir .. "watcher.lua")))
 	if not ok and err ~= "STOP" then
@@ -95,10 +107,14 @@ rex = {
 	on = function(event, fn)
 		handlers[event] = fn
 	end,
+	every = function(_, fn)
+		poll = fn
+	end,
 	after = function(_, fn)
 		table.insert(timers, fn)
 	end,
 	log = function() end,
+	json = real.json,
 	stop = function()
 		stopped = true
 		error("STOP", 0)
@@ -184,8 +200,58 @@ local ok, err = pcall(function()
 	run()
 	equal(stopped, true, "second copy stopped")
 	equal(#splits, 0, "second copy's panes")
+
+	-- Settings: on until turned off, other keys kept, bad JSON means on.
+	equal(S.auto_show(test_base), true, "on with no settings file")
+	local f = assert(io.open(test_base .. "settings.json", "w"))
+	f:write('{"other": 1}')
+	f:close()
+	S.set_auto_show(test_base, false)
+	equal(S.auto_show(test_base), false, "saved off")
+	f = assert(io.open(test_base .. "settings.json"))
+	equal(rex.json.decode(f:read("*a")).other, 1, "other settings kept")
+	f:close()
+	f = assert(io.open(test_base .. "settings.json", "w"))
+	f:write("{broken")
+	f:close()
+	equal(S.auto_show(test_base), true, "on with a broken file")
+
+	-- Auto-show off: Claude gets no pane until asked for one.
+	S.set_auto_show(test_base, false)
+	reset()
+	blocks[1].window_id, blocks[2].window_id = "window:1", "window:1"
+	run()
+	equal(#splits, 0, "no pane with auto-show off")
+	poll()
+	equal(#splits, 0, "no request, no pane")
+	request_show("block:1")
+	equal(#splits, 1, "shown for the focused Claude")
+	equal(splits[1].anchor_id, "block:1", "beside that Claude")
+	equal(io.open(test_base .. "show-request.json"), nil, "request used up")
+	request_show("block:1")
+	equal(#splits, 1, "already shown")
+	request_show("block:changes1")
+	equal(#splits, 1, "asked from the changes pane itself")
+
+	-- From another pane in the tab, it means the Claude there.
+	reset()
+	blocks[1].window_id, blocks[2].window_id = "window:1", "window:1"
+	run()
+	request_show("block:2")
+	equal(#splits, 1, "shown for the tab's Claude")
+	equal(splits[1].anchor_id, "block:1", "the tab's Claude")
+
+	-- A tab without Claude gets nothing.
+	reset()
+	blocks[1].window_id, blocks[2].window_id = "window:1", "window:2"
+	run()
+	request_show("block:2")
+	equal(#splits, 0, "no Claude in the tab")
+	S.set_auto_show(test_base, true)
 end)
 rex = real
+real.exec({ "rm", "-rf", test_base })
+CC_PANE_TEST_BASE = nil
 if not ok then
 	error(err, 0)
 end

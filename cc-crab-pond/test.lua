@@ -35,6 +35,18 @@ local function reset()
 	}
 end
 
+
+-- settings.json in a throwaway folder, never the real one.
+local test_base = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "") .. "/"
+CC_CRAB_POND_TEST_BASE = test_base
+local S = dofile(dir .. "settings.lua")
+local poll
+
+local function request_show(block_id)
+	S.request_show(test_base, "session:1", block_id)
+	poll()
+end
+
 local function run()
 	local ok, err = pcall(assert(loadfile(dir .. "watcher.lua")))
 	if not ok and err ~= "STOP" then
@@ -98,6 +110,9 @@ rex = {
 	},
 	on = function(event, fn)
 		handlers[event] = fn
+	end,
+	every = function(_, fn)
+		poll = fn
 	end,
 	after = function(_, fn)
 		table.insert(timers, fn)
@@ -191,8 +206,39 @@ local ok, err = pcall(function()
 	run()
 	equal(stopped, true, "second copy stopped")
 	equal(#splits, 0, "second copy's panes")
+
+	-- Settings: on until turned off.
+	equal(S.auto_show(test_base), true, "on with no settings file")
+	S.set_auto_show(test_base, false)
+	equal(S.auto_show(test_base), false, "saved off")
+
+	-- Auto-show off: no pane until asked for one.
+	reset()
+	run()
+	equal(#splits, 0, "no pane with auto-show off")
+	poll()
+	equal(#splits, 0, "no request, no pane")
+	request_show("block:1")
+	equal(#splits, 1, "shown in the Claude tab")
+	equal(io.open(test_base .. "show-request.json"), nil, "request used up")
+	request_show("block:2")
+	equal(#splits, 1, "the tab already has one")
+	foreground("block:1", "-zsh")
+	equal(closed[#closed], "block:crabs1", "still closes with the last Claude")
+
+	-- A tab without Claude can have one, and forgets it when it's closed.
+	reset()
+	run()
+	request_show("block:3")
+	equal(#splits, 1, "shown in a tab without Claude")
+	user_closes("block:crabs1")
+	request_show("block:3")
+	equal(#splits, 2, "shown again after being closed")
+	S.set_auto_show(test_base, true)
 end)
 rex = real
+real.exec({ "rm", "-rf", test_base })
+CC_CRAB_POND_TEST_BASE = nil
 if not ok then
 	error(err, 0)
 end

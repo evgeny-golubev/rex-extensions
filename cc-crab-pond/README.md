@@ -175,11 +175,24 @@ Claude Code runs the command as the session updates, so the crabs pick up a
 running session after its next reply. The saved files are small; remove
 `~/.claude/state/statusline/` any time to clear them.
 
+## Palette actions
+
+| Action | What it does |
+|---|---|
+| Show Crabs Pane | Opens the pane in the focused tab, with or without a Claude in it |
+| Disable / Enable Crabs Pane Auto-Show | Whether a pane opens by itself when Claude starts in a tab. On by default |
+
+The choice is saved as `{"auto_show": false}` in `cc-crab-pond/settings.json`,
+which git ignores. It applies to tabs where Claude starts from then on, so open
+panes stay. The palette shows whichever of Disable and Enable applies. For a
+key, bind `cc_crab_pond_show` or `cc_crab_pond_auto_show` with `rex.bind`.
+
 ## Behavior
 
 - The crab pane keeps 8% of the tab: when another pane opens or closes
   there and Rex re-balances the tab, it's sized again.
-- A crab pane you close stays closed until the tab has no Claude left.
+- A crab pane you close stays closed until the tab has no Claude left, or you
+  run Show Crabs Pane.
 - When the watcher starts, it replaces leftover crab panes with new ones.
 - cc-resume doesn't save crab panes; they come back with the resumed
   Claude.
@@ -188,6 +201,9 @@ running session after its next reply. The saved files are small; remove
 
 ## Files
 
+- `init.lua` starts the watcher and defines the palette actions.
+- `settings.lua` reads and writes `settings.json`, and passes Show requests to
+  the watcher through `show-request.json`.
 - `watcher.lua` opens and closes the panes.
 - `pond.lua` runs in each pane: gathers, lays out and draws.
 - `sprites.lua` is the pixel art.

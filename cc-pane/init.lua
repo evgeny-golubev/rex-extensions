@@ -17,3 +17,35 @@ rex.exec.start({
 	"--all",
 	home .. "/.config/rex/extensions/cc-pane/watcher.lua",
 }, { detach = true, stdout = false, stderr = false })
+
+-- Palette actions. The title names what the toggle will do, and Rex only reads
+-- titles when it loads this file, so the toggle reloads the config.
+local base = home .. "/.config/rex/extensions/cc-pane/"
+local settings = dofile(base .. "settings.lua")
+
+rex.action({
+	name = "cc_pane_show",
+	title = "Show Changes Pane",
+	category = "Claude Code",
+	run = function(ctx)
+		if not ctx.session_id or not ctx.block_id then
+			error("no focused pane to show the changes pane for", 0)
+		end
+		settings.request_show(base, ctx.session_id, ctx.block_id)
+	end,
+})
+
+rex.action({
+	name = "cc_pane_auto_show",
+	title = (settings.auto_show(base) and "Disable" or "Enable") .. " Changes Pane Auto-Show",
+	category = "Claude Code",
+	run = function()
+		local on = not settings.auto_show(base)
+		settings.set_auto_show(base, on)
+		rex.exec.start(
+			{ rex_binary, "--autostart=false", "config", "reload" },
+			{ detach = true, stdout = false, stderr = false }
+		)
+		return { auto_show = on }
+	end,
+})

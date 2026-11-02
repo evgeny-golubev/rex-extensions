@@ -6,6 +6,9 @@
 local terminal = "com.superlogical.terminal"
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)")
 local viewer = dir .. "panel.lua"
+local settings = dofile(dir .. "settings.lua")
+--- Where settings.json lives; the tests point it elsewhere.
+local base = CC_PANE_TEST_BASE or dir
 local home = os.getenv("HOME") or ""
 local rex_binary = home
 	.. "/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
@@ -149,12 +152,51 @@ update = function(session_id, block_id, foreground, ancestors, rechecked)
 	if runs_claude(foreground, ancestors) then
 		if not claude_panes[block_id] then
 			local cwd = foreground and foreground.cwd
-			claude_panes[block_id] = { session_id = session_id, changes = open(session_id, block_id, cwd) }
+			local changes = settings.auto_show(base) and open(session_id, block_id, cwd) or nil
+			claude_panes[block_id] = { session_id = session_id, changes = changes }
 		end
 	elseif claude_panes[block_id] then
 		close(block_id)
 	elseif not rechecked then
 		recheck_later(session_id, block_id)
+	end
+end
+
+--- The Claude pane "Show Changes Pane" means: the focused one, or else the
+--- first one in the same tab without a changes pane.
+local function show_target(session_id, focused)
+	if claude_panes[focused] then
+		return focused
+	end
+	local listed = rex.call("session.list_blocks", { session_id = session_id })
+	local blocks = listed and listed.blocks or {}
+	local window_id
+	for _, b in ipairs(blocks) do
+		if b.block_id == focused then
+			window_id = b.window_id
+		end
+	end
+	for _, b in ipairs(blocks) do
+		local pane = claude_panes[b.block_id]
+		if window_id and b.window_id == window_id and pane and not pane.changes then
+			return b.block_id
+		end
+	end
+end
+
+local function show(session_id, focused)
+	if owners[focused] then
+		return
+	end
+	local target = show_target(session_id, focused)
+	if not target then
+		rex.log("warn", "no Claude pane in this tab to show a changes pane for")
+		return
+	end
+	local pane = claude_panes[target]
+	if not pane.changes then
+		local r = rex.block.call(terminal, "process", { session_id = session_id, block_id = target })
+		pane.changes = open(session_id, target, r and r.foreground and r.foreground.cwd)
 	end
 end
 
@@ -185,6 +227,13 @@ for _, s in ipairs(check(rex.call("session.list")).sessions) do
 		end
 	end
 end
+
+rex.every(0.5, function()
+	local request = settings.take_show_request(base)
+	if request then
+		show(request.session_id, request.block_id)
+	end
+end)
 
 rex.on("session_created", function(_, ev)
 	local _, err = rex.call("session.attach", { session_id = ev.session_id })

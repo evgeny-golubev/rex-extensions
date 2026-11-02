@@ -61,6 +61,18 @@ watcher first:
 pkill -f 'cc-pane/watcher\.lua'; rex config reload
 ```
 
+## Palette actions
+
+| Action | What it does |
+|---|---|
+| Show Changes Pane | Opens the pane beside the focused Claude, or another Claude in the tab that has none |
+| Disable / Enable Changes Pane Auto-Show | Whether a pane opens by itself when Claude starts. On by default |
+
+The choice is saved as `{"auto_show": false}` in `cc-pane/settings.json`, which
+git ignores. It applies from the next Claude that starts, so open panes stay.
+The palette shows whichever of Disable and Enable applies. For a key, bind
+`cc_pane_show` or `cc_pane_auto_show` with `rex.bind`.
+
 ## Behavior
 
 - Claude is recognised by its program name, `claude`, in the foreground or as
@@ -68,7 +80,8 @@ pkill -f 'cc-pane/watcher\.lua'; rex config reload
   is found by a second look a second after its shell starts.
 - The changes pane takes 20% of the width, and focus stays on the Claude
   pane.
-- A changes pane you close stays closed until Claude starts again in that pane.
+- A changes pane you close stays closed until Claude starts again in that pane,
+  or you run Show Changes Pane.
 - When the watcher starts, it replaces leftover changes panes with new ones.
 - cc-resume doesn't save changes panes; they come back with the resumed
   Claude.
@@ -77,6 +90,9 @@ pkill -f 'cc-pane/watcher\.lua'; rex config reload
 
 ## Files
 
+- `init.lua` starts the watcher and defines the palette actions.
+- `settings.lua` reads and writes `settings.json`, and passes Show requests to
+  the watcher through `show-request.json`.
 - `watcher.lua` opens and closes the panes.
 - `panel.lua` runs in each pane: reads git and the transcript, and draws
   the tabs.
