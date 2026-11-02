@@ -2,57 +2,95 @@
 
 Opens a `Crabs` pane along the bottom 8% of every Rex tab that runs Claude
 Code, and closes it when the last Claude in the tab exits. The pane shows what
-runs in that tab as animated pixel crabs, left to right:
+runs in that tab as animated pixel crabs:
 
 ![cc-crab-pond](../docs/cc-crab-pond.png)
 
-- **Usage limits**: Claude's 5-hour and weekly limits, one under the other,
-  with the percentage used and the time to each reset. The bar is green,
-  yellow from 70% and red from 90%.
-- **The tab's main Claude**, with its session name, model and uptime. It's the
-  focused Claude pane in the tab, or the last one that was.
-- **A crab for everything else in the tab**: each Claude's subagents, named
-  by the task Claude gave them; its background shells and monitors, named by
-  the program they run; the tab's other Claudes, by their session names; and
-  the program in each of the tab's other panes: editors, git, builds and
-  tests, servers, ssh, agent CLIs, and sleeping shells. A shell whose last
-  command failed is on fire.
+**Usage limits** sit on the far left: your 5-hour and weekly Claude limits, each
+with the percentage used and the time to its reset (`↺`). The bar is green, turns
+yellow at 70% and red at 90%.
 
-Crabs with the same title and description are one crab with a count, such
-as `waiting ×3` or `xcodebuild ×2`, and waiting crabs come last. Busy crabs
-show how long they've run (the longest, for a group): background shells and
-pane programs from the process list, subagents from the start of their
-transcripts. A subagent counts as running while its transcript changed in the
-last 10 minutes.
+**Every other crab is one thing running in the tab.** Read it in four parts:
 
-A crab's text reads, top to bottom: its name; its model, type or folder; and
-its uptime. A shell's second line says `zzz`, `✓ zzz` after a command that
-succeeded, or `exit 2!` after one that failed.
+| Part | Tells you | In the picture |
+| --- | --- | --- |
+| Body colour | What kind of thing it is | Blue is an editor, violet a server |
+| Hat and prop | Its job, or for a Claude its model and effort | The wrench on `bun` means build or test |
+| Movement | Its state | See the states below |
+| Three lines of text | Its name, then its model, type or folder, then how long it's been running | `Rate-limit guard`, `Opus 5.5`, `up 1h12m` |
 
-| Crab | Outfit |
+**The first crab is the tab's main Claude:** the focused Claude pane, or the last
+one that was. It shows the session name, model and uptime, and its outfit shows
+the model and effort:
+
+| Model | Outfit |
 | --- | --- |
-| Claude Fable | wizard |
-| Claude Opus, effort max / xhigh / high / medium / low | scientist / painter / crown / cowboy / ninja |
-| Claude Sonnet | musician |
-| Claude Haiku | gardener |
-| Subagent | by the first word of its type or task that names a job, else one picked by its task |
-| Claude's monitor | magnifying glass, sky blue |
-| Agent CLI | robot antenna, teal |
-| Editor | sunglasses and a screen, blue |
-| git, gh | flag, red |
-| Build or test | hard hat and wrench, yellow |
-| Docker, databases, servers | server rack, violet |
-| ssh | diving mask, purple |
-| Idle shell | nightcap, gray, asleep |
+| Fable | Wizard |
+| Opus, effort max | Scientist |
+| Opus, effort xhigh | Painter |
+| Opus, effort high | Crown |
+| Opus, effort medium or unknown | Cowboy |
+| Opus, effort low | Ninja |
+| Sonnet | Musician |
+| Haiku | Gardener |
 
-A subagent's job words, matched at the start of a word ("reviewing"):
-search or explore → explorer, plan → clipboard, review or check → magnifying
-glass, build or test → hard hat, code or refactor → editor, git or commit →
-flag, server or deploy → server rack, debug or trace → diving mask,
-automate or script → robot antenna, analyse or benchmark → scientist, design
-or UI → painter, docs or write → musician, clean or migrate → gardener,
-quick or small → ninja, lead or coordinate → crown, generate or convert →
-wizard. The full lists are in `pond.lua` (`outfit_words`).
+**Subagents** are lighter peach, titled with the task Claude gave them. The first
+word of their type or task that names a job picks the outfit, matched at the
+start of a word, so "reviewing" counts as "review". With no match they get a
+random outfit, which stays the same for that task.
+
+| Words such as | Outfit |
+| --- | --- |
+| search, find, explore, research | Explorer |
+| plan, architect, spec | Clipboard |
+| review, audit, check, verify | Magnifying glass |
+| build, test, fix, implement | Hard hat and wrench |
+| code, edit, refactor, rewrite | Sunglasses and a screen |
+| git, commit, merge, PR | Flag |
+| server, docker, API, deploy | Server rack |
+| debug, trace, crash, bug | Diving mask |
+| agent, automate, script | Robot antenna |
+| analyse, benchmark, measure | Scientist |
+| design, UI, CSS, layout | Painter |
+| docs, README, write, summarise | Musician |
+| clean, remove, upgrade, migrate | Gardener |
+| quick, small, simple | Ninja |
+| lead, coordinate, manage | Crown |
+| generate, convert, transform | Wizard |
+
+**Background shells, monitors and the programs in the tab's other panes** are
+coloured by what the program does. Other Claudes in the tab appear under their
+session names.
+
+| Colour | Kind | Outfit | Programs |
+| --- | --- | --- | --- |
+| Sky blue | Claude's monitor | Magnifying glass | Claude watching a command's output |
+| Blue | Editor | Sunglasses and a screen | nvim, vim, helix, emacs, nano, zed |
+| Red | Git | Flag | git, gh, lazygit, tig, jj |
+| Yellow | Build or test | Hard hat and wrench | go, cargo, make, npm, bun, node, python, pytest, xcodebuild |
+| Violet | Server | Server rack | docker, kubectl, psql, redis, nginx, terraform |
+| Purple | Remote | Diving mask | ssh, mosh, scp, rsync, tailscale |
+| Teal | Agent CLI | Robot antenna | codex, gemini, aider, opencode, goose |
+| Green | Anything else | None | |
+| Gray | Shell | Nightcap | zsh, bash, fish |
+
+**A crab's state shows in how it moves:**
+
+| You see | It means |
+| --- | --- |
+| Bobbing, stepping and waving | Busy, with its uptime on the last line |
+| Faded, eyes shut, with a drifting `Z` | Idle or waiting. A shell's second line says `zzz`, or `✓ zzz` if its last command succeeded |
+| On fire, with `exit 2!` | The shell's last command failed, with that exit code |
+
+**Crowded tabs stay readable.** Identical crabs merge into one with a count, such
+as `docker ×2` or `waiting ×3`, showing the longest uptime, and waiting crabs come
+last. A taller pane wraps the crabs onto more rows. When they still don't fit, a
+plain gray crab with `+N` counts the rest.
+
+Uptimes come from the process list for background shells and pane programs,
+and from the start of the transcript for subagents. A subagent counts as running
+while its transcript changed in the last 10 minutes. The full word lists are in
+`pond.lua` (`outfit_words`).
 
 Every crab is 14 x 12 pixels, drawn with octant characters (2 x 4 pixels a
 cell, which Rex's renderer draws itself), so it takes 7 columns by 3 rows.

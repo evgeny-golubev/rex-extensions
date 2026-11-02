@@ -9,25 +9,17 @@ in `~/.claude.json`.
 
 The pane has these tabs, redrawn every 2 seconds:
 
-- **Activity**: the session's title, branch, model, context size,
-  compactions and Claude's working time; the files Claude edited, marked ●
-  while they have uncommitted changes (files outside the repository or
-  folder are counted); test runs and whether they passed; and failed
-  commands with their first error line.
-- **Context**: what was asked, decided and left open in the Claude session
-  beside the pane, newest first:
-  - **Open**: a question or plan Claude is waiting on, questions at the end
-    of Claude's last reply that you haven't answered yet, and unfinished
-    tasks.
-  - **Decisions**: your answers to Claude's questions (with your notes),
-    plans you approved or rejected, and actions you rejected, with what you
-    said.
-  - **Requests**: your last 5 prompts, including slash commands and
-    messages sent while Claude worked.
-  - **From the last summary**: the "current state", "next step" and
-    "pending" sections of the latest compaction summary.
-- **Diff**, in a git repository: the uncommitted changes (`git status -sb`
-  and `git diff --stat HEAD`).
+| Tab | Section | What's in it |
+| --- | --- | --- |
+| **1 Activity** | Session | Title, branch, model, context size, how often it was compacted, and Claude's working time |
+| | Files Claude edited | Newest first, with an edit count. ● means the file still has uncommitted changes, ○ that it doesn't |
+| | Tests | The latest test runs and whether they passed. A run counts as a test by its command: `pytest`, `npm test`, `go test`, a script named test or spec |
+| | Failed commands | The latest failures, with their first error line |
+| **2 Context** | Open | Questions and plans waiting for your answer, questions at the end of Claude's last reply, and unfinished tasks |
+| | Decisions | Your answers, with any notes; plans you approved or rejected; actions you rejected, with what you said |
+| | Requests | Your last 5 prompts, including slash commands and messages sent while Claude worked |
+| | From the last summary | The current state, next step and pending work from the latest compaction |
+| **3 Diff** | | `git status` and `git diff --stat` against `HEAD`. Only shown in a git repository |
 
 The pane opens in the repository's root, or in Claude's folder outside one.
 
