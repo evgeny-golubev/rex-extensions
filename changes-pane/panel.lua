@@ -27,14 +27,20 @@ function M.width(s)
 	return n
 end
 
---- Cuts a line, which may hold colour codes, to n columns.
+--- Cuts a line, which may hold colour codes, to n columns. Lines can quote
+--- terminal output, so anything else that could move the cursor or erase the
+--- screen is dropped.
 function M.clip(s, n)
 	local out, w, i = {}, 0, 1
 	while i <= #s do
 		local esc = s:match("^\27%[[%d;?]*%a", i)
 		if esc then
-			out[#out + 1] = esc
+			if esc:sub(-1) == "m" then
+				out[#out + 1] = esc
+			end
 			i = i + #esc
+		elseif s:find("^[%z\1-\31\127]", i) then
+			i = i + 1
 		else
 			if w >= n then
 				out[#out + 1] = reset
@@ -421,7 +427,8 @@ function M.feed(state, chunk)
 		end
 		local typed = text:match('^{"type":"([^"]+)"', pos)
 		if not (typed and (typed:match("^api%-request") or typed:match("^file%-history"))) then
-			local ok, r = pcall(rex.json.decode, text:sub(pos, nl - 1))
+			local line = text:sub(pos, nl - 1):gsub("\\u001b%[[%d;?]*%a", "")
+			local ok, r = pcall(rex.json.decode, line)
 			if ok and type(r) == "table" then
 				M.record(state, r)
 			end
