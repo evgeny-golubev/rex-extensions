@@ -561,11 +561,12 @@ local ok2, err2 = pcall(function()
 	local v = { title = "feature/x", scope = "Uncommitted", scopes = P.scopes(true), data = data }
 	data.added, data.removed = 7, 2
 	local built = P.changes_view(v, 40)
-	equal(#built.pinned, 3, "pinned lines")
+	equal(#built.pinned, 4, "pinned lines")
 	has(plain({ built.pinned[1] }), "feature/x", "branch")
 	has(plain({ built.pinned[1] }), "+7 −2", "totals")
 	equal(P.width(built.pinned[1]), 40, "header fills the width")
-	has(plain({ built.pinned[2] }), "Last Turn", "scope")
+	equal(built.pinned[2], "", "a blank row under the branch")
+	has(plain({ built.pinned[3] }), "Last Turn", "scope")
 	has(plain(built.lines), "Staged (2)", "staged heading")
 	has(plain(built.lines), "Unstaged (3)", "unstaged heading")
 	has(plain(built.lines), "A x.md  docs", "row with its folder")
@@ -580,8 +581,21 @@ local ok2, err2 = pcall(function()
 	local tree = P.changes_view(v, 40)
 	has(plain(tree.lines), "Changed (4)", "tree heading")
 	has(plain(tree.lines), "▾ docs", "folder")
-	equal(#tree.rows, 4, "tree rows")
-	equal(tree.rows[1].row.diff, "head", "tree row's diff")
+	local function files_of(view)
+		local files = {}
+		for _, r in ipairs(view.rows) do
+			if r.row then
+				files[#files + 1] = r
+			end
+		end
+		return files
+	end
+	equal(#files_of(tree), 4, "tree's files")
+	local diffs = {}
+	for _, r in ipairs(files_of(tree)) do
+		diffs[r.row.diff] = true
+	end
+	equal(diffs.head, true, "tree rows' diffs")
 	local deep = P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true), tree = true, data = { groups = { { title = "Changed", rows = {
 		{ path = "src/cart/a.ts", mark = "M" }, { path = "src/cart/b.ts", mark = "A" }, { path = "src/ui/c.ts", mark = "M" }, { path = "z.ts", mark = "D" },
 	} } }, vs = "main" } }, 30)
@@ -591,6 +605,59 @@ local ok2, err2 = pcall(function()
 	equal(cart_count, 1, "a folder is listed once")
 	has(shown_tree, "▾ ui", "sibling folder")
 	has(shown_tree, "z.ts", "top-level file")
+
+	-- Folders come before files at each level, each by name.
+	local ordered = P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true), tree = true, data = { groups = { { title = "Changed", rows = {
+		{ path = "z.ts", mark = "M" }, { path = "a.ts", mark = "M" }, { path = "lib/x.ts", mark = "M" }, { path = "lib/sub/y.ts", mark = "M" },
+		{ path = "lib/a.ts", mark = "M" }, { path = "lib-b/k.ts", mark = "M" }, { path = "app/m.ts", mark = "M" },
+	} } }, note = "" } }, 40)
+	local names = {}
+	for _, r in ipairs(ordered.rows) do
+		names[#names + 1] = r.dir or r.row.path
+	end
+	equal(table.concat(names, " "), "app app/m.ts lib lib/sub lib/sub/y.ts lib/a.ts lib/x.ts lib-b lib-b/k.ts a.ts z.ts", "tree order")
+
+	-- Folders fold, and take what's under them along, nested folders included.
+	local fold_rows = { { path = "src/cart/a.ts", mark = "M" }, { path = "src/cart/b.ts", mark = "M" }, { path = "src/ui/c.ts", mark = "A" }, { path = "z.ts", mark = "M" } }
+	local function fold_view(folded, selected)
+		return P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true), tree = true, folded = folded, selected = selected,
+			data = { groups = { { title = "Changed", rows = fold_rows } }, note = "" } }, 40)
+	end
+	local all_open = fold_view({})
+	equal(#all_open.rows, 7, "folders and files are all rows")
+	equal(all_open.rows[1].dir, "src", "a folder's row")
+	equal(all_open.rows[2].dir, "src/cart", "a nested folder's path")
+	equal(all_open.actions[all_open.rows[2].line].kind, "dir", "clicking a folder folds it")
+	equal(all_open.actions[all_open.rows[2].line].path, "src/cart", "the folder clicked")
+	local one = fold_view({ ["src/cart"] = true })
+	has(plain(one.lines), "▸ cart (2)", "a folded folder counts its files")
+	hasnt(plain(one.lines), "a.ts", "a folded folder hides its files")
+	has(plain(one.lines), "c.ts", "a sibling folder stays open")
+	has(plain(one.lines), "z.ts", "a file after the folder stays")
+	local outer = fold_view({ src = true })
+	has(plain(outer.lines), "▸ src (3)", "a folder counts files at every depth")
+	hasnt(plain(outer.lines), "cart", "a folded folder hides nested folders")
+	hasnt(plain(outer.lines), "c.ts", "and their files")
+	has(plain(outer.lines), "z.ts", "a top-level file stays")
+	equal(#outer.rows, 2, "only what's shown can be selected")
+	has(plain(fold_view({}, "\0dir\0src").lines), "› ▾ src", "a selected folder")
+
+	local dirs = dir .. "fold-dirs-test/"
+	real.exec({ "mkdir", "-p", dirs })
+	local SD = dofile(dir .. "settings.lua")
+	local ok_dirs, err_dirs = pcall(function()
+		SD.set_folded_dir(dirs, "/repo/a", "src", true)
+		SD.set_folded_dir(dirs, "/repo/b", "lib", true)
+		equal(SD.folded_dirs(dirs, "/repo/a").src, true, "folder fold saved")
+		equal(SD.folded_dirs(dirs, "/repo/a").lib, nil, "per repository")
+		SD.set_folded_dir(dirs, "/repo/a", "src", false)
+		equal(next(SD.folded_dirs(dirs, "/repo/a")), nil, "folder unfold saved")
+		equal(SD.folded_dirs(dirs, "/repo/b").lib, true, "another repository's folds kept")
+	end)
+	real.exec({ "rm", "-rf", dirs })
+	if not ok_dirs then
+		error(err_dirs, 0)
+	end
 
 	-- Narrow panes get the short scope names; the columns follow.
 	local narrow, narrow_ranges = P.scope_bar(P.scopes(true), "Branch", 26)
@@ -603,16 +670,17 @@ local ok2, err2 = pcall(function()
 
 	-- Clicks land on what's drawn.
 	local _, tab_ranges = P.frame(P.tabs, "Changes", {}, 0, 40, 10, { badges = { Changes = "3" } })
-	local layout = { tabs = tab_ranges, hits = built.hits, pinned = 3, actions = built.actions, scroll = 0 }
+	local layout = { tabs = tab_ranges, hits = built.hits, pinned = 4, actions = built.actions, scroll = 0 }
 	equal(P.hit(layout, 2, 1).tab, "Info", "click a tab")
 	equal(P.hit(layout, 8, 1).tab, "Changes", "click the other tab")
 	equal(P.hit(layout, 2, 2), nil, "click the blank row")
 	equal(P.hit(layout, 40, 3).kind, "tree", "click the tree toggle")
-	equal(P.hit(layout, 2, 4).scope, "Last Turn", "click a scope")
-	equal(P.hit(layout, 2, 5), nil, "click the blank pinned row")
-	equal(P.hit(layout, 2, 7).row.diff, "staged", "click a row")
+	equal(P.hit(layout, 2, 4), nil, "click the blank row under the branch")
+	equal(P.hit(layout, 2, 5).scope, "Last Turn", "click a scope")
+	equal(P.hit(layout, 2, 6), nil, "click the blank pinned row")
+	equal(P.hit(layout, 2, 8).row.diff, "staged", "click a row")
 	layout.scroll = 1
-	equal(P.hit(layout, 2, 6).row.diff, "staged", "click a row when scrolled")
+	equal(P.hit(layout, 2, 7).row.diff, "staged", "click a row when scrolled")
 
 	-- Usage: hidden without the saved input, and a passed reset counts as unused.
 	hasnt(plain(P.info_lines(P.new_state(), 40)), "Usage", "no usage saved")

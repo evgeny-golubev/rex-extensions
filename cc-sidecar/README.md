@@ -26,6 +26,10 @@ highlighted in the file's language, old and new sit side by side when the pane
 has 120 columns or more, and delta's own git settings apply. Without it, [bat](https://github.com/sharkdp/bat) colours the added and removed lines.
 The tab's count is the number of uncommitted files.
 
+The tree lists folders before files at each level. Click a folder or select it
+and press `Enter` to fold or unfold it; a folded folder shows how many files it
+holds. The choice is saved in `settings.json`, for each repository.
+
 Last Turn only knows Claude's Edit and Write tools, so files changed through
 Bash (`sed`, a formatter) don't show up there. Outside a git repository it's the
 only scope. The transcript format is Claude Code's own and undocumented, so an
@@ -86,10 +90,10 @@ the pane focused:
 | `1` `2` `3`, `Tab`, `←` `→` | Switch tabs |
 | `s` | Next scope |
 | `t` | List or tree; the choice is saved in `settings.json` |
-| `j` `k`, `↑` `↓` | Move the selection on Changes, scroll on Info and Log |
+| `j` `k`, `↑` `↓` | Move the selection on Changes, through folders too in the tree; scroll on Info and Log |
 | `n` `p` | Highlight the next or previous section on Info and Log |
 | `[` `]` | Next and Previous page of the highlighted section on Log |
-| `Enter` | On Changes, open the selected file's diff, or the first file's. On Info and Log, fold the highlighted section |
+| `Enter` | On Changes, open the selected file's diff, or the first file's, or fold the selected folder. On Info and Log, fold the highlighted section |
 | `Space` `b`, `Page Down` `Page Up` | Scroll a page |
 | `g` | Back to the top |
 

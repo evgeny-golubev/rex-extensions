@@ -993,41 +993,80 @@ local function list_rows(out, built, group, selected, key_prefix)
 	end
 end
 
---- Rows as a folder tree: folders are only headings, so they take no action.
-local function tree_rows(out, built, rows, selected, cols)
+--- Rows as a folder tree. A folder is a row of its own that folds, and hides
+--- what's under it.
+local function tree_rows(out, built, rows, selected, cols, folded)
 	local sorted = {}
 	for _, row in ipairs(rows) do
 		sorted[#sorted + 1] = row
 	end
-	table.sort(sorted, function(a, b)
-		return a.path < b.path
-	end)
-	local open = {}
-	for _, row in ipairs(sorted) do
-		local parts = {}
+	local function folders_of(row)
+		local parts, paths, path = {}, {}, nil
 		for part in row.path:gmatch("[^/]+") do
 			parts[#parts + 1] = part
+			path = path and (path .. "/" .. part) or part
+			paths[#paths + 1] = path
 		end
+		return parts, paths
+	end
+	-- Folders before files at each level, each by name.
+	table.sort(sorted, function(a, b)
+		local left, right = folders_of(a), folders_of(b)
+		for i = 1, math.min(#left, #right) do
+			if left[i] ~= right[i] then
+				local left_dir, right_dir = i < #left, i < #right
+				if left_dir ~= right_dir then
+					return left_dir
+				end
+				return left[i] < right[i]
+			end
+		end
+		return #left < #right
+	end)
+	local counts = {}
+	for _, row in ipairs(sorted) do
+		local _, paths = folders_of(row)
+		for depth = 1, #paths - 1 do
+			counts[paths[depth]] = (counts[paths[depth]] or 0) + 1
+		end
+	end
+	local function mark_for(key)
+		return key == selected and (cyan .. "› " .. reset) or "  "
+	end
+	local open = {}
+	for _, row in ipairs(sorted) do
+		local parts, paths = folders_of(row)
+		local hidden = false
 		for depth = 1, #parts - 1 do
+			local path = paths[depth]
 			if open[depth] ~= parts[depth] then
 				open[depth] = parts[depth]
 				for deeper = depth + 1, #open do
 					open[deeper] = nil
 				end
-				out[#out + 1] = "  " .. string.rep("  ", depth - 1) .. dim .. "▾ " .. parts[depth] .. reset
+				if not hidden then
+					local closed = folded[path] == true
+					local key = "\0dir\0" .. path
+					out[#out + 1] = mark_for(key) .. string.rep("  ", depth - 1) .. dim
+						.. fold_marks[closed] .. parts[depth] .. (closed and (" (" .. counts[path] .. ")") or "") .. reset
+					built.actions[#out] = { kind = "dir", key = key, path = path }
+					built.rows[#built.rows + 1] = { key = key, dir = path, line = #out }
+				end
 			end
+			hidden = hidden or folded[path] == true
 		end
 		for deeper = #parts, #open do
 			open[deeper] = nil
 		end
-		local key = "\0" .. row.path
-		local chosen = key == selected
-		local indent = (chosen and (cyan .. "› " .. reset) or "  ") .. string.rep("  ", #parts - 1)
-		local room = math.max(1, cols - M.width(indent) - 2)
-		local name = M.clip(parts[#parts] or row.path, room)
-		out[#out + 1] = indent .. name .. string.rep(" ", room - M.width(name) + 1) .. coloured_mark(row.mark)
-		built.actions[#out] = { kind = "open", key = key, row = row }
-		built.rows[#built.rows + 1] = { key = key, row = row, line = #out }
+		if not hidden then
+			local key = "\0" .. row.path
+			local indent = mark_for(key) .. string.rep("  ", #parts - 1)
+			local room = math.max(1, cols - M.width(indent) - 2)
+			local name = M.clip(parts[#parts] or row.path, room)
+			out[#out + 1] = indent .. name .. string.rep(" ", room - M.width(name) + 1) .. coloured_mark(row.mark)
+			built.actions[#out] = { kind = "open", key = key, row = row }
+			built.rows[#built.rows + 1] = { key = key, row = row, line = #out }
+		end
 	end
 end
 
@@ -1048,8 +1087,9 @@ function M.changes_view(v, cols)
 		.. string.rep(" ", math.max(1, cols - M.width(title) - right))
 		.. stats .. (v.tree and (cyan .. tree_mark .. reset) or (dim .. tree_mark .. reset))
 	built.hits[1] = { { from = cols - 1, to = cols, action = { kind = "tree" } } }
-	built.pinned[2], built.hits[2] = M.scope_bar(v.scopes, v.scope, cols)
-	built.pinned[3] = v.notice and (red .. v.notice .. reset) or ""
+	built.pinned[2] = ""
+	built.pinned[3], built.hits[3] = M.scope_bar(v.scopes, v.scope, cols)
+	built.pinned[4] = v.notice and (red .. v.notice .. reset) or ""
 
 	local out = built.lines
 	if data.problem then
@@ -1072,7 +1112,7 @@ function M.changes_view(v, cols)
 		out[#out + 1] = bold .. count .. reset
 			.. (vs ~= "" and (string.rep(" ", math.max(1, cols - M.width(count) - M.width(vs))) .. dim .. vs .. reset) or "")
 		if v.tree then
-			tree_rows(out, built, group.rows, v.selected, cols)
+			tree_rows(out, built, group.rows, v.selected, cols, v.folded or {})
 		else
 			list_rows(out, built, group, v.selected, group.title)
 		end
@@ -1279,6 +1319,8 @@ local panel = {
 	tree = settings.tree(dir),
 	--- Section name -> true when folded, shared by all panes through settings.
 	folded = settings.folded(dir),
+	--- Folder path -> true when folded in this repository's tree.
+	folded_dirs = {},
 	--- Tab name -> the highlighted section's name.
 	focus = {},
 	--- Log section name -> the page shown.
@@ -1439,6 +1481,7 @@ local function gather()
 	follow(cwd)
 
 	panel.folded = settings.folded(dir)
+	panel.folded_dirs = settings.folded_dirs(dir, panel.root)
 
 	-- One status call: git status runs slowly in big repositories, and the
 	-- pane takes no keys while it runs.
@@ -1475,6 +1518,7 @@ local function build(tab)
 			scope = panel.scope,
 			scopes = M.scopes(panel.git),
 			tree = panel.tree,
+			folded = panel.folded_dirs,
 			selected = panel.selected[panel.scope],
 			data = panel.data or { groups = {}, note = "" },
 			notice = panel.notice,
@@ -1686,6 +1730,14 @@ local function watch_float()
 	end
 end
 
+local function toggle_dir(key, path)
+	local on = not panel.folded_dirs[path]
+	panel.folded_dirs[path] = on or nil
+	panel.selected[panel.scope] = key
+	panel.cache = nil
+	pcall(settings.set_folded_dir, dir, panel.root, path, on)
+end
+
 local function open_row(key, row)
 	panel.selected[panel.scope] = key
 	panel.notice = open_diff(row)
@@ -1703,6 +1755,8 @@ local function act(action)
 		open_row(action.key, action.row)
 	elseif action.kind == "fold" then
 		toggle_fold(action.name)
+	elseif action.kind == "dir" then
+		toggle_dir(action.key, action.path)
 	elseif action.kind == "page" then
 		panel.pages[action.name] = action.page
 		panel.cache = nil
@@ -1732,12 +1786,19 @@ local function open_selected()
 	local rows = current().rows
 	for _, r in ipairs(rows) do
 		if r.key == panel.selected[panel.scope] then
-			open_row(r.key, r.row)
+			if r.dir then
+				toggle_dir(r.key, r.dir)
+			else
+				open_row(r.key, r.row)
+			end
 			return
 		end
 	end
-	if rows[1] then
-		open_row(rows[1].key, rows[1].row)
+	for _, r in ipairs(rows) do
+		if r.row then
+			open_row(r.key, r.row)
+			return
+		end
 	end
 end
 

@@ -58,6 +58,22 @@ function M.set_folded(base, name, on)
 	write_json(base .. "settings.json", settings)
 end
 
+--- Folder path -> true, for the folders folded in a repository's tree.
+function M.folded_dirs(base, root)
+	local settings = read_json(base .. "settings.json") or {}
+	local roots = type(settings.folded_dirs) == "table" and settings.folded_dirs or {}
+	return type(roots[root]) == "table" and roots[root] or {}
+end
+
+function M.set_folded_dir(base, root, path, on)
+	local settings = read_json(base .. "settings.json") or {}
+	settings.folded_dirs = type(settings.folded_dirs) == "table" and settings.folded_dirs or {}
+	local dirs = type(settings.folded_dirs[root]) == "table" and settings.folded_dirs[root] or {}
+	dirs[path] = on or nil
+	settings.folded_dirs[root] = next(dirs) and dirs or nil
+	write_json(base .. "settings.json", settings)
+end
+
 function M.request_show(base, session_id, block_id)
 	write_json(base .. "show-request.json", { session_id = session_id, block_id = block_id })
 end
