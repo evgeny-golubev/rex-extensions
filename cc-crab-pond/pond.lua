@@ -619,7 +619,7 @@ end
 --- Lays out the pond, left to right: the usage limits one under the other,
 --- the main crab with its name, model and uptime, then the other crabs. They
 --- wrap onto more rows of crabs as the pane has room, the rows sitting at the
---- bottom of the pane; when they still don't fit, the last place shows a
+--- bottom of the pane, above a blank row if there's room for one; when they still don't fit, the last place shows a
 --- plain crab counting the rest.
 function M.scene(cols, rows, view, frame, now)
 	local c = M.canvas(cols, rows)
@@ -689,7 +689,8 @@ function M.scene(cols, rows, view, frame, now)
 	if shown > 0 then
 		used = slots[shown].line + 1
 	end
-	local base = math.max(0, rows - (used * 4 - 1))
+	-- Rex pads above the text and not below it, so a spare row goes underneath.
+	local base = math.max(0, rows - (used * 4 - 1) - 1)
 	local function top(line)
 		return base + line * 4
 	end

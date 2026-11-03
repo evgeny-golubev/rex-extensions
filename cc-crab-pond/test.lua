@@ -136,7 +136,7 @@ local ok, err = pcall(function()
 	equal(split.anchor_id, "split:root", "anchor spans the tab")
 	equal(split.direction, "vertical", "direction")
 	equal(split.side, "after", "side")
-	equal(split.ratio, 0.92, "ratio")
+	equal(split.ratio, 0.912, "ratio")
 	equal(split.focus, false, "focus")
 	equal(split.layout.block.label, "Crabs", "label")
 	equal(split.layout.block.options.command[4], dir .. "pond.lua", "viewer")
@@ -145,7 +145,7 @@ local ok, err = pcall(function()
 	equal(resized[1].before_block_id, "block:1", "resized above")
 	equal(resized[1].after_block_id, "block:crabs1", "resized below")
 	equal(resized[1].direction, "vertical", "resized direction")
-	equal(resized[1].ratio, 0.92, "resized ratio")
+	equal(resized[1].ratio, 0.912, "resized ratio")
 
 	-- Another pane opening or closing in the session puts the crab pane
 	-- back to its share, which the app's re-balancing undoes.
@@ -153,7 +153,7 @@ local ok, err = pcall(function()
 	fire()
 	equal(#resized, 2, "resized after a pane opened")
 	equal(resized[2].after_block_id, "block:crabs1", "crab pane resized after a pane opened")
-	equal(resized[2].ratio, 0.92, "ratio after a pane opened")
+	equal(resized[2].ratio, 0.912, "ratio after a pane opened")
 	user_closes("block:changes")
 	fire()
 	equal(#resized, 3, "resized after a pane closed")
@@ -379,6 +379,7 @@ ok, err = pcall(function()
 		view.crabs[i] = { name = "crab" .. i, outfit = "plain", state = i % 2 == 0 and "busy" or "sleep", color = P.colors.shell }
 	end
 	local text = P.render(P.scene(160, 4, view, 3, 0))
+	equal(text:gsub("\27%[[%d;]*[mHK]", ""):match("[^\n]*$"):find("%S"), nil, "a spare row stays blank at the bottom")
 	equal(text:find("\240\156\180", 1, true) ~= nil, true, "octants drawn")
 	local plain = text:gsub("\27%[[%d;]*[mHK]", "")
 	local five, seven = plain:find("5h", 1, true), plain:find("7d", 1, true)
@@ -406,7 +407,7 @@ ok, err = pcall(function()
 	equal(plain:find("+", 1, true), nil, "no +N when rows fit")
 	equal(plain:find("crab12", 1, true) ~= nil, true, "last crab shown")
 	equal(line_of(plain:find("crab12", 1, true)) > line_of(plain:find("crab1", 1, true)), true, "crabs on a lower row")
-	equal(line_of(plain:find("5h", 1, true)), 1, "first row at the bottom block's top")
+	equal(line_of(plain:find("5h", 1, true)), 0, "rows fill the pane, leaving the bottom row blank")
 
 	-- A crab whose label doesn't fit after the main crab starts the next row.
 	local two = { limits = view.limits, main = view.main, crabs = { { name = "second", outfit = "plain", state = "busy", color = P.colors.shell } } }

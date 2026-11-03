@@ -189,7 +189,8 @@ key, bind `cc_crab_pond_show` or `cc_crab_pond_auto_show` with `rex.bind`.
 
 ## Behavior
 
-- The crab pane keeps 8% of the tab: when another pane opens or closes
+- The crab pane keeps about 9% of the tab, enough on a large display for its 3
+  rows of crabs and a blank row under them: when another pane opens or closes
   there and Rex re-balances the tab, it's sized again.
 - A crab pane you close stays closed until the tab has no Claude left, or you
   run Show Crabs Pane.

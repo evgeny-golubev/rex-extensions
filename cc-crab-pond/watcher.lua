@@ -20,7 +20,7 @@ local client_label = "cc-crab-pond"
 local label = "Crabs"
 
 --- The share of the tab the panes above the crab pane keep.
-local above_ratio = 0.92
+local above_ratio = 0.912
 
 --- Claude pane block ID -> { session_id, window_id }.
 local claude_panes = {}
