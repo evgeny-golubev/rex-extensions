@@ -366,12 +366,10 @@ ok, err = pcall(function()
 	equal(P.width("crab🦀é"), 6, "width")
 	equal(P.clip("crab-pond", 5), "crab…", "clip")
 	equal(P.duration(8040), "2h14m", "duration")
-	equal(P.gauge(31, 10), "▓▓▓░░░░░░░", "gauge")
 
-	-- The scene: limits first, then the big crab with its name, model and
+	-- The scene: the big crab with its name, model and
 	-- uptime, then pages of small crabs.
 	local view = {
-		limits = { { label = "5h", percent = 45, reset = 840 }, { label = "7d", percent = 33, reset = 300000 } },
 		main = { outfit = "cowboy", state = "busy", color = P.colors.claude, name = "demo session", detail = "Opus 5.5", extra = "up 3h51m" },
 		crabs = {},
 	}
@@ -382,16 +380,11 @@ ok, err = pcall(function()
 	equal(text:gsub("\27%[[%d;]*[mHK]", ""):match("[^\n]*$"):find("%S"), nil, "a spare row stays blank at the bottom")
 	equal(text:find("\240\156\180", 1, true) ~= nil, true, "octants drawn")
 	local plain = text:gsub("\27%[[%d;]*[mHK]", "")
-	local five, seven = plain:find("5h", 1, true), plain:find("7d", 1, true)
-	local name = plain:find("demo session", 1, true)
-	equal(five ~= nil and seven ~= nil and name ~= nil, true, "limits and name shown")
+	equal(plain:find("demo session", 1, true) ~= nil, true, "name shown")
 	local line_of = function(pos)
 		local _, n = plain:sub(1, pos):gsub("\r\n", "")
 		return n
 	end
-	equal(line_of(seven), line_of(five) + 2, "7d a row under 5h")
-	local five_col = five - (plain:sub(1, five):match(".*\n()") or 1)
-	equal(five_col, 0, "limits at the left")
 	equal(plain:find("Opus 5.5", 1, true) ~= nil and plain:find("up 3h51m", 1, true) ~= nil, true, "model and uptime")
 	equal(plain:find("1/", 1, true), nil, "no page mark")
 	local plus = plain:match("%+(%d+)")
@@ -407,13 +400,13 @@ ok, err = pcall(function()
 	equal(plain:find("+", 1, true), nil, "no +N when rows fit")
 	equal(plain:find("crab12", 1, true) ~= nil, true, "last crab shown")
 	equal(line_of(plain:find("crab12", 1, true)) > line_of(plain:find("crab1", 1, true)), true, "crabs on a lower row")
-	equal(line_of(plain:find("5h", 1, true)), 0, "rows fill the pane, leaving the bottom row blank")
+	equal(line_of(plain:find("demo session", 1, true)), 0, "rows fill the pane, leaving the bottom row blank")
 
 	-- A crab whose label doesn't fit after the main crab starts the next row.
-	local two = { limits = view.limits, main = view.main, crabs = { { name = "second", outfit = "plain", state = "busy", color = P.colors.shell } } }
-	plain = P.render(P.scene(60, 8, two, 0, 0)):gsub("\27%[[%d;]*[mHK]", "")
+	local two = { main = view.main, crabs = { { name = "second", outfit = "plain", state = "busy", color = P.colors.shell } } }
+	plain = P.render(P.scene(36, 8, two, 0, 0)):gsub("\27%[[%d;]*[mHK]", "")
 	equal(line_of(plain:find("second", 1, true)), line_of(plain:find("demo session", 1, true)) + 4, "wrapped to the next row")
-	local one_line = P.render(P.scene(60, 4, two, 0, 0)):gsub("\27%[[%d;]*[mHK]", "")
+	local one_line = P.render(P.scene(36, 4, two, 0, 0)):gsub("\27%[[%d;]*[mHK]", "")
 	equal(one_line:find("second", 1, true), nil, "no room in a one-row pane")
 	equal(one_line:find("+", 1, true), nil, "no +N without room")
 	equal(P.render(P.scene(12, 8, { crabs = two.crabs }, 0, 0)):find("sec", 1, true) ~= nil, true, "narrow pane still shows a crab")

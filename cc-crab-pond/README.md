@@ -6,11 +6,7 @@ runs in that tab as animated pixel crabs:
 
 ![cc-crab-pond](../docs/cc-crab-pond.png)
 
-**Usage limits** sit on the far left: your 5-hour and weekly Claude limits, each
-with the percentage used and the time to its reset (`↺`). The bar is green, turns
-yellow at 70% and red at 90%.
-
-**Every other crab is one thing running in the tab.** Read it in four parts:
+**Every crab is one thing running in the tab.** Read it in four parts:
 
 | Part | Tells you | In the picture |
 | --- | --- | --- |
@@ -103,12 +99,11 @@ Claude's background tasks come from the process list: the shells Claude
 started and the programs under them. Only executable names are read, never
 command arguments, which can hold secrets.
 
-Session names, models, effort (which picks Claude's outfit) and the limits
-come from Claude Code's status line input, which your status line command
-saves to `~/.claude/state/statusline/<session>.json` (see
+Session names, models and effort (which picks Claude's outfit) come from Claude
+Code's status line input, which your status line command saves to `~/.claude/state/statusline/<session>.json` (see
 [Claude Code status line](#claude-code-status-line)). The subagent crabs
 need it too: it names the session's transcript. Without it, Claude crabs are
-plain and the limits and subagents are left out. Nothing is sent anywhere.
+plain and the subagents are left out. Nothing is sent anywhere.
 
 The crab art is redrawn at half size after
 [crab-band](https://github.com/MaxHarfen/crab-band) (MIT), whose crab follows
@@ -133,8 +128,8 @@ pkill -f 'cc-crab-pond/watcher\.lua'; rex config reload
 
 ### Claude Code status line
 
-Claude Code passes each session's details (model, effort, session name, rate
-limits, transcript path) to its status line command as JSON on stdin. The
+Claude Code passes each session's details (model, effort, session name,
+transcript path) to its status line command as JSON on stdin. The
 pond reads them from a copy saved per session. It needs `jq`.
 
 If you already have a status line script (`"statusLine"` in

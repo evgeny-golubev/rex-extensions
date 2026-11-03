@@ -1,6 +1,5 @@
 -- The crab pond: runs inside the "Crabs" pane that watcher.lua opens, and
--- draws what runs in this tab as pixel crabs: the Claude usage limits, then
--- the tab's main Claude, then crabs for its subagents and background tasks,
+-- draws what runs in this tab as pixel crabs: the tab's main Claude, then crabs for its subagents and background tasks,
 -- the tab's other Claudes and the programs in its other panes. It reads
 -- Claude Code's session and status line files, Rex's view of the tab and the
 -- process list, and gathers them again every 2 seconds; the crabs move 4
@@ -159,11 +158,6 @@ function M.iso_time(ts)
 		return nil
 	end
 	return os.time({ year = y, month = mo, day = d, hour = h, min = mi, sec = sec, isdst = false }) + utc_offset
-end
-
-function M.gauge(percent, cells)
-	local filled = math.max(0, math.min(cells, math.floor(percent / 100 * cells + 0.5)))
-	return string.rep("▓", filled) .. string.rep("░", cells - filled)
 end
 
 -- Who is who --------------------------------------------------------------
@@ -605,19 +599,7 @@ end
 local tile_label = 16
 local main_label = 32
 
---- One limit as text segments: `5h ▓▓▓░░░ 45% ↺14m`.
-local function limit_line(l)
-	local color = l.percent >= 90 and M.colors.bad or l.percent >= 70 and M.colors.build or M.colors.busy
-	return {
-		{ l.label .. " ", M.colors.dim },
-		{ M.gauge(l.percent, 6), color },
-		{ string.format(" %d%%", l.percent), M.colors.text },
-		{ l.reset and (" ↺" .. M.duration(l.reset)) or "", M.colors.dim },
-	}
-end
-
---- Lays out the pond, left to right: the usage limits one under the other,
---- the main crab with its name, model and uptime, then the other crabs. They
+--- Lays out the pond, left to right: the main crab with its name, model and uptime, then the other crabs. They
 --- wrap onto more rows of crabs as the pane has room, the rows sitting at the
 --- bottom of the pane, above a blank row if there's room for one; when they still don't fit, the last place shows a
 --- plain crab counting the rest.
@@ -627,17 +609,6 @@ function M.scene(cols, rows, view, frame, now)
 	local lines = math.max(1, math.floor((rows + 1) / 4))
 	local x = 0
 
-	local limits_width = 0
-	for _, l in ipairs(view.limits or {}) do
-		local w = 0
-		for _, seg in ipairs(limit_line(l)) do
-			w = w + M.width(seg[1])
-		end
-		limits_width = math.max(limits_width, w)
-	end
-	if limits_width > 0 then
-		x = limits_width + 3
-	end
 	local main = view.main
 	local main_lines, main_width = nil, 0
 	if main then
@@ -698,15 +669,10 @@ function M.scene(cols, rows, view, frame, now)
 		return top(line) * 4 + math.min(rows, 3) * 4 - kept
 	end
 
-	-- The limits sit a row apart, so their gauges don't run together.
-	for i, l in ipairs(view.limits or {}) do
-		M.write(c, 0, math.min(rows - 1, top(0) + (i - 1) * 2), limit_line(l), cols)
-	end
 	if main then
-		local mx = limits_width > 0 and limits_width + 3 or 0
-		M.draw_crab(c, mx, oy(0), main, frame, map)
+		M.draw_crab(c, 0, oy(0), main, frame, map)
 		for i, line in ipairs(main_lines) do
-			M.write(c, mx + M.crab_cols + 1, top(0) + i - 1, line, main_width)
+			M.write(c, M.crab_cols + 1, top(0) + i - 1, line, main_width)
 		end
 	end
 	for n = 1, shown do
@@ -767,18 +733,6 @@ local pond = {
 	main_pid = nil,
 	view = {},
 }
-
-local function limits_of(statusline, now)
-	local out = {}
-	local rl = statusline and statusline.rate_limits or {}
-	for _, w in ipairs({ { "five_hour", "5h" }, { "seven_day", "7d" } }) do
-		local l = rl[w[1]]
-		if l and l.used_percentage then
-			out[#out + 1] = { label = w[2], percent = math.floor(l.used_percentage), reset = l.resets_at and (l.resets_at - now) }
-		end
-	end
-	return out
-end
 
 --- A Claude pane's crab, from its session and status line files.
 local function claude_crab(pid, record, now)
@@ -912,7 +866,6 @@ local function gather()
 		local crab = claude_crab(cl.pid, cl.record, now)
 		if i == main_index then
 			result.main = crab
-			result.limits = limits_of(crab.statusline, now)
 			pond.main_pid = cl.pid
 		else
 			others[#others + 1] = crab
