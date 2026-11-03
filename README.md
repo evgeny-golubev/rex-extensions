@@ -27,12 +27,13 @@ Answers "what did this Claude change, and what's still waiting on me?" A pane on
 the right, 20% of the tab, opens and closes with Claude and replaces Claude
 Code's own diff panel.
 
-![cc-sidecar's Changes and Info tabs, with made-up data](docs/cc-sidecar.png)
+![cc-sidecar's Changes, Info and Log tabs, with made-up data](docs/cc-sidecar.png)
 
 **Changes** lists changed files for the last turn, the uncommitted work or the
 branch, as a list or a tree; click one to read its diff in a floating pane.
-**Info** lists the session's facts, usage limits, open questions, test runs,
-failed commands, your decisions and your last requests.
+**Info** lists the session's facts, usage limits, open questions, test runs and
+failed commands, in sections you can fold. **Log** shows the last summary, then
+your decisions, requests and Claude's responses, dated and newest first.
 [Tabs, keys and limits →](cc-sidecar/README.md)
 
 ### cc-crab-pond
