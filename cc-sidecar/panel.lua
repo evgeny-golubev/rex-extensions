@@ -1,5 +1,6 @@
--- Runs in a sidecar pane, with two tabs: what changed, by scope (Changes), and
--- what the Claude beside it did, was asked and left open (Info). The watcher
+-- Runs in a sidecar pane, with three tabs: what changed, by scope (Changes),
+-- how the Claude beside it stands (Info), and a dated record of what was said
+-- and decided (Log). The watcher
 -- passes the Claude pane's block ID and its directory (the repository root, in
 -- one) as `claude=` and `cwd=`. The session is read from Claude Code's own
 -- files, so no Claude Code setting is needed. With CC_SIDECAR_TEST set, this
@@ -12,7 +13,7 @@ local home = os.getenv("HOME") or ""
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)") or "./"
 local settings = dofile(dir .. "settings.lua")
 
-M.tabs = { "Info", "Changes" }
+M.tabs = { "Info", "Changes", "Log" }
 
 --- The scopes of the Changes tab; only Last Turn works without git.
 function M.scopes(git)
@@ -165,6 +166,23 @@ function M.test_command(cmd)
 	end
 end
 
+--- A transcript timestamp, which is in UTC, as local month, day and time.
+function M.stamp(iso)
+	local y, mo, d, h, mi, s = tostring(iso):match("^(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
+	if not y then
+		return ""
+	end
+	y, mo, d = tonumber(y), tonumber(mo), tonumber(d)
+	-- Days since 1970 by the civil calendar: os.time would read these as local
+	-- time, and the offset to undo that shifts around a clock change.
+	y = mo <= 2 and y - 1 or y
+	local era = math.floor(y / 400)
+	local year = y - era * 400
+	local day = math.floor((153 * (mo + (mo > 2 and -3 or 9)) + 2) / 5) + d - 1
+	local days = era * 146097 + year * 365 + math.floor(year / 4) - math.floor(year / 100) + day - 719468
+	return os.date("%m-%d %H:%M", days * 86400 + tonumber(h) * 3600 + tonumber(mi) * 60 + tonumber(s))
+end
+
 -- Transcript ----------------------------------------------------------------
 
 function M.new_state()
@@ -173,9 +191,9 @@ function M.new_state()
 		partial = "",
 		seq = 0,
 		prompts = {},
-		seen_prompts = {},
 		last_prompt = 0,
 		decisions = {},
+		responses = {},
 		tools = {},
 		waiting = {},
 		tasks = {},
@@ -198,11 +216,13 @@ local function add_prompt(state, text)
 		return
 	end
 	state.turn = { order = {}, files = {} }
-	if state.seen_prompts[text] then
+	-- A queued prompt is recorded twice, with no reply between the two. The same
+	-- words after a reply are a new request.
+	local latest = state.prompts[#state.prompts]
+	if latest and latest.text == text and not (state.last_text and state.last_text.seq > latest.seq) then
 		return
 	end
-	state.seen_prompts[text] = true
-	state.prompts[#state.prompts + 1] = { text = text, seq = state.seq }
+	state.prompts[#state.prompts + 1] = { text = text, seq = state.seq, at = state.at }
 	state.last_prompt = state.seq
 end
 
@@ -252,6 +272,11 @@ local function turn_edit(state, path, extra)
 	end
 end
 
+local function decide(state, decision)
+	decision.at = state.at
+	state.decisions[#state.decisions + 1] = decision
+end
+
 --- What a tool call acted on, for a rejected action.
 local function tool_target(tool)
 	local input = tool.input or {}
@@ -282,15 +307,15 @@ local function tool_result(state, item, record)
 	if decision and decision.decision == "reject" and decision.source == "user_reject" then
 		if tool.name == "AskUserQuestion" then
 			local q = input.questions and input.questions[1]
-			state.decisions[#state.decisions + 1] = { kind = "dismissed", text = q and q.question or "a question" }
+			decide(state, { kind = "dismissed", text = q and q.question or "a question" })
 		elseif tool.name == "ExitPlanMode" then
-			state.decisions[#state.decisions + 1] = { kind = "plan_rejected", text = M.plan_title(input.plan), note = user_said(text) }
+			decide(state, { kind = "plan_rejected", text = M.plan_title(input.plan), note = user_said(text) })
 		else
-			state.decisions[#state.decisions + 1] = {
+			decide(state, {
 				kind = "rejected",
 				text = tool.name .. ": " .. tool_target(tool),
 				note = user_said(text),
-			}
+			})
 		end
 		return
 	end
@@ -298,19 +323,19 @@ local function tool_result(state, item, record)
 	if tool.name == "AskUserQuestion" and extra.answers then
 		for _, q in ipairs(input.questions or {}) do
 			local note = extra.annotations and extra.annotations[q.question]
-			state.decisions[#state.decisions + 1] = {
+			decide(state, {
 				kind = "answer",
 				text = q.question,
 				answer = extra.answers[q.question] or "(no answer)",
 				note = type(note) == "table" and note.notes or nil,
-			}
+			})
 		end
 	elseif tool.name == "ExitPlanMode" then
-		state.decisions[#state.decisions + 1] = {
+		decide(state, {
 			kind = failed and "plan_rejected" or "plan_approved",
 			text = M.plan_title(input.plan),
 			note = failed and user_said(text) or nil,
-		}
+		})
 	elseif tool.name == "TaskCreate" and not failed then
 		local id = (type(extra.task) == "table" and extra.task.id) or text:match("#(%d+)")
 		if id then
@@ -343,6 +368,18 @@ function M.plan_title(plan)
 	return (first_line(plan):gsub("^#+%s*", ""))
 end
 
+--- Claude's latest words in a turn are its response, so each text replaces the
+--- one before it until the next prompt. Kept short: a session has many.
+local function respond(state, text)
+	local entry = { text = (cut(text, 2000)), seq = state.seq, at = state.at }
+	local latest = state.responses[#state.responses]
+	if latest and latest.seq > state.last_prompt then
+		state.responses[#state.responses] = entry
+	else
+		state.responses[#state.responses + 1] = entry
+	end
+end
+
 local function assistant(state, record)
 	local message = record.message or {}
 	if message.model and message.model ~= "<synthetic>" then
@@ -358,6 +395,7 @@ local function assistant(state, record)
 	for _, item in ipairs(type(message.content) == "table" and message.content or {}) do
 		if item.type == "text" and item.text and item.text:match("%S") then
 			state.last_text = { text = item.text, seq = state.seq }
+			respond(state, item.text)
 		elseif item.type == "tool_use" then
 			local input = type(item.input) == "table" and item.input or {}
 			state.tools[item.id] = { name = item.name, input = input }
@@ -379,7 +417,10 @@ end
 local function user(state, record)
 	if record.isCompactSummary then
 		local c = record.message and record.message.content
-		state.summary = type(c) == "string" and c or (type(c) == "table" and c[1] and c[1].text) or nil
+		local text = type(c) == "string" and c or (type(c) == "table" and c[1] and c[1].text) or nil
+		if text then
+			state.summary = { text = text, at = state.at }
+		end
 		return
 	end
 	local c = record.message and record.message.content
@@ -408,6 +449,7 @@ function M.record(state, r)
 	if r.isSidechain then
 		return
 	end
+	state.at = r.timestamp or state.at
 	if r.gitBranch and r.gitBranch ~= "" then
 		state.branch = r.gitBranch
 	end
@@ -478,11 +520,36 @@ end
 
 -- Tabs ----------------------------------------------------------------------
 
-local function heading(out, title, count)
+local fold_marks = { [true] = "▸ ", [false] = "▾ " }
+
+--- A tab's lines, which also carry each foldable heading's click and position.
+local function new_lines(folded, focus, pages)
+	return { folded = folded or {}, focus = focus, pages = pages or {}, actions = {}, sections = {} }
+end
+
+local function heading(out, title, count, style)
 	if #out > 0 then
 		out[#out + 1] = ""
 	end
-	out[#out + 1] = bold .. title .. reset .. (count and (dim .. " " .. count .. reset) or "")
+	out[#out + 1] = (style or bold) .. title .. reset .. (count and (dim .. " " .. count .. reset) or "")
+end
+
+--- A section with a fold mark on its heading. A folded one doesn't build its
+--- lines.
+local function section(out, name, icon, count, body)
+	local folded = out.folded[name] == true
+	heading(out, fold_marks[folded] .. icon .. " " .. name, count, out.focus == name and "\27[7m" or bold)
+	out.actions[#out] = { kind = "fold", name = name }
+	out.sections[#out.sections + 1] = { name = name, line = #out }
+	if not folded then
+		body()
+	end
+end
+
+--- The date in front of a Log entry; nothing for a record without a time.
+local function when(entry)
+	local stamp = M.stamp(entry.at)
+	return stamp ~= "" and (dim .. stamp .. ": " .. reset) or ""
 end
 
 local function add(out, lines)
@@ -508,13 +575,14 @@ function M.reply_questions(state)
 	return out
 end
 
---- Sections of the latest compaction summary that say where work stands.
+--- Sections of a compaction summary that say where work stands. Claude Code
+--- writes their headings either as Markdown or as "8. Current Work:".
 function M.summary_lines(summary)
 	local out, keep = {}, false
 	-- Claude Code adds instructions for Claude after the summary itself.
 	summary = (summary or ""):gsub("\nIf you need specific details from before compaction.*$", "")
 	for line in (summary .. "\n"):gmatch("([^\n]*)\n") do
-		local h = line:match("^#+%s*(.-)%s*$")
+		local h = line:match("^#+%s*(.-)%s*$") or line:match("^%d+%.%s+(%u[%a%s]*):%s*$")
 		if h then
 			local l = h:lower()
 			keep = l:find("current") or l:find("next") or l:find("pending") or l:find("open") or l:find("remaining")
@@ -557,56 +625,9 @@ local function open_section(out, state, cols)
 			add(open, M.wrap(t.text, cols, (status_marks[t.status] or "○") .. " ", "  "))
 		end
 	end
-	heading(out, "Open", #open == 0 and "none" or nil)
-	add(out, open)
-end
-
-local function summary_section(out, state, cols)
-	local summary = M.summary_lines(state.summary)
-	if #summary > 0 then
-		heading(out, "From the last summary")
-		for _, s in ipairs(summary) do
-			if s.heading then
-				out[#out + 1] = dim .. s.heading .. reset
-			else
-				add(out, M.wrap(s.text:gsub("^%s+", ""), cols, "  ", "    "))
-			end
-		end
-	end
-end
-
-local function decisions_section(out, state, cols)
-	local decided = {}
-	for i = #state.decisions, 1, -1 do
-		local d = state.decisions[i]
-		if d.kind == "answer" then
-			add(decided, M.wrap(d.text, cols, green .. "✓ " .. reset .. dim, "  " .. dim))
-			decided[#decided] = decided[#decided] .. reset
-			add(decided, M.wrap(d.answer, cols, "  → ", "    "))
-		elseif d.kind == "plan_approved" then
-			add(decided, M.wrap("Plan approved: " .. d.text, cols, green .. "✓ " .. reset, "  "))
-		elseif d.kind == "plan_rejected" then
-			add(decided, M.wrap("Plan rejected: " .. d.text, cols, red .. "✗ " .. reset, "  "))
-		elseif d.kind == "dismissed" then
-			add(decided, M.wrap("Question dismissed: " .. d.text, cols, red .. "✗ " .. reset, "  "))
-		else
-			add(decided, M.wrap("Rejected " .. d.text, cols, red .. "✗ " .. reset, "  ", 3))
-		end
-		if d.note and d.note ~= "" then
-			add(decided, M.wrap(d.note, cols, "  " .. cyan .. "“", "   ", 4))
-			decided[#decided] = decided[#decided] .. "”" .. reset
-		end
-	end
-	heading(out, "Decisions", #state.decisions == 0 and "none" or nil)
-	add(out, decided)
-end
-
-local function requests_section(out, state, cols)
-	local shown = math.min(#state.prompts, 5)
-	heading(out, "Requests", #state.prompts == 0 and "none" or (shown < #state.prompts and ("last " .. shown .. " of " .. #state.prompts)) or tostring(shown))
-	for i = #state.prompts, #state.prompts - shown + 1, -1 do
-		add(out, M.wrap(state.prompts[i].text, cols, cyan .. "› " .. reset, "  ", 6))
-	end
+	section(out, "Open", "◇", #open == 0 and "none" or nil, function()
+		add(out, open)
+	end)
 end
 
 local function duration(ms)
@@ -618,7 +639,7 @@ local function duration(ms)
 end
 
 local function session_section(out, state, cols)
-	heading(out, "Session")
+	heading(out, "◆ Session")
 	local facts = {
 		{ "Title", state.title },
 		{ "Branch", state.branch },
@@ -636,20 +657,22 @@ local function session_section(out, state, cols)
 end
 
 local function tests_section(out, state, cols)
-	heading(out, "Tests", #state.tests > 0 and tostring(#state.tests) or "none")
-	for i = #state.tests, math.max(1, #state.tests - 7), -1 do
-		local t = state.tests[i]
-		out[#out + 1] = M.clip((t.ok and (green .. "✓ ") or (red .. "✗ ")) .. reset .. t.command, cols)
-	end
+	section(out, "Tests", "▷", #state.tests > 0 and tostring(#state.tests) or "none", function()
+		for i = #state.tests, math.max(1, #state.tests - 7), -1 do
+			local t = state.tests[i]
+			out[#out + 1] = M.clip((t.ok and (green .. "✓ ") or (red .. "✗ ")) .. reset .. t.command, cols)
+		end
+	end)
 end
 
 local function failed_section(out, state, cols)
-	heading(out, "Failed commands", #state.failures > 0 and tostring(#state.failures) or "none")
-	for i = #state.failures, math.max(1, #state.failures - 7), -1 do
-		local f = state.failures[i]
-		out[#out + 1] = M.clip(red .. "✗ " .. reset .. f.command, cols)
-		out[#out + 1] = M.clip("  " .. dim .. f.error .. reset, cols)
-	end
+	section(out, "Failed commands", "✗", #state.failures > 0 and tostring(#state.failures) or "none", function()
+		for i = #state.failures, math.max(1, #state.failures - 7), -1 do
+			local f = state.failures[i]
+			out[#out + 1] = M.clip(red .. "✗ " .. reset .. f.command, cols)
+			out[#out + 1] = M.clip("  " .. dim .. f.error .. reset, cols)
+		end
+	end)
 end
 
 local function time_left(seconds)
@@ -673,7 +696,7 @@ local function usage_section(out, limits, cols, now)
 		local name, limit = w[1], w[2]
 		if type(limit) == "table" and limit.used_percentage then
 			if not shown then
-				heading(out, "Usage")
+				heading(out, "▤ Usage")
 				shown = true
 			end
 			local left = limit.resets_at and limit.resets_at - now or nil
@@ -691,16 +714,110 @@ local function usage_section(out, limits, cols, now)
 end
 
 --- Everything on the Info tab, most useful first.
-function M.info_lines(state, cols, limits, now)
-	local out = {}
+function M.info_lines(state, cols, limits, now, folded, focus)
+	local out = new_lines(folded, focus)
 	session_section(out, state, cols)
 	usage_section(out, limits, cols, now or os.time())
 	open_section(out, state, cols)
-	summary_section(out, state, cols)
 	tests_section(out, state, cols)
 	failed_section(out, state, cols)
-	decisions_section(out, state, cols)
-	requests_section(out, state, cols)
+	return out
+end
+
+-- Log -----------------------------------------------------------------------
+
+local page_size = 5
+
+--- The pager under a section's heading, with the columns each side takes.
+--- Entries run newest first, so Next, to the left, is the later entries.
+function M.pager(page, pages, name)
+	local later, position, earlier = "← Next", " " .. page .. "/" .. pages .. " ", "Previous →"
+	local ranges = {}
+	if page > 1 then
+		ranges[#ranges + 1] = { from = 1, to = M.width(later), action = { kind = "page", name = name, page = page - 1 } }
+	end
+	if page < pages then
+		local from = M.width(later) + M.width(position) + 1
+		ranges[#ranges + 1] = { from = from, to = from + M.width(earlier) - 1, action = { kind = "page", name = name, page = page + 1 } }
+	end
+	local function side(text, on)
+		return (on and cyan or dim) .. text .. reset
+	end
+	return side(later, page > 1) .. position .. side(earlier, page < pages), ranges
+end
+
+local function summary_section(out, state, cols)
+	local summary = state.summary
+	local stamp = summary and M.stamp(summary.at) or ""
+	section(out, "Summary", "≡", not summary and "none" or (stamp ~= "" and "from " .. stamp or nil), function()
+		if not summary then
+			return
+		end
+		local parts = M.summary_lines(summary.text)
+		if #parts == 0 then
+			out[#out + 1] = dim .. "No current state in this summary." .. reset
+		end
+		for _, s in ipairs(parts) do
+			if s.heading then
+				out[#out + 1] = dim .. s.heading .. reset
+			else
+				add(out, M.wrap(s.text:gsub("^%s+", ""), cols, "  ", "    "))
+			end
+		end
+	end)
+end
+
+local function decision_lines(out, d, cols)
+	if d.kind == "answer" then
+		add(out, M.wrap(d.text, cols, green .. "✓ " .. reset .. when(d) .. dim, "  " .. dim))
+		out[#out] = out[#out] .. reset
+		add(out, M.wrap(d.answer, cols, "  → ", "    "))
+	elseif d.kind == "plan_approved" then
+		add(out, M.wrap("Plan approved: " .. d.text, cols, green .. "✓ " .. reset .. when(d), "  "))
+	elseif d.kind == "plan_rejected" then
+		add(out, M.wrap("Plan rejected: " .. d.text, cols, red .. "✗ " .. reset .. when(d), "  "))
+	elseif d.kind == "dismissed" then
+		add(out, M.wrap("Question dismissed: " .. d.text, cols, red .. "✗ " .. reset .. when(d), "  "))
+	else
+		add(out, M.wrap("Rejected " .. d.text, cols, red .. "✗ " .. reset .. when(d), "  ", 3))
+	end
+	if d.note and d.note ~= "" then
+		add(out, M.wrap(d.note, cols, "  " .. cyan .. "“", "   ", 4))
+		out[#out] = out[#out] .. "”" .. reset
+	end
+end
+
+--- A section that lists its entries newest first, a page at a time.
+local function log_section(out, name, icon, entries, draw)
+	local pages = math.max(1, math.ceil(#entries / page_size))
+	local page = math.max(1, math.min(pages, out.pages[name] or 1))
+	section(out, name, icon, #entries == 0 and "none" or tostring(#entries), function()
+		if pages > 1 then
+			local line, ranges = M.pager(page, pages, name)
+			out[#out + 1] = line
+			out.actions[#out] = { ranges = ranges }
+		end
+		local newest = #entries - (page - 1) * page_size
+		for i = newest, math.max(1, newest - page_size + 1), -1 do
+			draw(entries[i])
+		end
+	end)
+	out.sections[#out.sections].page, out.sections[#out.sections].pages = page, pages
+end
+
+--- Everything on the Log tab.
+function M.log_lines(state, cols, folded, focus, pages)
+	local out = new_lines(folded, focus, pages)
+	summary_section(out, state, cols)
+	log_section(out, "Decisions", "◈", state.decisions, function(d)
+		decision_lines(out, d, cols)
+	end)
+	log_section(out, "Requests", "›", state.prompts, function(p)
+		add(out, M.wrap(p.text, cols, cyan .. "› " .. reset .. when(p), "  ", 6))
+	end)
+	log_section(out, "Responses", "‹", state.responses, function(r)
+		add(out, M.wrap(r.text:gsub("%*%*", ""):gsub("`", ""), cols, cyan .. "‹ " .. reset .. when(r), "  ", 8))
+	end)
 	return out
 end
 
@@ -1015,7 +1132,11 @@ function M.hit(layout, x, y)
 	elseif y <= 2 + layout.pinned then
 		return in_ranges(layout.hits[y - 2])
 	end
-	return layout.actions[y - 2 - layout.pinned + layout.scroll]
+	local action = layout.actions[y - 2 - layout.pinned + layout.scroll]
+	if action and action.ranges then
+		return in_ranges(action.ranges)
+	end
+	return action
 end
 
 --- The window that holds a block, from a session view.
@@ -1141,6 +1262,12 @@ local panel = {
 	head = true,
 	scope = "Uncommitted",
 	tree = settings.tree(dir),
+	--- Section name -> true when folded, shared by all panes through settings.
+	folded = settings.folded(dir),
+	--- Tab name -> the highlighted section's name.
+	focus = {},
+	--- Log section name -> the page shown.
+	pages = {},
 	--- Scope -> the key of the selected row.
 	selected = {},
 	--- The tab's last built view; cleared by anything that changes it.
@@ -1296,6 +1423,8 @@ local function gather()
 	end
 	follow(cwd)
 
+	panel.folded = settings.folded(dir)
+
 	-- One status call: git status runs slowly in big repositories, and the
 	-- pane takes no keys while it runs.
 	local r = exec({ "git", "-C", panel.root, "status", "--porcelain", "-b", "-z", "--untracked-files=all" })
@@ -1336,10 +1465,15 @@ local function build(tab)
 			notice = panel.notice,
 		}, panel.cols - 1)
 	end
-	local lines = panel.state.path
-			and M.info_lines(panel.state, panel.cols - 1, panel.limits)
-		or { dim .. "No Claude session found for this pane." .. reset }
-	return { lines = lines, pinned = {}, hits = {}, actions = {}, rows = {} }
+	local lines
+	if not panel.state.path then
+		lines = { dim .. "No Claude session found for this pane." .. reset }
+	elseif tab == "Log" then
+		lines = M.log_lines(panel.state, panel.cols - 1, panel.folded, panel.focus.Log, panel.pages)
+	else
+		lines = M.info_lines(panel.state, panel.cols - 1, panel.limits, nil, panel.folded, panel.focus.Info)
+	end
+	return { lines = lines, pinned = {}, hits = {}, actions = lines.actions or {}, sections = lines.sections or {}, rows = {} }
 end
 
 --- The tab's view, built again only after something cleared it.
@@ -1421,6 +1555,54 @@ local function toggle_tree()
 	pcall(settings.set_tree, dir, panel.tree)
 end
 
+local function toggle_fold(name)
+	local on = not panel.folded[name]
+	panel.folded[name] = on or nil
+	panel.cache = nil
+	pcall(settings.set_folded, dir, name, on)
+end
+
+--- Highlights the next or previous section heading and scrolls it into view.
+local function next_section(step)
+	local sections = current().sections or {}
+	local at = 0
+	for i, s in ipairs(sections) do
+		if s.name == panel.focus[panel.tab] then
+			at = i
+		end
+	end
+	local target = sections[math.max(1, math.min(#sections, at + step))]
+	if not target then
+		return
+	end
+	panel.focus[panel.tab] = target.name
+	local top = panel.scroll[panel.tab] or 0
+	if target.line <= top or target.line > top + M.page(panel.rows) then
+		panel.scroll[panel.tab] = target.line - 1
+	end
+	panel.cache = nil
+end
+
+local function fold_focused()
+	for _, s in ipairs(current().sections or {}) do
+		if s.name == panel.focus[panel.tab] then
+			toggle_fold(s.name)
+			return
+		end
+	end
+	next_section(1)
+end
+
+--- Turns the highlighted section's page; `[` and `]` match the pager's sides.
+local function page_focused(step)
+	for _, s in ipairs(current().sections or {}) do
+		if s.name == panel.focus[panel.tab] and s.pages then
+			panel.pages[s.name] = math.max(1, math.min(s.pages, s.page + step))
+			panel.cache = nil
+		end
+	end
+end
+
 --- Opens a row's diff in a float, replacing any earlier one.
 local function open_diff(row)
 	local attached, err = rex.call("session.attach", { session_id = panel.session_id })
@@ -1498,6 +1680,11 @@ local function act(action)
 		toggle_tree()
 	elseif action.kind == "open" then
 		open_row(action.key, action.row)
+	elseif action.kind == "fold" then
+		toggle_fold(action.name)
+	elseif action.kind == "page" then
+		panel.pages[action.name] = action.page
+		panel.cache = nil
 	end
 end
 
@@ -1603,6 +1790,16 @@ local function key(k)
 		toggle_tree()
 	elseif panel.tab == "Changes" and (k == "\n" or k == "\r") then
 		open_selected()
+	elseif panel.tab ~= "Changes" and k == "n" then
+		next_section(1)
+	elseif panel.tab ~= "Changes" and k == "p" then
+		next_section(-1)
+	elseif panel.tab ~= "Changes" and (k == "\n" or k == "\r") then
+		fold_focused()
+	elseif panel.tab ~= "Changes" and k == "[" then
+		page_focused(-1)
+	elseif panel.tab ~= "Changes" and k == "]" then
+		page_focused(1)
 	end
 end
 

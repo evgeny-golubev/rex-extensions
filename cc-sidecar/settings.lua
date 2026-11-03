@@ -44,6 +44,20 @@ function M.set_tree(base, on)
 	write_json(base .. "settings.json", settings)
 end
 
+--- Section name -> true, for the sections folded in the panel.
+function M.folded(base)
+	local settings = read_json(base .. "settings.json") or {}
+	return type(settings.folded) == "table" and settings.folded or {}
+end
+
+--- Read again first: other panes change the same list.
+function M.set_folded(base, name, on)
+	local settings = read_json(base .. "settings.json") or {}
+	settings.folded = type(settings.folded) == "table" and settings.folded or {}
+	settings.folded[name] = on or nil
+	write_json(base .. "settings.json", settings)
+end
+
 function M.request_show(base, session_id, block_id)
 	write_json(base .. "show-request.json", { session_id = session_id, block_id = block_id })
 end

@@ -353,32 +353,74 @@ local ok2, err2 = pcall(function()
 	equal(state.context, 41002, "context")
 	equal(state.compactions, 1, "compactions")
 
-	local context = plain(P.info_lines(state, 60))
+	local info = plain(P.info_lines(state, 60))
+	local context = plain(P.log_lines(state, 60))
 	has(context, "Add tabs to the panel", "prompt")
 	has(context, "/review high", "slash command")
 	has(context, "Also add a hint", "queued prompt")
-	equal(#state.prompts, 3, "prompts, without meta, notices, duplicates or subagents")
+	equal(#state.prompts, 3, "prompts, without meta, notices, a prompt recorded twice, or subagents")
 	has(context, "Which tabs?", "question")
 	has(context, "→ Diff and Context", "answer")
 	has(context, "keep Diff first", "answer note")
 	has(context, "Plan approved: Tabbed panel", "plan")
 	has(context, "Rejected Bash: rm -rf build", "rejected action")
 	has(context, "keep build", "what the user said")
-	has(context, "? Ship it now?", "waiting question")
-	has(context, "? Should I also add a third tab?", "question in the last reply")
-	has(context, "○ Draw the tabs", "open task")
-	hasnt(context, "Write the parser", "completed task")
-	has(context, "▸ Update the README", "todo in progress")
+	has(info, "? Ship it now?", "waiting question")
+	has(info, "? Should I also add a third tab?", "question in the last reply")
+	has(info, "○ Draw the tabs", "open task")
+	hasnt(info, "Write the parser", "completed task")
+	has(info, "▸ Update the README", "todo in progress")
+	hasnt(info, "Decisions", "Decisions moved to Log")
+	hasnt(info, "Requests", "Requests moved to Log")
+	hasnt(info, "Current state", "the summary moved to Log")
 	has(context, "Current state", "summary section")
 	local many = P.new_state()
 	for i = 1, 7 do
 		many.prompts[i] = { text = "request " .. i }
 	end
-	local recent = plain(P.info_lines(many, 60))
-	has(recent, "Requests last 5 of 7", "requests count")
-	has(recent, "request 7", "newest request")
-	has(recent, "request 3", "fifth newest request")
-	hasnt(recent, "request 2", "older request")
+	for i = 8, 52 do
+		many.prompts[i] = { text = "request " .. i }
+	end
+	local paged = P.log_lines(many, 60)
+	local recent = plain(paged)
+	has(recent, "Requests 52", "requests count")
+	has(recent, "← Next 1/11 Previous →", "pager")
+	has(recent, "request 52", "newest request")
+	has(recent, "request 48", "fifth newest request")
+	hasnt(recent, "request 47", "next page's request")
+	equal(recent:find("request 52", 1, true) < recent:find("request 51", 1, true), true, "newest first")
+	local second = plain(P.log_lines(many, 60, nil, nil, { Requests = 2 }))
+	has(second, "← Next 2/11 Previous →", "second page")
+	has(second, "request 47", "second page's first request")
+	has(second, "request 43", "second page's last request")
+	hasnt(second, "request 48", "first page's request")
+	local last = plain(P.log_lines(many, 60, nil, nil, { Requests = 99 }))
+	has(last, "11/11", "a page past the end shows the last")
+	has(last, "request 1\n", "the oldest request")
+	hasnt(last, "request 3\n", "the page before the last")
+	hasnt(plain(P.log_lines(state, 60)), "/1 ", "no pager on a single page")
+
+	-- The pager's sides are clickable only where there's a page to go to.
+	local function pager_line(lines)
+		for line, action in pairs(lines.actions) do
+			if action.ranges then
+				return line
+			end
+		end
+	end
+	local function click(lines, x)
+		local layout = { tabs = {}, hits = {}, pinned = 0, actions = lines.actions, scroll = 0 }
+		return P.hit(layout, x, pager_line(lines) + 2)
+	end
+	equal(click(paged, 1), nil, "no later page on the first")
+	equal(click(paged, 20).page, 2, "Previous goes to the earlier entries")
+	equal(click(paged, 20).name, "Requests", "the page's section")
+	equal(click(paged, 8), nil, "the page number isn't a button")
+	local middle = P.log_lines(many, 60, nil, nil, { Requests = 3 })
+	equal(click(middle, 1).page, 2, "Next goes to the later entries")
+	equal(click(middle, 6).page, 2, "the end of Next")
+	equal(click(middle, 7), nil, "just past Next")
+	equal(click(P.log_lines(many, 60, nil, nil, { Requests = 11 }), 20), nil, "no earlier page on the last")
 	has(context, "parser done", "summary text")
 	hasnt(context, "old", "summary sections that aren't about where work stands")
 	hasnt(context, "If you need", "Claude Code's note after the summary")
@@ -628,12 +670,100 @@ local ok2, err2 = pcall(function()
 	has(plain(P.info_lines(levels, 60)), "Reasoning   medium", "reasoning in Activity")
 	hasnt(plain(P.info_lines(P.new_state(), 60)), "Reasoning", "no level known")
 
-	-- The summary comes right after Open.
-	local order = P.new_state()
-	order.summary = "## Next step\nFinish it\n"
-	local shown = plain(P.info_lines(order, 60))
-	equal(shown:find("Open", 1, true) < shown:find("From the last summary", 1, true), true, "Open first")
-	equal(shown:find("From the last summary", 1, true) < shown:find("Decisions", 1, true), true, "summary before Decisions")
+	-- Log entries carry their local time, newest first.
+	equal(P.stamp("2026-11-03T15:46:12.590Z"), os.date("%m-%d %H:%M", 1793720772), "UTC to local")
+	equal(P.stamp("2024-02-29T00:00:00Z"), os.date("%m-%d %H:%M", 1709164800), "leap day")
+	equal(P.stamp(nil), "", "no timestamp")
+	local dated = P.new_state()
+	local function at(t, r)
+		r.timestamp = "2026-11-03T" .. t .. ":00Z"
+		P.record(dated, r)
+	end
+	local function say(text)
+		return { type = "assistant", message = { content = { { type = "text", text = text } } } }
+	end
+	at("10:00", { type = "user", message = { content = "first go" } })
+	at("10:01", say("thinking"))
+	at("10:02", say("first reply"))
+	at("11:00", { type = "user", message = { content = "go" } })
+	at("11:01", say("second reply"))
+	at("12:00", { type = "user", message = { content = "go" } })
+	at("12:01", say("third reply"))
+	at("13:00", { type = "user", message = { content = "queued" } })
+	at("13:00", { type = "user", message = { content = "queued" } })
+	at("14:00", { type = "user", isCompactSummary = true, message = { content = "## Next step\nOlder plan\n" } })
+	at("15:00", { type = "user", isCompactSummary = true, message = { content = "## Next step\nNewer plan\n" } })
+	equal(#dated.responses, 3, "one response a turn")
+	equal(#dated.prompts, 4, "the same words after a reply count, a record repeated at once doesn't")
+	local log = plain(P.log_lines(dated, 60))
+	has(log, "≡ Summary from " .. P.stamp("2026-11-03T15:00:00Z"), "summary heading")
+	has(plain(P.log_lines(P.new_state(), 60)), "≡ Summary none", "no summary yet")
+	has(log, "◈ Decisions none", "decisions heading")
+	has(log, "› Requests 4", "requests heading")
+	has(log, "‹ Responses 3", "responses heading")
+	has(log, "‹ " .. P.stamp("2026-11-03T11:01:00Z") .. ": second reply", "date in front of the entry")
+	has(log, "› " .. P.stamp("2026-11-03T13:00:00Z") .. ": queued", "date in front of a request")
+	hasnt(log, "thinking", "only a turn's last text")
+	has(log, "\nNext step\n  Newer plan", "the latest summary")
+	hasnt(log, "Older plan", "earlier summaries")
+	equal(log:find("third reply", 1, true) < log:find("first reply", 1, true), true, "newest response first")
+	equal(#P.new_state().responses, 0, "no responses yet")
+	P.record(dated, say(string.rep("é", 3000)))
+	equal(P.width(dated.responses[#dated.responses].text), 2000, "long responses cut, on a character")
+
+	-- Summaries have Markdown or numbered headings, and may have neither kind.
+	local numbered = P.summary_lines("1. Primary Request and Intent:\n   Old\n8. Current Work:\n   Now\n9. \"a quote\": kept text\n")
+	equal(numbered[1].heading, "Current Work", "numbered heading")
+	equal(numbered[2].text, "   Now", "numbered section's text")
+	equal(numbered[3].text:sub(1, 2), "9.", "a numbered line that isn't a heading")
+	equal(#numbered, 3, "only sections about where work stands")
+	local bare = P.new_state()
+	P.record(bare, { type = "user", timestamp = "2026-11-03T14:00:00Z", isCompactSummary = true, message = { content = "Just prose" } })
+	has(plain(P.log_lines(bare, 60)), "No current state", "a summary with nothing to show")
+
+	-- Foldable headings hide their sections, click to toggle, and stay in place.
+	local tested = P.new_state()
+	tested.tests[1] = { command = "npm test", ok = true }
+	local open = P.info_lines(tested, 60)
+	has(plain(open), "▾ ▷ Tests 1", "unfolded heading")
+	has(plain(open), "npm test", "unfolded body")
+	has(plain(open), "◆ Session", "session icon")
+	local closed = P.info_lines(tested, 60, nil, nil, { Tests = true })
+	has(plain(closed), "▸ ▷ Tests 1", "folded heading keeps its count")
+	hasnt(plain(closed), "npm test", "folded body")
+	has(plain(closed), "▾ ✗ Failed commands", "other sections stay open")
+	local tests_line
+	for line, action in pairs(closed.actions) do
+		if action.name == "Tests" then
+			tests_line = line
+		end
+	end
+	has(closed[tests_line], "Tests", "the action is on the heading's line")
+	equal(closed.actions[tests_line].kind, "fold", "heading click")
+	local layout_fold = { tabs = {}, hits = {}, pinned = 0, actions = closed.actions, scroll = 0 }
+	equal(P.hit(layout_fold, 1, tests_line + 2).name, "Tests", "a click lands on the heading")
+	equal(#closed.sections, 3, "Info's foldable sections")
+	equal(#P.log_lines(tested, 60).sections, 4, "Log's foldable sections")
+	has(P.info_lines(tested, 60, nil, nil, nil, "Tests")[tests_line], "\27[7m", "highlighted heading")
+
+	local folds = dir .. "fold-test/"
+	real.exec({ "mkdir", "-p", folds })
+	local S = dofile(dir .. "settings.lua")
+	local ok_fold, err_fold = pcall(function()
+		equal(next(S.folded(folds)), nil, "nothing folded at first")
+		S.set_auto_show(folds, false)
+		S.set_folded(folds, "Tests", true)
+		S.set_folded(folds, "Open", true)
+		equal(S.folded(folds).Tests, true, "fold saved")
+		S.set_folded(folds, "Tests", false)
+		equal(S.folded(folds).Tests, nil, "unfold saved")
+		equal(S.folded(folds).Open, true, "other folds kept")
+		equal(S.auto_show(folds), false, "other settings kept")
+	end)
+	real.exec({ "rm", "-rf", folds })
+	if not ok_fold then
+		error(err_fold, 0)
+	end
 end)
 if not ok2 then
 	error(err2, 0)
