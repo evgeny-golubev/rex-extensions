@@ -11,9 +11,8 @@ The pane has three tabs, redrawn every 2 seconds.
 
 ## Changes
 
-Opens first. The top row shows the branch, its added and removed lines, and
-`≣`, which switches between a list and a folder tree. Below it are three
-scopes:
+The top row shows the branch, its added and removed lines, and `≣`, which
+switches between a list and a folder tree. Below it are three scopes:
 
 | Scope | What it lists | Where it comes from |
 | --- | --- | --- |
@@ -32,7 +31,7 @@ update to it can empty this scope and the Info and Log tabs.
 
 ## Info
 
-Open, Tests and Failed commands fold; see [Folding](#folding).
+Opens first. Open, Tests and Failed commands fold; see [Folding](#folding).
 
 | Section | What's in it |
 | --- | --- |
@@ -46,7 +45,7 @@ Open, Tests and Failed commands fold; see [Folding](#folding).
 
 What was said and decided. Summary has its local date and time in its title.
 The other three sections start each entry with theirs, run newest first and show
-5 entries a page. All four fold.
+3 entries a page. All four fold.
 
 | Section | What's in it |
 | --- | --- |
@@ -55,9 +54,9 @@ The other three sections start each entry with theirs, run newest first and show
 | **Requests** | Your prompts, including slash commands and messages sent while Claude worked. Up to 6 rows each |
 | **Responses** | Claude's final text in each turn, which changes while the turn runs. Up to 8 rows each, read from the first 2,000 characters |
 
-A section with more than one page has `← Next 2/10 Previous →` under its
-heading. Previous goes to earlier entries and Next to later ones. Click them, or
-highlight the section and press `]` or `[`. The page isn't saved.
+A section with more than one page ends with `← Next 2/10 Previous →`. Previous
+goes to earlier entries and Next to later ones. Click them, or highlight the
+section and press `]` or `[`. The page isn't saved.
 
 ## Where Info and Log get their data
 

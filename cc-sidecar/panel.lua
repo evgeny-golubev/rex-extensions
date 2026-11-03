@@ -534,6 +534,16 @@ local function heading(out, title, count, style)
 	out[#out + 1] = (style or bold) .. title .. reset .. (count and (dim .. " " .. count .. reset) or "")
 end
 
+--- Adds what `body` writes, under a blank row; no row if it writes nothing.
+local function under_heading(out, body)
+	local before = #out
+	out[before + 1] = ""
+	body()
+	if #out == before + 1 then
+		out[before + 1] = nil
+	end
+end
+
 --- A section with a fold mark on its heading. A folded one doesn't build its
 --- lines.
 local function section(out, name, icon, count, body)
@@ -542,7 +552,7 @@ local function section(out, name, icon, count, body)
 	out.actions[#out] = { kind = "fold", name = name }
 	out.sections[#out.sections + 1] = { name = name, line = #out }
 	if not folded then
-		body()
+		under_heading(out, body)
 	end
 end
 
@@ -649,11 +659,13 @@ local function session_section(out, state, cols)
 		{ "Compacted", state.compactions > 0 and (state.compactions .. "×") or nil },
 		{ "Claude time", state.claude_ms > 0 and duration(state.claude_ms) or nil },
 	}
-	for _, f in ipairs(facts) do
-		if f[2] then
-			add(out, M.wrap(tostring(f[2]), cols, dim .. string.format("%-12s", f[1]) .. reset, string.rep(" ", 12)))
+	under_heading(out, function()
+		for _, f in ipairs(facts) do
+			if f[2] then
+				add(out, M.wrap(tostring(f[2]), cols, dim .. string.format("%-12s", f[1]) .. reset, string.rep(" ", 12)))
+			end
 		end
-	end
+	end)
 end
 
 local function tests_section(out, state, cols)
@@ -697,6 +709,7 @@ local function usage_section(out, limits, cols, now)
 		if type(limit) == "table" and limit.used_percentage then
 			if not shown then
 				heading(out, "▤ Usage")
+				out[#out + 1] = ""
 				shown = true
 			end
 			local left = limit.resets_at and limit.resets_at - now or nil
@@ -726,9 +739,9 @@ end
 
 -- Log -----------------------------------------------------------------------
 
-local page_size = 5
+local page_size = 3
 
---- The pager under a section's heading, with the columns each side takes.
+--- The pager at the end of a section, with the columns each side takes.
 --- Entries run newest first, so Next, to the left, is the later entries.
 function M.pager(page, pages, name)
 	local later, position, earlier = "← Next", " " .. page .. "/" .. pages .. " ", "Previous →"
@@ -792,14 +805,15 @@ local function log_section(out, name, icon, entries, draw)
 	local pages = math.max(1, math.ceil(#entries / page_size))
 	local page = math.max(1, math.min(pages, out.pages[name] or 1))
 	section(out, name, icon, #entries == 0 and "none" or tostring(#entries), function()
-		if pages > 1 then
-			local line, ranges = M.pager(page, pages, name)
-			out[#out + 1] = line
-			out.actions[#out] = { ranges = ranges }
-		end
 		local newest = #entries - (page - 1) * page_size
 		for i = newest, math.max(1, newest - page_size + 1), -1 do
 			draw(entries[i])
+		end
+		if pages > 1 then
+			local line, ranges = M.pager(page, pages, name)
+			out[#out + 1] = ""
+			out[#out + 1] = line
+			out.actions[#out] = { ranges = ranges }
 		end
 	end)
 	out.sections[#out.sections].page, out.sections[#out.sections].pages = page, pages
@@ -1252,7 +1266,7 @@ local panel = {
 	block_id = os.getenv("REX_BLOCK"),
 	claude = rex.args and rex.args.claude,
 	root = rex.args and rex.args.cwd or os.getenv("PWD"),
-	tab = "Changes",
+	tab = "Info",
 	--- Tab name -> the first line shown.
 	scroll = {},
 	cols = 80,
