@@ -343,10 +343,79 @@ end
 --- Programs that only carry a Claude task's real one.
 local carriers = { zsh = true, bash = true, sh = true, sleep = true, env = true, timeout = true, caffeinate = true }
 
---- Crabs for a Claude's background tasks: the shells it started, each named
---- by the program it runs, from processes ({ pid, ppid, age, comm }). Only
---- executable names are read, never arguments, which can hold secrets.
-function M.task_crabs(claude_pid, processes)
+--- A new record of the monitors a Claude started, from its transcript.
+function M.new_monitors()
+	return { offset = 0, partial = "", descriptions = {}, list = {} }
+end
+
+local function monitor_record(monitors, r)
+	local content = r.message and r.message.content
+	if type(content) ~= "table" then
+		return
+	end
+	for _, item in ipairs(content) do
+		if r.type == "assistant" and item.type == "tool_use" and item.name == "Monitor" then
+			monitors.descriptions[item.id] = (type(item.input) == "table" and item.input.description) or "monitor"
+		elseif r.type == "user" and item.type == "tool_result" and monitors.descriptions[item.tool_use_id] then
+			local result = type(r.toolUseResult) == "table" and r.toolUseResult or {}
+			local at = M.iso_time(r.timestamp)
+			if at and result.timeoutMs then
+				monitors.list[#monitors.list + 1] = {
+					description = monitors.descriptions[item.tool_use_id],
+					at = at,
+					expires = at + result.timeoutMs / 1000,
+				}
+			end
+		end
+	end
+end
+
+--- Adds a chunk of transcript. Only lines that can name a monitor are decoded;
+--- API request records list every tool and are large, so they're skipped.
+function M.feed_monitors(monitors, chunk)
+	local text = monitors.partial .. chunk
+	local pos = 1
+	while true do
+		local nl = text:find("\n", pos, true)
+		if not nl then
+			break
+		end
+		local line = text:sub(pos, nl - 1)
+		if (line:find('"Monitor"', 1, true) or line:find('"timeoutMs"', 1, true)) and not line:find('^{"type":"api%-request') then
+			local ok, r = pcall(rex.json.decode, line)
+			if ok and type(r) == "table" then
+				monitor_record(monitors, r)
+			end
+		end
+		pos = nl + 1
+	end
+	monitors.partial = text:sub(pos)
+end
+
+--- The monitor a Claude's shell runs. A process only has its program's name, so
+--- it's matched by start time: a monitor starts its shell as it's recorded.
+local function monitor_of(wrapper, monitors, used, now)
+	local best, closest
+	for _, m in ipairs(monitors or {}) do
+		if wrapper.age and not used[m] and now <= m.expires then
+			local apart = math.abs(now - m.at - wrapper.age)
+			if apart <= 10 and (not closest or apart < closest) then
+				best, closest = m, apart
+			end
+		end
+	end
+	if best then
+		used[best] = true
+	end
+	return best
+end
+
+--- Crabs for a Claude's background tasks: the shells it started, each named by
+--- the monitor it runs or else by its program, from processes ({ pid, ppid, age,
+--- comm }). Only executable names are read, never arguments, which can hold
+--- secrets. `monitors` is the list from its transcript, if known.
+function M.task_crabs(claude_pid, processes, monitors, now)
+	local used = {}
 	local children = {}
 	for _, p in ipairs(processes) do
 		children[p.ppid] = children[p.ppid] or {}
@@ -375,7 +444,10 @@ function M.task_crabs(claude_pid, processes)
 				end
 			end
 			local crab
-			if tails then
+			local monitor = monitor_of(wrapper, monitors, used, now or os.time())
+			if monitor then
+				crab = { kind = "monitor", outfit = "lookout", color = M.colors.monitor, state = "busy", name = monitor.description, detail = "Claude's monitor" }
+			elseif tails then
 				crab = { kind = "monitor", outfit = "lookout", color = M.colors.monitor, state = "busy", name = "monitor", detail = "watching output" }
 			elseif program then
 				local k, name = M.program_kind(program)
@@ -732,6 +804,8 @@ local pond = {
 	drawn = nil,
 	main_pid = nil,
 	view = {},
+	--- Transcript path -> what's been read of its monitors.
+	monitors = {},
 }
 
 --- A Claude pane's crab, from its session and status line files.
@@ -762,6 +836,34 @@ local function started(path)
 	local head = f:read(65536) or ""
 	f:close()
 	return M.iso_time(head:match('"timestamp":"([^"]+)"'))
+end
+
+--- The monitors in a transcript, read from where the last read stopped.
+local function read_monitors(path)
+	if not path then
+		return nil
+	end
+	local f = io.open(path, "rb")
+	if not f then
+		return nil
+	end
+	local monitors = pond.monitors[path]
+	local size = f:seek("end")
+	if not monitors or size < monitors.offset then
+		monitors = M.new_monitors()
+		pond.monitors[path] = monitors
+	end
+	f:seek("set", monitors.offset)
+	while true do
+		local chunk = f:read(1048576)
+		if not chunk then
+			break
+		end
+		monitors.offset = monitors.offset + #chunk
+		M.feed_monitors(monitors, chunk)
+	end
+	f:close()
+	return monitors.list
 end
 
 local function subagent_crabs(statusline, into, now)
@@ -871,7 +973,7 @@ local function gather()
 			others[#others + 1] = crab
 		end
 		subagent_crabs(crab.statusline, crabs, now)
-		for _, task in ipairs(M.task_crabs(cl.pid, processes)) do
+		for _, task in ipairs(M.task_crabs(cl.pid, processes, read_monitors(crab.statusline.transcript_path), now)) do
 			crabs[#crabs + 1] = task
 		end
 	end

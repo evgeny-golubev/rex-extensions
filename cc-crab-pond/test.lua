@@ -343,6 +343,48 @@ ok, err = pcall(function()
 	equal(tasks[2].outfit, "lookout", "monitor outfit")
 	equal(tasks[3].state, "sleep", "waiting shell")
 
+	-- A shell started as a monitor was recorded is that monitor, named by Claude.
+	local function monitored(age, at, list)
+		local shell = { { pid = 30, ppid = 10, comm = "/bin/zsh", age = age }, { pid = 31, ppid = 30, comm = "sleep" } }
+		return P.task_crabs(10, shell, list, 1000)[1]
+	end
+	local watch = { { description = "errors in deploy.log", at = 900, expires = 2000 } }
+	local watched = monitored(100, 900, watch)
+	equal(watched.name, "errors in deploy.log", "monitor's description")
+	equal(watched.kind, "monitor", "monitor kind")
+	equal(watched.outfit, "lookout", "monitor's outfit")
+	equal(watched.state, "busy", "a monitor is at work, not waiting")
+	equal(watched.detail, "Claude's monitor", "monitor's detail")
+	equal(monitored(100, 900, { { description = "x", at = 900, expires = 950 } }).name, "waiting", "an expired monitor")
+	equal(monitored(150, 900, watch).name, "waiting", "a shell started at another time")
+	equal(monitored(nil, 900, watch).name, "waiting", "a shell with no known age")
+	equal(monitored(100, 900, nil).name, "waiting", "no transcript")
+	local two = P.task_crabs(10, {
+		{ pid = 30, ppid = 10, comm = "/bin/zsh", age = 100 }, { pid = 32, ppid = 10, comm = "/bin/zsh", age = 99 },
+	}, { { description = "first", at = 900, expires = 2000 }, { description = "second", at = 901, expires = 2000 } }, 1000)
+	equal(two[1].name, "first", "the monitor closest in time")
+	equal(two[2].name, "second", "each monitor matches one shell")
+
+	-- Monitors come from the transcript, split across reads, with their local time.
+	local T = real.json
+	local function line(r)
+		return T.encode(r) .. "\n"
+	end
+	local stream = line({ type = "api-request", tools = { { name = "Monitor" } }, timeoutMs = 1 })
+		.. line({ type = "assistant", message = { content = { { type = "tool_use", id = "m1", name = "Monitor", input = { description = "CI checks", command = "secret" } } } } })
+		.. line({ type = "assistant", message = { content = { { type = "tool_use", id = "b1", name = "Bash", input = { command = "ls", timeout = 5 } } } } })
+		.. line({ type = "user", message = { content = { { type = "tool_result", tool_use_id = "b1" } } }, timestamp = "2026-11-03T10:00:00Z", toolUseResult = { timeoutMs = 9 } })
+		.. line({ type = "user", message = { content = { { type = "tool_result", tool_use_id = "m1" } } }, timestamp = "2026-11-03T10:00:00.5Z", toolUseResult = { taskId = "t", timeoutMs = 60000 } })
+	local found = P.new_monitors()
+	P.feed_monitors(found, stream:sub(1, 90))
+	P.feed_monitors(found, stream:sub(91))
+	equal(found.partial, "", "nothing left over")
+	equal(#found.list, 1, "only monitors")
+	equal(found.list[1].description, "CI checks", "description from the tool call")
+	equal(found.list[1].at, P.iso_time("2026-11-03T10:00:00Z"), "start")
+	equal(found.list[1].expires, found.list[1].at + 60, "expiry")
+	equal(found.list[1].command, nil, "the command isn't kept")
+
 	-- Same crabs group, keeping the longest uptime; busy ones show it.
 	ps[4].age, ps[2].age = 30, 90
 	ps[#ps + 1] = { pid = 21, ppid = 10, comm = "/bin/zsh", age = 300 }

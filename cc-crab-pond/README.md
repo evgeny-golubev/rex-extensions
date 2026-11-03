@@ -60,7 +60,7 @@ session names.
 
 | Colour | Kind | Outfit | Programs |
 | --- | --- | --- | --- |
-| Sky blue | Claude's monitor | Magnifying glass | Claude watching a command's output |
+| Sky blue | Claude's monitor | Magnifying glass | Named by the description Claude gave it. Without the status line step, only one running `tail` is recognised, shown as `monitor` |
 | Blue | Editor | Sunglasses and a screen | nvim, vim, helix, emacs, nano, zed |
 | Red | Git | Flag | git, gh, lazygit, tig, jj |
 | Yellow | Build or test | Hard hat and wrench | go, cargo, make, npm, bun, node, python, pytest, xcodebuild |
