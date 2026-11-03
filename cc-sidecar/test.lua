@@ -435,6 +435,122 @@ local ok2, err2 = pcall(function()
 	equal(P.project_dir("/Users/a.b/My App"), "-Users-a-b-My-App", "project folder")
 	equal(P.claude_pid({ foreground = { argv0 = "git" }, ancestors = { { argv0 = "/bin/claude", pid = 7 } } }), 7, "pid")
 
+	local st = { files = {
+		{ x = " ", y = "M", path = "a.lua" },
+		{ x = "R", y = " ", path = "new.lua" },
+		{ x = "?", y = "?", path = "docs/x.md" },
+		{ x = "M", y = "M", path = "both.lua" },
+	} }
+
+	-- Uncommitted: a file changed both ways is in both groups, once in the tree.
+	local data = P.uncommitted(st.files)
+	equal(data.groups[1].title, "Staged", "first group")
+	equal(#data.groups[1].rows, 2, "staged rows")
+	equal(data.groups[2].title, "Unstaged", "second group")
+	equal(#data.groups[2].rows, 3, "unstaged rows")
+	equal(#data.merged, 4, "tree rows")
+	equal(data.groups[2].rows[2].mark, "A", "untracked counts as added")
+	equal(#P.uncommitted({}).groups, 0, "nothing changed")
+
+	-- Each row's diff.
+	local args = function(row, ...)
+		return table.concat(P.diff_args(row, ...), " ")
+	end
+	equal(args({ path = "a", diff = "staged" }), "diff --cached -- a", "staged diff")
+	equal(args({ path = "a", diff = "unstaged" }), "diff -- a", "unstaged diff")
+	equal(args({ path = "a", diff = "head" }, nil, true), "diff HEAD -- a", "merged diff")
+	equal(args({ path = "a", diff = "head" }, nil, false), "diff --cached -- a", "merged diff without commits")
+	equal(args({ path = "a", diff = "base" }, "abc"), "diff abc -- a", "branch diff")
+	equal(args({ path = "a", diff = "untracked" }), "diff --no-index -- /dev/null a", "untracked diff")
+
+	-- Numbers and the Branch scope.
+	local a2, r2 = P.numstat("3\t1\ta.lua\0-\t-\tpic.png\0" .. "2\t0\tb c.lua\0")
+	equal(a2, 5, "added")
+	equal(r2, 1, "removed")
+	local moved_a, moved_r = P.numstat("1\t2\t\0old.lua\0new.lua\0")
+	equal(moved_a, 1, "added in a rename")
+	equal(moved_r, 2, "removed in a rename")
+	local renamed = P.branch_rows("R100\0old.lua\0new.lua\0M\0z.lua\0", {})
+	equal(#renamed, 2, "a rename is one row")
+	equal(renamed[1].path, "new.lua", "a rename's new path")
+	equal(renamed[1].mark, "R", "rename mark")
+	local branch = P.branch_rows("M\0z.lua\0D\0b.lua\0", { { x = "?", y = "?", path = "c.lua" }, { x = " ", y = "M", path = "z.lua" } })
+	equal(#branch, 3, "branch rows with untracked")
+	equal(branch[1].path, "b.lua", "sorted")
+	equal(branch[1].mark, "D", "branch mark")
+	equal(branch[2].diff, "untracked", "untracked in the branch")
+
+	-- Last Turn: edits since the last prompt, with Claude Code's hunks.
+	local turn = P.new_state()
+	local function edit(id, path, extra)
+		P.record(turn, use(id, "Edit", { file_path = path }))
+		P.record(turn, result(id, "ok", extra))
+	end
+	edit("x1", "/src/app/old.lua", { structuredPatch = { { oldStart = 1, oldLines = 1, newStart = 1, newLines = 1, lines = { "-a", "+b" } } } })
+	P.record(turn, { type = "user", message = { content = "Next task" } })
+	equal(#P.turn_data(turn, "/src/app").groups, 0, "a prompt starts a new turn")
+	has(P.turn_data(turn, "/src/app").note, "No edits", "empty turn's note")
+	edit("x2", "/src/app/a.lua", { structuredPatch = { { oldStart = 3, oldLines = 2, newStart = 3, newLines = 2, lines = { " k", "-a", "+b", "+c" } } } })
+	edit("x3", "/src/app/a.lua", { structuredPatch = { { oldStart = 9, oldLines = 1, newStart = 9, newLines = 0, lines = { "-z" } } } })
+	P.record(turn, use("x4", "Write", { file_path = "/src/app/new.lua" }))
+	P.record(turn, result("x4", "ok", { type = "create", content = "one\ntwo\n", structuredPatch = {} }))
+	local td = P.turn_data(turn, "/src/app")
+	equal(#td.groups[1].rows, 2, "files this turn")
+	equal(td.groups[1].rows[1].path, "a.lua", "relative path")
+	equal(td.groups[1].rows[1].mark, "M", "edited file")
+	equal(td.groups[1].rows[2].mark, "A", "new file")
+	equal(td.added, 4, "turn's added lines")
+	equal(td.removed, 2, "turn's removed lines")
+	local patch = P.turn_patch(turn, "/src/app/a.lua", "a.lua")
+	has(patch, "--- a/a.lua\n+++ b/a.lua\n", "patch names the file")
+	has(patch, "@@ -3,2 +3,2 @@\n k\n-a\n+b\n+c\n", "first hunk")
+	has(patch, "@@ -9,1 +9,0 @@\n-z\n", "second hunk")
+	has(P.turn_patch(turn, "/src/app/new.lua", "new.lua"), "@@ -0,0 +1,2 @@\n+one\n+two\n", "new file's hunk")
+
+	-- The Changes view: pinned header, grouped list and clickable rows.
+	local v = { title = "feature/x", scope = "Uncommitted", scopes = P.scopes(true), data = data }
+	data.added, data.removed = 7, 2
+	local built = P.changes_view(v, 40)
+	equal(#built.pinned, 3, "pinned lines")
+	has(plain({ built.pinned[1] }), "feature/x", "branch")
+	has(plain({ built.pinned[1] }), "+7 −2", "totals")
+	equal(P.width(built.pinned[1]), 40, "header fills the width")
+	has(plain({ built.pinned[2] }), "Last Turn", "scope")
+	has(plain(built.lines), "Staged (2)", "staged heading")
+	has(plain(built.lines), "Unstaged (3)", "unstaged heading")
+	has(plain(built.lines), "A x.md  docs", "row with its folder")
+	equal(built.rows[1].row.diff, "staged", "first row")
+	equal(built.actions[built.rows[1].line].kind, "open", "row is clickable")
+	v.selected = built.rows[1].key
+	has(plain(P.changes_view(v, 40).lines), "› ", "selected row")
+	equal(table.concat(P.scopes(false), ","), "Last Turn", "scopes without git")
+
+	-- The tree merges the groups and lists folders.
+	v.tree, v.selected = true, nil
+	local tree = P.changes_view(v, 40)
+	has(plain(tree.lines), "Changed (4)", "tree heading")
+	has(plain(tree.lines), "▾ docs", "folder")
+	equal(#tree.rows, 4, "tree rows")
+	equal(tree.rows[1].row.diff, "head", "tree row's diff")
+	local deep = P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true), tree = true, data = { groups = { { title = "Changed", rows = {
+		{ path = "src/cart/a.ts", mark = "M" }, { path = "src/cart/b.ts", mark = "A" }, { path = "src/ui/c.ts", mark = "M" }, { path = "z.ts", mark = "D" },
+	} } }, vs = "main" } }, 30)
+	local shown_tree = plain(deep.lines)
+	has(shown_tree, "vs main", "what the branch compares with")
+	local _, cart_count = shown_tree:gsub("▾ cart", "")
+	equal(cart_count, 1, "a folder is listed once")
+	has(shown_tree, "▾ ui", "sibling folder")
+	has(shown_tree, "z.ts", "top-level file")
+
+	-- Narrow panes get the short scope names; the columns follow.
+	local narrow, narrow_ranges = P.scope_bar(P.scopes(true), "Branch", 26)
+	has(plain({ narrow }), "Local", "short name")
+	hasnt(plain({ narrow }), "Uncommitted", "long name")
+	equal(narrow_ranges[3].action.scope, "Branch", "last scope")
+	local _, wide_ranges = P.scope_bar(P.scopes(true), "Branch", 60)
+	equal(wide_ranges[1].from, 1, "first scope's column")
+	equal(wide_ranges[2].from, wide_ranges[1].to + 2, "columns leave a space")
+
 	-- The status, from one porcelain call.
 	local st = P.status("## main...origin/main [ahead 1]\0 M a.lua\0R  new.lua\0old.lua\0?? docs/x.md\0", "/r")
 	equal(#st.lines, 4, "status lines")

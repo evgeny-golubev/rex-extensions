@@ -16,6 +16,11 @@ function M.tabs(git)
 	return git and { "Activity", "Context", "Diff" } or { "Activity", "Context" }
 end
 
+--- The scopes of the Changes tab; only Last Turn works without git.
+function M.scopes(git)
+	return git and { "Last Turn", "Uncommitted", "Branch" } or { "Last Turn" }
+end
+
 local reset, bold, dim = "\27[0m", "\27[1m", "\27[2m"
 local red, green, yellow, cyan = "\27[31m", "\27[32m", "\27[33m", "\27[36m"
 
@@ -193,6 +198,7 @@ function M.new_state()
 		tests = {},
 		compactions = 0,
 		claude_ms = 0,
+		turn = { order = {}, files = {} },
 	}
 end
 
@@ -205,6 +211,7 @@ local function add_prompt(state, text)
 	elseif text == "" or text:sub(1, 1) == "<" or text:match("^%[Request interrupted") then
 		return
 	end
+	state.turn = { order = {}, files = {} }
 	if state.seen_prompts[text] then
 		return
 	end
@@ -225,6 +232,38 @@ local function result_text(item)
 		c = table.concat(parts, "\n")
 	end
 	return tostring(c or "")
+end
+
+--- Adds an edit to the current turn, with the hunks Claude Code recorded. A new
+--- file records its content instead.
+local function turn_edit(state, path, extra)
+	local turn = state.turn
+	local f = turn.files[path]
+	if not f then
+		f = { hunks = {}, added = 0, removed = 0, created = extra.type == "create" }
+		turn.files[path] = f
+		turn.order[#turn.order + 1] = path
+	end
+	local hunks = type(extra.structuredPatch) == "table" and extra.structuredPatch or {}
+	if #hunks == 0 and extra.type == "create" and type(extra.content) == "string" then
+		local lines = {}
+		local content = extra.content:gsub("\n$", "") .. "\n"
+		for line in content:gmatch("([^\n]*)\n") do
+			lines[#lines + 1] = "+" .. line
+		end
+		hunks = { { oldStart = 0, oldLines = 0, newStart = 1, newLines = #lines, lines = lines } }
+	end
+	for _, hunk in ipairs(hunks) do
+		f.hunks[#f.hunks + 1] = hunk
+		for _, line in ipairs(type(hunk.lines) == "table" and hunk.lines or {}) do
+			local sign = tostring(line):sub(1, 1)
+			if sign == "+" then
+				f.added = f.added + 1
+			elseif sign == "-" then
+				f.removed = f.removed + 1
+			end
+		end
+	end
 end
 
 --- What a tool call acted on, for a rejected action.
@@ -312,6 +351,7 @@ local function tool_result(state, item, record)
 				end
 			end
 			state.file_order[#state.file_order + 1] = path
+			turn_edit(state, path, extra)
 		end
 	elseif tool.name == "Bash" then
 		local cmd = M.command(input.command)
@@ -655,6 +695,252 @@ function M.activity_lines(state, cols, root, changed)
 	end
 	return out
 end
+
+
+-- Changes -------------------------------------------------------------------
+
+--- `git diff --numstat -z`, as added and removed line totals. A rename's two
+--- paths are fields of their own, without the tabs a count has.
+function M.numstat(out)
+	local added, removed = 0, 0
+	for field in out:gmatch("[^%z]+") do
+		local a, r = field:match("^(%S+)\t(%S+)\t")
+		added = added + (tonumber(a) or 0)
+		removed = removed + (tonumber(r) or 0)
+	end
+	return added, removed
+end
+
+--- A scope's rows from `git status`: grouped as Staged and Unstaged, and merged
+--- into one list for the tree, where a file is listed once.
+function M.uncommitted(files)
+	local staged, unstaged, merged = {}, {}, {}
+	for _, f in ipairs(files) do
+		if f.x == "?" then
+			local row = { path = f.path, mark = "A", diff = "untracked" }
+			unstaged[#unstaged + 1] = row
+			merged[#merged + 1] = row
+		else
+			if f.x ~= " " then
+				staged[#staged + 1] = { path = f.path, mark = f.x, diff = "staged" }
+			end
+			if f.y ~= " " then
+				unstaged[#unstaged + 1] = { path = f.path, mark = f.y, diff = "unstaged" }
+			end
+			merged[#merged + 1] = { path = f.path, mark = f.y ~= " " and f.y or f.x, diff = "head" }
+		end
+	end
+	local groups = {}
+	if #staged > 0 then
+		groups[#groups + 1] = { title = "Staged", rows = staged }
+	end
+	if #unstaged > 0 then
+		groups[#groups + 1] = { title = "Unstaged", rows = unstaged }
+	end
+	return { groups = groups, merged = merged, note = "No uncommitted changes." }
+end
+
+--- The Branch scope from `git diff --name-status -z`. Untracked files aren't in
+--- that diff, so they're added from the status.
+function M.branch_rows(out, files)
+	local fields = {}
+	for field in out:gmatch("[^%z]+") do
+		fields[#fields + 1] = field
+	end
+	local rows = {}
+	local i = 1
+	while i < #fields do
+		local mark = fields[i]:sub(1, 1)
+		-- A rename or copy names the path it came from, then the new one.
+		if mark == "R" or mark == "C" then
+			i = i + 1
+		end
+		rows[#rows + 1] = { path = fields[i + 1], mark = mark, diff = "base" }
+		i = i + 2
+	end
+	for _, f in ipairs(files) do
+		if f.x == "?" then
+			rows[#rows + 1] = { path = f.path, mark = "A", diff = "untracked" }
+		end
+	end
+	table.sort(rows, function(a, b)
+		return a.path < b.path
+	end)
+	return rows
+end
+
+--- The Last Turn scope, from the hunks in the transcript.
+function M.turn_data(state, root)
+	local rows, added, removed = {}, 0, 0
+	for _, path in ipairs(state.turn.order) do
+		local f = state.turn.files[path]
+		rows[#rows + 1] = { path = short_path(path, root), mark = f.created and "A" or "M", diff = "patch", absolute = path }
+		added, removed = added + f.added, removed + f.removed
+	end
+	return {
+		groups = #rows > 0 and { { title = "Changed", rows = rows } } or {},
+		added = added,
+		removed = removed,
+		note = "No edits since your last prompt.",
+	}
+end
+
+--- A file's hunks from this turn, as the text of a patch that names it `shown`.
+function M.turn_patch(state, path, shown)
+	local out = { "--- a/" .. shown, "+++ b/" .. shown }
+	for _, hunk in ipairs(state.turn.files[path].hunks) do
+		out[#out + 1] = string.format("@@ -%d,%d +%d,%d @@", hunk.oldStart or 0, hunk.oldLines or 0, hunk.newStart or 0, hunk.newLines or 0)
+		for _, line in ipairs(type(hunk.lines) == "table" and hunk.lines or {}) do
+			out[#out + 1] = tostring(line)
+		end
+	end
+	return table.concat(out, "\n") .. "\n"
+end
+
+--- The `git` arguments that show a row's diff.
+function M.diff_args(row, base, head)
+	local path = row.path
+	if row.diff == "staged" or (row.diff == "head" and not head) then
+		return { "diff", "--cached", "--", path }
+	elseif row.diff == "unstaged" then
+		return { "diff", "--", path }
+	elseif row.diff == "head" then
+		return { "diff", "HEAD", "--", path }
+	elseif row.diff == "base" then
+		return { "diff", base, "--", path }
+	end
+	return { "diff", "--no-index", "--", "/dev/null", path }
+end
+
+local scope_short = { ["Last Turn"] = "Turn", Uncommitted = "Local" }
+
+--- The scope row, with short names when the full ones don't fit, and the columns
+--- each scope takes.
+function M.scope_bar(scopes, active, cols)
+	local function build(short)
+		local parts, ranges, column = {}, {}, 1
+		for _, scope in ipairs(scopes) do
+			local label = " " .. (short and scope_short[scope] or scope) .. " "
+			parts[#parts + 1] = scope == active and ("\27[7m" .. label .. reset) or (dim .. label .. reset)
+			ranges[#ranges + 1] = { from = column, to = column + M.width(label) - 1, action = { kind = "scope", scope = scope } }
+			column = column + M.width(label) + 1
+		end
+		return table.concat(parts, " "), ranges, column - 2
+	end
+	local bar, ranges, used = build(false)
+	if used > cols then
+		bar, ranges = build(true)
+	end
+	return bar, ranges
+end
+
+local mark_colours = { A = green, D = red, R = cyan, C = cyan, U = red }
+
+local function coloured_mark(mark)
+	return (mark_colours[mark] or yellow) .. bold .. mark .. reset
+end
+
+local function list_rows(out, built, group, selected, key_prefix)
+	for _, row in ipairs(group.rows) do
+		local key = key_prefix .. "\0" .. row.path
+		local name = row.path:match("[^/]+$") or row.path
+		local folder = row.path:match("^(.*)/[^/]*$")
+		local chosen = key == selected
+		out[#out + 1] = (chosen and (cyan .. "› " .. reset) or "  ")
+			.. coloured_mark(row.mark) .. " " .. name
+			.. (folder and (dim .. "  " .. folder .. reset) or "")
+		built.actions[#out] = { kind = "open", key = key, row = row }
+		built.rows[#built.rows + 1] = { key = key, row = row, line = #out }
+	end
+end
+
+--- Rows as a folder tree: folders are only headings, so they take no action.
+local function tree_rows(out, built, rows, selected, cols)
+	local sorted = {}
+	for _, row in ipairs(rows) do
+		sorted[#sorted + 1] = row
+	end
+	table.sort(sorted, function(a, b)
+		return a.path < b.path
+	end)
+	local open = {}
+	for _, row in ipairs(sorted) do
+		local parts = {}
+		for part in row.path:gmatch("[^/]+") do
+			parts[#parts + 1] = part
+		end
+		for depth = 1, #parts - 1 do
+			if open[depth] ~= parts[depth] then
+				open[depth] = parts[depth]
+				for deeper = depth + 1, #open do
+					open[deeper] = nil
+				end
+				out[#out + 1] = "  " .. string.rep("  ", depth - 1) .. dim .. "▾ " .. parts[depth] .. reset
+			end
+		end
+		for deeper = #parts, #open do
+			open[deeper] = nil
+		end
+		local key = "\0" .. row.path
+		local chosen = key == selected
+		local indent = (chosen and (cyan .. "› " .. reset) or "  ") .. string.rep("  ", #parts - 1)
+		local room = math.max(1, cols - M.width(indent) - 2)
+		local name = M.clip(parts[#parts] or row.path, room)
+		out[#out + 1] = indent .. name .. string.rep(" ", room - M.width(name) + 1) .. coloured_mark(row.mark)
+		built.actions[#out] = { kind = "open", key = key, row = row }
+		built.rows[#built.rows + 1] = { key = key, row = row, line = #out }
+	end
+end
+
+--- The Changes tab. `pinned` stays in place above the rows, and `hits` holds
+--- the columns of its clickable parts, by pinned line. `actions` is by row line.
+function M.changes_view(v, cols)
+	local data = v.data
+	local built = { lines = {}, pinned = {}, hits = {}, actions = {}, rows = {} }
+
+	local stats = ""
+	if (data.added or 0) > 0 or (data.removed or 0) > 0 then
+		stats = green .. "+" .. data.added .. reset .. " " .. red .. "−" .. data.removed .. reset .. "  "
+	end
+	local tree_mark = "≣"
+	local right = M.width(stats) + M.width(tree_mark)
+	local title = M.clip(v.title or "", math.max(1, cols - right - 1))
+	built.pinned[1] = bold .. title .. reset
+		.. string.rep(" ", math.max(1, cols - M.width(title) - right))
+		.. stats .. (v.tree and (cyan .. tree_mark .. reset) or (dim .. tree_mark .. reset))
+	built.hits[1] = { { from = cols - 1, to = cols, action = { kind = "tree" } } }
+	built.pinned[2], built.hits[2] = M.scope_bar(v.scopes, v.scope, cols)
+	built.pinned[3] = v.notice and (red .. v.notice .. reset) or ""
+
+	local out = built.lines
+	if data.problem then
+		add(out, M.wrap(data.problem, cols, dim, dim))
+		return built
+	end
+	local groups = data.groups
+	if v.tree and data.merged and #data.merged > 0 then
+		groups = { { title = "Changed", rows = data.merged } }
+	end
+	if #groups == 0 then
+		add(out, M.wrap(data.note, cols, dim, dim))
+	end
+	for _, group in ipairs(groups) do
+		local count = group.title .. " (" .. #group.rows .. ")"
+		local vs = data.vs and ("vs " .. data.vs) or ""
+		if #out > 0 then
+			out[#out + 1] = ""
+		end
+		out[#out + 1] = bold .. count .. reset
+			.. (vs ~= "" and (string.rep(" ", math.max(1, cols - M.width(count) - M.width(vs))) .. dim .. vs .. reset) or "")
+		if v.tree then
+			tree_rows(out, built, group.rows, v.selected, cols)
+		else
+			list_rows(out, built, group, v.selected, group.title)
+		end
+	end
+	return built
+end
+
 
 
 --- The tab bar, with where the shown lines are when they don't all fit.
