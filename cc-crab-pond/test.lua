@@ -343,6 +343,13 @@ ok, err = pcall(function()
 	equal(tasks[2].outfit, "lookout", "monitor outfit")
 	equal(tasks[3].state, "sleep", "waiting shell")
 
+	-- The extensions' own panes get no crab.
+	equal(P.helper_pane("Crabs"), true, "the pond's pane")
+	equal(P.helper_pane("Sidecar: rex"), true, "a sidecar pane")
+	equal(P.helper_pane("Diff: panel.lua"), true, "a sidecar's diff float")
+	equal(P.helper_pane("shell"), false, "a shell pane")
+	equal(P.helper_pane(""), false, "a pane with no label")
+
 	-- A shell started as a monitor was recorded is that monitor, named by Claude.
 	local function monitored(age, at, list)
 		local shell = { { pid = 30, ppid = 10, comm = "/bin/zsh", age = age }, { pid = 31, ppid = 30, comm = "sleep" } }

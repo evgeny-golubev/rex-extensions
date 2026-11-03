@@ -303,6 +303,11 @@ function M.pane_crab(process, ages)
 	return crab
 end
 
+--- Panes the extensions open for themselves, which aren't work in the tab.
+function M.helper_pane(label)
+	return label == "Crabs" or label:sub(1, 9) == "Sidecar: " or label:sub(1, 6) == "Diff: "
+end
+
 --- Merges crabs with the same title and description into one, which counts
 --- them and keeps the longest uptime. Waiting crabs go last; the rest keep
 --- their order.
@@ -934,7 +939,7 @@ local function gather()
 	for _, layer in ipairs(tab.layers or {}) do
 		for _, b in ipairs(layer.blocks or {}) do
 			local label = b.label or ""
-			if b.creator_name == terminal and label ~= "Crabs" and label:sub(1, 9) ~= "Changes: " then
+			if b.creator_name == terminal and not M.helper_pane(label) then
 				local p = block_call(pond.session_id, b.block_id, "process")
 				local pid = M.claude_pid(p)
 				if pid then
