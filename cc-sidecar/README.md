@@ -1,11 +1,11 @@
 # CC Pane for Rex
 
-Opens a `Changes: <folder>` pane to the right of every pane that runs Claude
+Opens a `Sidecar: <folder>` pane to the right of every pane that runs Claude
 Code, and closes it when Claude exits or its pane closes. It stands in for
 Claude Code's own diff panel; turn that one off with `"diffSidebarOpen": false`
 in `~/.claude.json`.
 
-![Activity, Context and Diff tabs, with made-up data](../docs/cc-pane.png)
+![Activity, Context and Diff tabs, with made-up data](../docs/cc-sidecar.png)
 
 The pane has these tabs, redrawn every 2 seconds:
 
@@ -48,49 +48,49 @@ event-driven `rex do` watcher, like cc-resume.
 
 ## Install
 
-Place this directory at `~/.config/rex/extensions/cc-pane/` and add to
+Place this directory at `~/.config/rex/extensions/cc-sidecar/` and add to
 your Rex `init.lua`:
 
 ```lua
-require("extensions.cc-pane")
+require("extensions.cc-sidecar")
 ```
 
 Then run `rex config reload`. To load a changed `watcher.lua`, stop the running
 watcher first:
 
 ```sh
-pkill -f 'cc-pane/watcher\.lua'; rex config reload
+pkill -f 'cc-sidecar/watcher\.lua'; rex config reload
 ```
 
 ## Palette actions
 
 | Action | What it does |
 |---|---|
-| Show Changes Pane | Opens the pane beside the focused Claude, or another Claude in the tab that has none |
-| Disable / Enable Changes Pane Auto-Show | Whether a pane opens by itself when Claude starts. On by default |
+| Show Sidecar Pane | Opens the pane beside the focused Claude, or another Claude in the tab that has none |
+| Disable / Enable Sidecar Pane Auto-Show | Whether a pane opens by itself when Claude starts. On by default |
 
-The choice is saved as `{"auto_show": false}` in `cc-pane/settings.json`, which
+The choice is saved as `{"auto_show": false}` in `cc-sidecar/settings.json`, which
 git ignores. It applies from the next Claude that starts, so open panes stay.
 The palette shows whichever of Disable and Enable applies. For a key, bind
-`cc_pane_show` or `cc_pane_auto_show` with `rex.bind`.
+`cc_sidecar_show` or `cc_sidecar_auto_show` with `rex.bind`.
 
 ## Behavior
 
 - Claude is recognised by its program name, `claude`, in the foreground or as
   the parent of the foreground command. A pane started as `rex split -- claude`
   is found by a second look a second after its shell starts.
-- The changes pane takes 20% of the width, and focus stays on the Claude
+- The sidecar pane takes 20% of the width, and focus stays on the Claude
   pane.
 - The pane follows Claude's directory: after `/cd`, the Diff tab, the changed
   marks and the pane's label switch to the new directory's repository within
   a couple of seconds. The Diff tab covers the whole repository, not only the
   folder Claude is in.
-- A changes pane you close stays closed until Claude starts again in that pane,
-  or you run Show Changes Pane.
-- When the watcher starts, it replaces leftover changes panes with new ones.
-- cc-resume doesn't save changes panes; they come back with the resumed
+- A sidecar pane you close stays closed until Claude starts again in that pane,
+  or you run Show Sidecar Pane.
+- When the watcher starts, it replaces leftover sidecar panes with new ones.
+- cc-resume doesn't save sidecar panes; they come back with the resumed
   Claude.
-- Errors go to `~/.config/rex/state/cc-pane.log`; the pane shows its
+- Errors go to `~/.config/rex/state/cc-sidecar.log`; the pane shows its
   own.
 
 ## Files
@@ -105,7 +105,7 @@ The palette shows whichever of Disable and Enable applies. For a key, bind
 ## Tests
 
 ```sh
-rex do ~/.config/rex/extensions/cc-pane/test.lua
+rex do ~/.config/rex/extensions/cc-sidecar/test.lua
 ```
 
 The tests mock Rex and use a made-up transcript; they don't touch live

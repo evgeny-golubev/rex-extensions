@@ -7,7 +7,7 @@ conversations back after a restart, and let Claude show you files.
 
 | | Name | What you get | Runs as |
 | --- | --- | --- | --- |
-| Extension | [cc-pane](#cc-pane) | A side pane with each Claude's activity, open questions, decisions and uncommitted changes | Pane beside Claude |
+| Extension | [cc-sidecar](#cc-sidecar) | A side pane with each Claude's activity, open questions, decisions and uncommitted changes | Pane beside Claude |
 | Extension | [cc-crab-pond](#cc-crab-pond) | Claudes, subagents and background jobs as animated crabs, plus your usage limits | Strip along the tab's bottom |
 | Extension | [cc-resume](#cc-resume) | Claude Code conversations resumed after the Rex server restarts | Background watcher |
 | Skill | [rex-view](#rex-view) | Claude shows images, Markdown and source code in a floating pane | Plugin, version 0.1.0 |
@@ -21,18 +21,18 @@ conversations back after a restart, and let Claude show you files.
 
 Rex loads these from `init.lua`. Each one's README has the details.
 
-### cc-pane
+### cc-sidecar
 
 Answers "what has this Claude done, and what's still waiting on me?" A pane on
 the right, 20% of the tab, opens and closes with Claude and replaces Claude
 Code's own diff panel.
 
-![cc-pane's Activity, Context and Diff tabs, with made-up data](docs/cc-pane.png)
+![cc-sidecar's Activity, Context and Diff tabs, with made-up data](docs/cc-sidecar.png)
 
 **Activity** lists the session's facts, edited files, test runs and failed
 commands. **Context** lists open questions, your decisions and your last
 requests. **Diff** shows the uncommitted changes.
-[Tabs, keys and limits →](cc-pane/README.md)
+[Tabs, keys and limits →](cc-sidecar/README.md)
 
 ### cc-crab-pond
 
@@ -89,7 +89,7 @@ over Claude's tab, and `q` closes it. [Details →](plugins/rex-view/README.md)
 
    ```lua
    require("extensions.cc-resume")
-   require("extensions.cc-pane")
+   require("extensions.cc-sidecar")
    require("extensions.cc-crab-pond")
    ```
 
@@ -99,7 +99,7 @@ over Claude's tab, and `q` closes it. [Details →](plugins/rex-view/README.md)
    rex config reload
    ```
 
-4. For cc-pane, turn off Claude Code's own diff panel by setting
+4. For cc-sidecar, turn off Claude Code's own diff panel by setting
    `"diffSidebarOpen": false` in `~/.claude.json`.
 
 5. For cc-crab-pond, have Claude Code's status line command save its input,
@@ -146,7 +146,7 @@ claude plugin update rex-view@rex-extensions
 ```text
 .claude-plugin/marketplace.json   the plugin marketplace
 cc-resume/                    extension
-cc-pane/                     extension
+cc-sidecar/                     extension
 cc-crab-pond/                        extension
 plugins/rex-view/                 skill, as a plugin
 docs/                             pictures
@@ -161,7 +161,7 @@ Nothing is sent anywhere and no AI is involved.
 
 ```sh
 rex do ~/.config/rex/extensions/cc-resume/test.lua
-rex do ~/.config/rex/extensions/cc-pane/test.lua
+rex do ~/.config/rex/extensions/cc-sidecar/test.lua
 rex do ~/.config/rex/extensions/cc-crab-pond/test.lua
 rex do ~/.config/rex/extensions/plugins/rex-view/test.lua
 ```

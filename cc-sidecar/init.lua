@@ -1,4 +1,4 @@
--- Starts watcher.lua, which opens a changes pane beside each Claude Code pane,
+-- Starts watcher.lua, which opens a sidecar pane beside each Claude Code pane,
 -- on every config load. The server runs this file at start and only accepts
 -- connections once it is done, so the retries cover a server that isn't
 -- listening yet.
@@ -9,35 +9,35 @@ local rex_binary = home
 rex.exec.start({
 	"/bin/sh",
 	"-c",
-	'mkdir -p ~/.config/rex/state; for i in 1 2 3 4 5 6 7 8 9 10; do "$@" && break; sleep 1; done 2>>~/.config/rex/state/cc-pane.log',
+	'mkdir -p ~/.config/rex/state; for i in 1 2 3 4 5 6 7 8 9 10; do "$@" && break; sleep 1; done 2>>~/.config/rex/state/cc-sidecar.log',
 	"sh",
 	rex_binary,
 	"--autostart=false",
 	"do",
 	"--all",
-	home .. "/.config/rex/extensions/cc-pane/watcher.lua",
+	home .. "/.config/rex/extensions/cc-sidecar/watcher.lua",
 }, { detach = true, stdout = false, stderr = false })
 
 -- Palette actions. The title names what the toggle will do, and Rex only reads
 -- titles when it loads this file, so the toggle reloads the config.
-local base = home .. "/.config/rex/extensions/cc-pane/"
+local base = home .. "/.config/rex/extensions/cc-sidecar/"
 local settings = dofile(base .. "settings.lua")
 
 rex.action({
-	name = "cc_pane_show",
-	title = "Show Changes Pane",
+	name = "cc_sidecar_show",
+	title = "Show Sidecar Pane",
 	category = "Claude Code",
 	run = function(ctx)
 		if not ctx.session_id or not ctx.block_id then
-			error("no focused pane to show the changes pane for", 0)
+			error("no focused pane to show the sidecar pane for", 0)
 		end
 		settings.request_show(base, ctx.session_id, ctx.block_id)
 	end,
 })
 
 rex.action({
-	name = "cc_pane_auto_show",
-	title = (settings.auto_show(base) and "Disable" or "Enable") .. " Changes Pane Auto-Show",
+	name = "cc_sidecar_auto_show",
+	title = (settings.auto_show(base) and "Disable" or "Enable") .. " Sidecar Pane Auto-Show",
 	category = "Claude Code",
 	run = function()
 		local on = not settings.auto_show(base)

@@ -1,9 +1,9 @@
--- Runs in a changes pane, with tabs: what the Claude beside it did
+-- Runs in a sidecar pane, with tabs: what the Claude beside it did
 -- (Activity); what was asked, decided and left open in its session
 -- (Context); and, in a git repository, the uncommitted changes (Diff). The
 -- watcher passes the Claude pane's block ID and its directory (the
 -- repository root, in one) as `claude=` and `cwd=`. The session is read from Claude Code's own files, so
--- no Claude Code setting is needed. With CC_PANE_TEST set, this file
+-- no Claude Code setting is needed. With CC_SIDECAR_TEST set, this file
 -- returns its functions instead of running.
 
 local M = {}
@@ -831,7 +831,7 @@ local function follow(cwd)
 		rex.call("session.set_block_label", {
 			session_id = panel.session_id,
 			block_id = panel.block_id,
-			label = "Changes: " .. (root:match("[^/]+$") or root),
+			label = "Sidecar: " .. (root:match("[^/]+$") or root),
 		})
 	end
 end
@@ -971,7 +971,7 @@ local function key(k)
 	end
 end
 
-if CC_PANE_TEST then
+if CC_SIDECAR_TEST then
 	return M
 end
 

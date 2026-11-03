@@ -257,13 +257,13 @@ local ok, err = pcall(function()
 	-- A changes pane isn't saved; the pane beside it takes its place.
 	reset()
 	local layer = views["session:1"].windows[1].layers[1]
-	table.insert(layer.blocks, shell("block:3", "Changes: app"))
+	table.insert(layer.blocks, shell("block:3", "Sidecar: app"))
 	layer.layout.split.after = {
 		split = { direction = "right", ratio = 0.65, before = { block_id = "block:2" }, after = { block_id = "block:3" } },
 	}
 	run()
 	local kept = read_json(snapshot).sessions[1].initial_windows[1].layout.split.after
-	equal(kept.split, nil, "split around the changes pane")
+	equal(kept.split, nil, "split around the sidecar pane")
 	equal(kept.block.label, "agent", "pane beside the changes pane")
 
 	-- Neither is a crab pane along the bottom of the tab.

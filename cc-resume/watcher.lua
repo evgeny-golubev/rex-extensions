@@ -95,12 +95,12 @@ local function terminal_options(session_id, block_id)
 end
 
 local function is_helper(label)
-	return label ~= nil and (label:sub(1, 9) == "Changes: " or label == "Crabs")
+	return label ~= nil and (label:sub(1, 9) == "Sidecar: " or label == "Crabs")
 end
 
 --- Turns a `session.view` layout node into a `session.create` layout node, or
---- nil when nothing in it is kept. Changes panes are left out: the
---- cc-pane extension opens them again beside the resumed Claude.
+--- nil when nothing in it is kept. Sidecar panes are left out: the
+--- cc-sidecar extension opens them again beside the resumed Claude.
 local function capture(node, view, blocks)
 	if node.split then
 		local s = node.split

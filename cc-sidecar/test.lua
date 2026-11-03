@@ -1,4 +1,4 @@
--- Run: rex do ~/.config/rex/extensions/cc-pane/test.lua
+-- Run: rex do ~/.config/rex/extensions/cc-sidecar/test.lua
 -- Mocks the Rex API: it doesn't touch live sessions or panes.
 local real = rex
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)")
@@ -20,7 +20,8 @@ local function reset()
 	blocks = {
 		terminal("block:1", "shell"),
 		terminal("block:2", "shell"),
-		terminal("block:9", "Changes: old"),
+		terminal("block:8", "Sidecar: old"),
+		terminal("block:9", "Changes: renamed"),
 	}
 	processes = {
 		["block:1"] = { foreground = { argv0 = "claude", cwd = "/src/app/sub" } },
@@ -31,7 +32,7 @@ end
 
 -- settings.json in a throwaway folder, never the real one.
 local test_base = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "") .. "/"
-CC_PANE_TEST_BASE = test_base
+CC_SIDECAR_TEST_BASE = test_base
 local S = dofile(dir .. "settings.lua")
 local poll
 
@@ -82,7 +83,7 @@ rex = {
 		elseif method == "session.new_split" then
 			next_id = next_id + 1
 			table.insert(splits, params)
-			return { block_ids = { "block:changes" .. next_id } }
+			return { block_ids = { "block:sidecar" .. next_id } }
 		elseif method == "block.close" then
 			table.insert(closed, params.block_id)
 			return {}
@@ -122,10 +123,11 @@ rex = {
 }
 
 local ok, err = pcall(function()
-	-- At start, closes stale changes panes and opens one beside a running Claude.
+	-- At start, closes stale sidecar panes and opens one beside a running Claude.
 	reset()
 	run()
-	equal(closed[1], "block:9", "stale pane closed")
+	equal(closed[1], "block:8", "stale pane closed")
+	equal(closed[2], "block:9", "pane from before the rename closed")
 	equal(#splits, 1, "panes opened at start")
 	local split = splits[1]
 	equal(split.anchor_id, "block:1", "anchor")
@@ -133,7 +135,7 @@ local ok, err = pcall(function()
 	equal(split.side, "after", "side")
 	equal(split.ratio, 0.8, "ratio")
 	equal(split.focus, false, "focus")
-	equal(split.layout.block.label, "Changes: app", "label")
+	equal(split.layout.block.label, "Sidecar: app", "label")
 	equal(split.layout.block.options.cwd, "/src/app", "cwd is the repository root")
 	local command = split.layout.block.options.command
 	equal(command[3], "do", "viewer runs with rex do")
@@ -142,7 +144,7 @@ local ok, err = pcall(function()
 	equal(command[6], "cwd=/src/app", "viewer's repository")
 	fire()
 	equal(resized[1].before_block_id, "block:1", "resized left")
-	equal(resized[1].after_block_id, "block:changes1", "resized right")
+	equal(resized[1].after_block_id, "block:sidecar1", "resized right")
 	equal(resized[1].ratio, 0.8, "resized ratio")
 
 	-- The same Claude doesn't get a second pane, and a command it runs in the
@@ -150,33 +152,33 @@ local ok, err = pcall(function()
 	foreground("block:1", "claude", "/src/app/sub")
 	foreground("block:1", "git", "/src/app", { { argv0 = "claude" }, { argv0 = "-zsh" } })
 	equal(#splits, 1, "panes after repeated events")
-	equal(#closed, 1, "closed while Claude runs")
+	equal(#closed, 2, "closed while Claude runs")
 
 	-- Claude exiting closes its pane.
 	foreground("block:1", "-zsh", "/src/app", { { argv0 = "login" } })
-	equal(closed[2], "block:changes1", "pane closed on exit")
+	equal(closed[3], "block:sidecar1", "pane closed on exit")
 
 	-- Claude outside a repository gets a pane in its own directory.
 	foreground("block:2", "/usr/local/bin/claude", "/tmp")
 	equal(#splits, 2, "pane outside a repository")
-	equal(splits[2].layout.block.label, "Changes: tmp", "label outside a repository")
+	equal(splits[2].layout.block.label, "Sidecar: tmp", "label outside a repository")
 	equal(splits[2].layout.block.options.command[6], "cwd=/tmp", "directory outside a repository")
 	user_closes("block:2")
 
 	-- A pane the user closes stays closed until Claude starts again.
 	foreground("block:1", "claude", "/src/app")
 	equal(#splits, 3, "pane for a new Claude")
-	user_closes("block:changes3")
+	user_closes("block:sidecar3")
 	foreground("block:1", "claude", "/src/app")
 	equal(#splits, 3, "reopened after the user closed it")
 	foreground("block:1", "-zsh", "/src/app")
-	equal(#closed, 3, "closed a pane that is already gone")
+	equal(#closed, 4, "closed a pane that is already gone")
 	foreground("block:1", "claude", "/src/app")
 	equal(#splits, 4, "pane for the next Claude")
 
-	-- Closing the Claude pane closes its changes pane.
+	-- Closing the Claude pane closes its sidecar pane.
 	user_closes("block:1")
-	equal(closed[4], "block:changes4", "pane closed with its Claude pane")
+	equal(closed[5], "block:sidecar4", "pane closed with its Claude pane")
 
 	-- A pane whose login shell execs Claude is found by the recheck, once.
 	fire()
@@ -189,14 +191,14 @@ local ok, err = pcall(function()
 	equal(splits[5].anchor_id, "block:3", "rechecked anchor")
 	processes["block:3"] = { foreground = { argv0 = "-zsh", cwd = "/src/app" } }
 	foreground("block:3", "-zsh", "/src/app")
-	equal(closed[5], "block:changes5", "rechecked pane closed")
+	equal(closed[6], "block:sidecar5", "rechecked pane closed")
 	fire()
 	fire()
 	equal(#timers, 0, "rechecks repeat")
 
 	-- A second copy quits.
 	reset()
-	clients = { { info = { label = "cc-pane" } } }
+	clients = { { info = { label = "cc-sidecar" } } }
 	run()
 	equal(stopped, true, "second copy stopped")
 	equal(#splits, 0, "second copy's panes")
@@ -230,8 +232,8 @@ local ok, err = pcall(function()
 	equal(io.open(test_base .. "show-request.json"), nil, "request used up")
 	request_show("block:1")
 	equal(#splits, 1, "already shown")
-	request_show("block:changes1")
-	equal(#splits, 1, "asked from the changes pane itself")
+	request_show("block:sidecar1")
+	equal(#splits, 1, "asked from the sidecar pane itself")
 
 	-- From another pane in the tab, it means the Claude there.
 	reset()
@@ -251,15 +253,15 @@ local ok, err = pcall(function()
 end)
 rex = real
 real.exec({ "rm", "-rf", test_base })
-CC_PANE_TEST_BASE = nil
+CC_SIDECAR_TEST_BASE = nil
 if not ok then
 	error(err, 0)
 end
 
 -- The viewer, on a made-up transcript.
-CC_PANE_TEST = true
+CC_SIDECAR_TEST = true
 local P = dofile(dir .. "panel.lua")
-CC_PANE_TEST = nil
+CC_SIDECAR_TEST = nil
 
 local function plain(lines)
 	return (table.concat(lines, "\n"):gsub("\27%[[%d;?]*%a", ""))
@@ -483,4 +485,4 @@ end)
 if not ok2 then
 	error(err2, 0)
 end
-return "cc-pane: all tests passed"
+return "cc-sidecar: all tests passed"

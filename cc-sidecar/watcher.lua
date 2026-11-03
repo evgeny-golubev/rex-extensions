@@ -1,4 +1,4 @@
--- Opens a "Changes" pane beside every pane that runs Claude Code, and closes
+-- Opens a "Sidecar" pane beside every pane that runs Claude Code, and closes
 -- it when Claude exits. The pane runs panel.lua, which shows the Claude
 -- session's activity and context, and a repository's uncommitted changes.
 -- init.lua starts it with every config load (`rex do --all watcher.lua`).
@@ -8,26 +8,28 @@ local dir = debug.getinfo(1, "S").source:match("^@?(.*/)")
 local viewer = dir .. "panel.lua"
 local settings = dofile(dir .. "settings.lua")
 --- Where settings.json lives; the tests point it elsewhere.
-local base = CC_PANE_TEST_BASE or dir
+local base = CC_SIDECAR_TEST_BASE or dir
 local home = os.getenv("HOME") or ""
 local rex_binary = home
 	.. "/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
 
 --- Marks this script's server connection, so a second copy started by
 --- `rex config reload` sees the first one and quits.
-local client_label = "cc-pane"
+local client_label = "cc-sidecar"
 
---- Every changes pane's label starts with this; cc-resume skips them.
-local label_prefix = "Changes: "
+--- Every sidecar pane's label starts with this; cc-resume skips them.
+local label_prefix = "Sidecar: "
+--- What panes were labelled before the rename; only ever closed.
+local old_label_prefix = "Changes: "
 
 --- The share of the split the Claude pane keeps.
 local claude_ratio = 0.8
 
---- Claude pane block ID -> { session_id, changes = block ID or nil }. An
---- entry stays while Claude runs even without a changes pane (the user
+--- Claude pane block ID -> { session_id, sidecar = block ID or nil }. An
+--- entry stays while Claude runs even without a sidecar pane (the user
 --- closed it), so the pane isn't opened again until Claude exits.
 local claude_panes = {}
---- Changes pane block ID -> its Claude pane's block ID.
+--- Sidecar pane block ID -> its Claude pane's block ID.
 local owners = {}
 
 local function check(value, err)
@@ -55,8 +57,9 @@ local function runs_claude(foreground, ancestors)
 	return false
 end
 
-local function is_changes_label(label)
-	return label ~= nil and label:sub(1, #label_prefix) == label_prefix
+local function is_sidecar_label(label)
+	return label ~= nil
+		and (label:sub(1, #label_prefix) == label_prefix or label:sub(1, #old_label_prefix) == old_label_prefix)
 end
 
 local function repo_root(cwd)
@@ -81,12 +84,12 @@ local function keep_ratio(session_id, before, after)
 			ratio = claude_ratio,
 		})
 		if err ~= nil then
-			rex.log("warn", "sizing a changes pane: " .. err)
+			rex.log("warn", "sizing a sidecar pane: " .. err)
 		end
 	end)
 end
 
---- Opens a changes pane to the right of the Claude pane, in its repository's
+--- Opens a sidecar pane to the right of the Claude pane, in its repository's
 --- root or its own directory, and returns its block ID.
 local function open(session_id, block_id, cwd)
 	local root = repo_root(cwd) or cwd or home
@@ -110,23 +113,23 @@ local function open(session_id, block_id, cwd)
 		},
 	})
 	if err ~= nil then
-		rex.log("warn", "opening a changes pane: " .. err)
+		rex.log("warn", "opening a sidecar pane: " .. err)
 		return nil
 	end
-	local changes = result.block_ids[1]
-	owners[changes] = block_id
-	keep_ratio(session_id, block_id, changes)
-	return changes
+	local sidecar = result.block_ids[1]
+	owners[sidecar] = block_id
+	keep_ratio(session_id, block_id, sidecar)
+	return sidecar
 end
 
 local function close(block_id)
 	local pane = claude_panes[block_id]
 	claude_panes[block_id] = nil
-	if pane and pane.changes then
-		owners[pane.changes] = nil
-		local _, err = rex.call("block.close", { session_id = pane.session_id, block_id = pane.changes })
+	if pane and pane.sidecar then
+		owners[pane.sidecar] = nil
+		local _, err = rex.call("block.close", { session_id = pane.session_id, block_id = pane.sidecar })
 		if err ~= nil then
-			rex.log("warn", "closing a changes pane: " .. err)
+			rex.log("warn", "closing a sidecar pane: " .. err)
 		end
 	end
 end
@@ -152,8 +155,8 @@ update = function(session_id, block_id, foreground, ancestors, rechecked)
 	if runs_claude(foreground, ancestors) then
 		if not claude_panes[block_id] then
 			local cwd = foreground and foreground.cwd
-			local changes = settings.auto_show(base) and open(session_id, block_id, cwd) or nil
-			claude_panes[block_id] = { session_id = session_id, changes = changes }
+			local sidecar = settings.auto_show(base) and open(session_id, block_id, cwd) or nil
+			claude_panes[block_id] = { session_id = session_id, sidecar = sidecar }
 		end
 	elseif claude_panes[block_id] then
 		close(block_id)
@@ -162,8 +165,8 @@ update = function(session_id, block_id, foreground, ancestors, rechecked)
 	end
 end
 
---- The Claude pane "Show Changes Pane" means: the focused one, or else the
---- first one in the same tab without a changes pane.
+--- The Claude pane "Show Sidecar Pane" means: the focused one, or else the
+--- first one in the same tab without a sidecar pane.
 local function show_target(session_id, focused)
 	if claude_panes[focused] then
 		return focused
@@ -178,7 +181,7 @@ local function show_target(session_id, focused)
 	end
 	for _, b in ipairs(blocks) do
 		local pane = claude_panes[b.block_id]
-		if window_id and b.window_id == window_id and pane and not pane.changes then
+		if window_id and b.window_id == window_id and pane and not pane.sidecar then
 			return b.block_id
 		end
 	end
@@ -190,13 +193,13 @@ local function show(session_id, focused)
 	end
 	local target = show_target(session_id, focused)
 	if not target then
-		rex.log("warn", "no Claude pane in this tab to show a changes pane for")
+		rex.log("warn", "no Claude pane in this tab to show a sidecar pane for")
 		return
 	end
 	local pane = claude_panes[target]
-	if not pane.changes then
+	if not pane.sidecar then
 		local r = rex.block.call(terminal, "process", { session_id = session_id, block_id = target })
-		pane.changes = open(session_id, target, r and r.foreground and r.foreground.cwd)
+		pane.sidecar = open(session_id, target, r and r.foreground and r.foreground.cwd)
 	end
 end
 
@@ -207,19 +210,19 @@ for _, c in ipairs(check(rex.call("client.list")).clients) do
 end
 check(rex.call("client.set_label", { label = client_label }))
 
--- Changes panes left by an earlier copy are closed and opened again, so this
+-- Sidecar panes left by an earlier copy are closed and opened again, so this
 -- copy knows which Claude pane each belongs to.
 for _, s in ipairs(check(rex.call("session.list")).sessions) do
 	-- Block methods only reach sessions this connection is attached to.
 	check(rex.call("session.attach", { session_id = s.session_id }))
 	local blocks = check(rex.call("session.list_blocks", { session_id = s.session_id })).blocks
 	for _, b in ipairs(blocks) do
-		if is_changes_label(b.label) then
+		if is_sidecar_label(b.label) then
 			rex.call("block.close", { session_id = s.session_id, block_id = b.block_id })
 		end
 	end
 	for _, b in ipairs(blocks) do
-		if b.creator_name == terminal and b.placement == "placed" and not is_changes_label(b.label) then
+		if b.creator_name == terminal and b.placement == "placed" and not is_sidecar_label(b.label) then
 			local r = rex.block.call(terminal, "process", { session_id = s.session_id, block_id = b.block_id })
 			if r then
 				update(s.session_id, b.block_id, r.foreground, r.ancestors, true)
@@ -249,7 +252,7 @@ end)
 rex.on("block_closed", function(_, ev)
 	local id = ev.block_id
 	if owners[id] then
-		claude_panes[owners[id]].changes = nil
+		claude_panes[owners[id]].sidecar = nil
 		owners[id] = nil
 	elseif claude_panes[id] then
 		close(id)
