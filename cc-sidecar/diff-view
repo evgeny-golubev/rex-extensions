@@ -1,0 +1,31 @@
+#!/bin/bash
+# Draws one diff in the floating pane: diff-view git <root> <git diff args...>
+# or diff-view patch <file>, which removes the file once read.
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+
+case "$1" in
+patch)
+	text=$(cat "$2" 2>/dev/null)
+	rm -f "$2"
+	;;
+git)
+	root=$2
+	shift 2
+	# NUL bytes can't be held in a variable, and a binary diff has none to lose.
+	text=$(git -C "$root" --no-pager -c color.ui=never "$@" 2>&1)
+	;;
+esac
+
+if [ -z "$text" ]; then
+	printf '\n  No differences.\n\n  Press any key to close'
+	read -rsn1
+	exit 0
+fi
+
+# less -R passes colours only and shows other control bytes as text, so a diff
+# holding terminal codes can't move the cursor or clear the screen.
+if command -v bat >/dev/null 2>&1; then
+	printf '%s\n' "$text" | bat --language=diff --paging=never --style=plain --color=always | less -R -P"q closes"
+else
+	printf '%s\n' "$text" | less -R -P"q closes"
+fi

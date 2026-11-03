@@ -217,6 +217,9 @@ local ok, err = pcall(function()
 	f:write("{broken")
 	f:close()
 	equal(S.auto_show(test_base), true, "on with a broken file")
+	equal(S.tree(test_base), false, "list until the tree is chosen")
+	S.set_tree(test_base, true)
+	equal(S.tree(test_base), true, "tree saved")
 
 	-- Auto-show off: Claude gets no pane until asked for one.
 	S.set_auto_show(test_base, false)
@@ -350,7 +353,7 @@ local ok2, err2 = pcall(function()
 	equal(state.context, 41002, "context")
 	equal(state.compactions, 1, "compactions")
 
-	local context = plain(P.context_lines(state, 60))
+	local context = plain(P.info_lines(state, 60))
 	has(context, "Add tabs to the panel", "prompt")
 	has(context, "/review high", "slash command")
 	has(context, "Also add a hint", "queued prompt")
@@ -371,7 +374,7 @@ local ok2, err2 = pcall(function()
 	for i = 1, 7 do
 		many.prompts[i] = { text = "request " .. i }
 	end
-	local recent = plain(P.context_lines(many, 60))
+	local recent = plain(P.info_lines(many, 60))
 	has(recent, "Requests last 5 of 7", "requests count")
 	has(recent, "request 7", "newest request")
 	has(recent, "request 3", "fifth newest request")
@@ -380,15 +383,16 @@ local ok2, err2 = pcall(function()
 	hasnt(context, "old", "summary sections that aren't about where work stands")
 	hasnt(context, "If you need", "Claude Code's note after the summary")
 
+	local this_turn = plain({ P.turn_patch(state, "/src/app/panel.lua", "panel.lua") })
+	has(this_turn, "panel.lua", "edit in the turn")
+	equal(state.turn.files["/src/app/gone.lua"], nil, "failed write")
+
 	-- A prompt after the reply answers its questions.
 	P.feed(state, rex.json.encode({ type = "user", message = { content = "No third tab" } }) .. "\n")
-	hasnt(plain(P.context_lines(state, 60)), "third tab?", "answered reply question")
+	hasnt(plain(P.info_lines(state, 60)), "third tab?", "answered reply question")
 
-	local activity = plain(P.activity_lines(state, 60, "/src/app", { ["/src/app/panel.lua"] = true }))
-	has(activity, "● panel.lua ×2", "edited file in the diff")
-	local use_outside = P.activity_lines(state, 60, "/elsewhere", {})
-	has(plain(use_outside), "+ 1 outside the repository", "files outside the repository")
-	hasnt(activity, "gone.lua", "failed write")
+	local activity = plain(P.info_lines(state, 60))
+	hasnt(activity, "Files Claude edited", "no edited files section")
 	has(activity, "✗ rex do test.lua", "failed test")
 	hasnt(activity, "cat test.lua", "a command that only names a test file")
 	has(activity, "exit 1: boom: parser", "failure")
@@ -431,16 +435,18 @@ local ok2, err2 = pcall(function()
 	equal(wrapped[2], "  three", "wrap line 2")
 	equal(#P.wrap("a\nb\nc\nd", 20, "", "", 2), 2, "max lines")
 	equal(P.wrap("abcdefghij", 6, "> ", "  ")[2], "  efgh", "long word cut")
-	equal(P.clip_left("/a/long/path/file.lua", 10), "…/file.lua", "clip left")
 	equal(P.project_dir("/Users/a.b/My App"), "-Users-a-b-My-App", "project folder")
 	equal(P.claude_pid({ foreground = { argv0 = "git" }, ancestors = { { argv0 = "/bin/claude", pid = 7 } } }), 7, "pid")
 
-	local st = { files = {
-		{ x = " ", y = "M", path = "a.lua" },
-		{ x = "R", y = " ", path = "new.lua" },
-		{ x = "?", y = "?", path = "docs/x.md" },
-		{ x = "M", y = "M", path = "both.lua" },
-	} }
+	-- The status, from one porcelain call.
+	local st = P.status("## main...origin/main [ahead 1]\0 M a.lua\0R  new.lua\0old.lua\0?? docs/x.md\0MM both.lua\0")
+	equal(st.branch, "main", "branch name")
+	equal(#st.files, 4, "changed files")
+	equal(st.files[2].path, "new.lua", "rename's new path")
+	equal(st.head, true, "branch with commits")
+	local empty = P.status("## No commits yet on main\0")
+	equal(empty.head, false, "branch without commits")
+	equal(empty.branch, "main", "branch without commits' name")
 
 	-- Uncommitted: a file changed both ways is in both groups, once in the tree.
 	local data = P.uncommitted(st.files)
@@ -551,32 +557,63 @@ local ok2, err2 = pcall(function()
 	equal(wide_ranges[1].from, 1, "first scope's column")
 	equal(wide_ranges[2].from, wide_ranges[1].to + 2, "columns leave a space")
 
-	-- The status, from one porcelain call.
-	local st = P.status("## main...origin/main [ahead 1]\0 M a.lua\0R  new.lua\0old.lua\0?? docs/x.md\0", "/r")
-	equal(#st.lines, 4, "status lines")
-	has(plain(st.lines), "## main...origin/main [ahead 1]", "branch line")
-	has(plain(st.lines), "R  old.lua -> new.lua", "rename")
-	has(plain(st.lines), "?? docs/x.md", "untracked file")
-	equal(st.changed["/r/new.lua"] and st.changed["/r/docs/x.md"] and not st.changed["/r/old.lua"], true, "changed paths")
-	equal(st.head, true, "branch with commits")
-	equal(P.status("## No commits yet on main\0", "/r").head, false, "branch without commits")
+	-- Clicks land on what's drawn.
+	local _, tab_ranges = P.frame(P.tabs, "Changes", {}, 0, 40, 10, { badges = { Changes = "3" } })
+	local layout = { tabs = tab_ranges, hits = built.hits, pinned = 3, actions = built.actions, scroll = 0 }
+	equal(P.hit(layout, 2, 1).tab, "Info", "click a tab")
+	equal(P.hit(layout, 8, 1).tab, "Changes", "click the other tab")
+	equal(P.hit(layout, 2, 2), nil, "click the blank row")
+	equal(P.hit(layout, 40, 3).kind, "tree", "click the tree toggle")
+	equal(P.hit(layout, 2, 4).scope, "Last Turn", "click a scope")
+	equal(P.hit(layout, 2, 5), nil, "click the blank pinned row")
+	equal(P.hit(layout, 2, 7).row.diff, "staged", "click a row")
+	layout.scroll = 1
+	equal(P.hit(layout, 2, 6).row.diff, "staged", "click a row when scrolled")
 
-	-- Tabs: Activity first, Diff only in a repository.
-	equal(table.concat(P.tabs(true), ","), "Activity,Context,Diff", "tabs in a repository")
-	equal(table.concat(P.tabs(false), ","), "Activity,Context", "tabs elsewhere")
-	local tabs = P.tabs(true)
+	-- Usage: hidden without the saved input, and a passed reset counts as unused.
+	hasnt(plain(P.info_lines(P.new_state(), 40)), "Usage", "no usage saved")
+	local limits = { five_hour = { used_percentage = 58, resets_at = 1300 }, seven_day = { used_percentage = 17, resets_at = 500 } }
+	local usage = plain(P.info_lines(P.new_state(), 40, limits, 1000))
+	has(usage, "Usage", "usage heading")
+	has(usage, "58%", "5-hour percentage")
+	has(usage, "Resets in 5m", "time to the reset")
+	has(usage, "0%", "a window that has reset")
+	equal(usage:find("Session", 1, true) < usage:find("Usage", 1, true), true, "Session before Usage")
+	equal(usage:find("Usage", 1, true) < usage:find("Open", 1, true), true, "Usage before Open")
+
+	-- A float from an earlier diff is found by its label.
+	local view = { windows = { { window_id = "w", layers = {
+		{ layer_id = "t", kind = "tiled", blocks = { { block_id = "me", label = "Diff: tiled" } } },
+		{ layer_id = "f", kind = "floating", blocks = { { block_id = "d", label = "Diff: a.lua" } } },
+		{ layer_id = "o", kind = "floating", blocks = { { block_id = "o", label = "View: a.lua" } } },
+	} } } }
+	equal(P.window_of(view, "me").window_id, "w", "window of the pane")
+	equal(table.concat(P.old_diffs(view.windows[1]), ","), "f", "earlier diff floats")
+
+	-- After a float closes, focus comes back only if the tab is still in front.
+	equal(P.float_closed(view, "d"), false, "float still open")
+	equal(P.float_closed(view, "gone"), true, "float closed")
+	view.active_window_id = "w"
+	equal(P.is_active(view, "me"), true, "tab in front")
+	view.active_window_id = "other"
+	equal(P.is_active(view, "me"), false, "another tab in front")
+
+	local tabs = P.tabs
 
 	-- The frame fills the pane and no more, and says where it is when the
 	-- lines don't fit.
-	local frame = P.frame(tabs, "Context", { "a", "b", "c", "d" }, 1, 60, 4)
+	local frame = P.frame(tabs, "Changes", { "a", "b", "c", "d" }, 1, 60, 4)
 	local _, count = frame:gsub("\r\n", "")
 	equal(count, 3, "frame rows")
 	has(frame, "\27[K\r\n\27[K\r\nb", "blank row under the tab bar")
-	equal(P.width(P.frame(tabs, "Diff", { string.rep("x", 60) }, 0, 40, 4):match("\r\n\27%[K\r\n(.-)\27%[K")), 39, "last column left free")
-	has(frame, "2 Context", "tab bar")
+	equal(P.width(P.frame(tabs, "Info", { string.rep("x", 60) }, 0, 40, 4):match("\r\n\27%[K\r\n(.-)\27%[K")), 39, "last column left free")
+	has(frame, " Changes ", "tab bar")
 	has(frame, "2–3 of 4", "position")
-	hasnt(P.frame(tabs, "Diff", { "a" }, 0, 40, 4), " of ", "position when everything fits")
+	hasnt(P.frame(tabs, "Info", { "a" }, 0, 40, 4), " of ", "position when everything fits")
 	hasnt(frame, "\r\na\27", "scrolled past the first line")
+	local with_pinned = P.frame(tabs, "Changes", { "a", "b" }, 0, 60, 4, { pinned = { "head" } })
+	has(with_pinned, "head\27[K\r\na", "pinned line above the rows")
+	has(with_pinned, "1–1 of 2", "pinned lines leave fewer rows")
 
 	-- The reasoning level, the latest one, from Claude's own records only.
 	local levels = P.new_state()
@@ -588,13 +625,13 @@ local ok2, err2 = pcall(function()
 	equal(levels.effort, "medium", "a subagent's level is ignored")
 	P.record(levels, { type = "assistant", message = { content = {} } })
 	equal(levels.effort, "medium", "kept when a record has none")
-	has(plain(P.activity_lines(levels, 60, "/src", {})), "Reasoning   medium", "reasoning in Activity")
-	hasnt(plain(P.activity_lines(P.new_state(), 60, "/src", {})), "Reasoning", "no level known")
+	has(plain(P.info_lines(levels, 60)), "Reasoning   medium", "reasoning in Activity")
+	hasnt(plain(P.info_lines(P.new_state(), 60)), "Reasoning", "no level known")
 
 	-- The summary comes right after Open.
 	local order = P.new_state()
 	order.summary = "## Next step\nFinish it\n"
-	local shown = plain(P.context_lines(order, 60))
+	local shown = plain(P.info_lines(order, 60))
 	equal(shown:find("Open", 1, true) < shown:find("From the last summary", 1, true), true, "Open first")
 	equal(shown:find("From the last summary", 1, true) < shown:find("Decisions", 1, true), true, "summary before Decisions")
 end)

@@ -1,6 +1,6 @@
 -- Opens a "Sidecar" pane beside every pane that runs Claude Code, and closes
--- it when Claude exits. The pane runs panel.lua, which shows the Claude
--- session's activity and context, and a repository's uncommitted changes.
+-- it when Claude exits. The pane runs panel.lua, which shows what changed and
+-- the Claude session's activity and context.
 -- init.lua starts it with every config load (`rex do --all watcher.lua`).
 
 local terminal = "com.superlogical.terminal"

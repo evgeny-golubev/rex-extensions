@@ -1,47 +1,72 @@
-# CC Pane for Rex
+# CC Sidecar for Rex
 
 Opens a `Sidecar: <folder>` pane to the right of every pane that runs Claude
 Code, and closes it when Claude exits or its pane closes. It stands in for
 Claude Code's own diff panel; turn that one off with `"diffSidebarOpen": false`
 in `~/.claude.json`.
 
-![Activity, Context and Diff tabs, with made-up data](../docs/cc-sidecar.png)
+![The Changes tab as a list and as a tree, and the Info tab, with made-up data](../docs/cc-sidecar.png)
 
-The pane has these tabs, redrawn every 2 seconds:
+The pane has two tabs, redrawn every 2 seconds.
 
-| Tab | Section | What's in it |
+## Changes
+
+Opens first. The top row shows the branch, its added and removed lines, and
+`≣`, which switches between a list and a folder tree. Below it are three
+scopes:
+
+| Scope | What it lists | Where it comes from |
 | --- | --- | --- |
-| **1 Activity** | Session | Title, branch, model, reasoning level, context size, how often it was compacted, and Claude's working time |
-| | Files Claude edited | Newest first, with an edit count. ● means the file still has uncommitted changes, ○ that it doesn't |
-| | Tests | The latest test runs and whether they passed. A run counts as a test by its command: `pytest`, `npm test`, `go test`, a script named test or spec |
-| | Failed commands | The latest failures, with their first error line |
-| **2 Context** | Open | Questions and plans waiting for your answer, questions at the end of Claude's last reply, and unfinished tasks |
-| | From the last summary | The current state, next step and pending work from the latest compaction |
-| | Decisions | Your answers, with any notes; plans you approved or rejected; actions you rejected, with what you said |
-| | Requests | Your last 5 prompts, including slash commands and messages sent while Claude worked |
-| **3 Diff** | | `git status` and `git diff --stat` against `HEAD`. Only shown in a git repository |
+| **Last Turn** | Files Claude edited since your last prompt | The hunks in Claude's transcript |
+| **Uncommitted** | Staged and Unstaged groups; the tree merges them | `git status`, `git diff` |
+| **Branch** | Everything since the branch left `main`, including uncommitted work | `git diff` against the merge base with `origin/HEAD`, or else `main` or `master` |
 
-The pane uses the root of the repository Claude works in, or Claude's folder
-outside one.
+Click a file or press `Enter` to read its diff in a floating pane, with colours
+if [bat](https://github.com/sharkdp/bat) is installed; `q` closes it. The tab's
+count is the number of uncommitted files.
 
-Press a tab's number, `Tab` or `←` `→` to switch. Scroll with the mouse
-wheel, `j` / `k` or `↑` `↓`, `Space` / `b` or `Page Down` / `Page Up`, and
-`g` for the top; the tab bar shows which lines are in view when they don't
-all fit. Keys need the pane focused. The pane leaves the mouse to the
-terminal, so dragging selects text as usual; the wheel reaches the pane as
-arrow keys (the terminal's alternate scroll, mode 1007).
+Last Turn only knows Claude's Edit and Write tools, so files changed through
+Bash (`sed`, a formatter) don't show up there. Outside a git repository it's the
+only scope. The transcript format is Claude Code's own and undocumented, so an
+update to it can empty this scope and the Info tab.
 
-The Context and Activity tabs read Claude Code's own files and need no
-Claude Code setting, hook or prompt: the Claude's session file
-(`~/.claude/sessions/<pid>.json`, or under `$CLAUDE_CONFIG_DIR`) names its
-transcript (`projects/<project>/<session>.jsonl`), which is read from where
-the last read stopped. Nothing is sent anywhere, and no AI is involved, so
-only what Claude Code records as structured data shows: a decision made in
-plain conversation doesn't. Tests are recognised by their command: a test
-runner (`pytest`, `jest`, …), a build tool's `test` command (`npm test`,
-`go test`, `xcodebuild … test`, …) or a script file named test or spec. The
-transcript format is Claude Code's own and undocumented, so an update to it
-can empty these tabs.
+## Info
+
+| Section | What's in it |
+| --- | --- |
+| **Session** | Title, branch, model, reasoning level, context size, how often it was compacted, and Claude's working time |
+| **Usage** | Your 5-hour and 7-day limits and when they reset. Needs the status line step in the [main README](../README.md#install); hidden without it |
+| **Open** | Questions and plans waiting for your answer, questions at the end of Claude's last reply, and unfinished tasks |
+| **From the last summary** | The current state, next step and pending work from the latest compaction |
+| **Tests** | The latest test runs and whether they passed. A run counts as a test by its command: `pytest`, `npm test`, `go test`, a script named test or spec |
+| **Failed commands** | The latest failures, with their first error line |
+| **Decisions** | Your answers, with any notes; plans you approved or rejected; actions you rejected, with what you said |
+| **Requests** | Your last 5 prompts, including slash commands and messages sent while Claude worked |
+
+This tab reads Claude Code's own files and needs no Claude Code setting, hook or
+prompt: Claude's session file (`~/.claude/sessions/<pid>.json`, or under
+`$CLAUDE_CONFIG_DIR`) names its transcript
+(`projects/<project>/<session>.jsonl`), which is read from where the last read
+stopped. Nothing is sent anywhere, and no AI is involved, so only what Claude
+Code records as structured data shows: a decision made in plain conversation
+doesn't.
+
+## Keys and mouse
+
+Click a tab, a scope, `≣` or a file. Keys need the pane focused:
+
+| Key | What it does |
+| --- | --- |
+| `1` `2`, `Tab`, `←` `→` | Switch tabs |
+| `s` | Next scope |
+| `t` | List or tree; the choice is saved in `settings.json` |
+| `j` `k`, `↑` `↓` | Move the selection on Changes, scroll on Info |
+| `Enter` | Open the selected file's diff, or the first file's |
+| `Space` `b`, `Page Down` `Page Up` | Scroll a page |
+| `g` | Back to the top |
+
+The wheel scrolls. The pane takes clicks and drags for itself, so a plain drag
+doesn't select text in it.
 
 Not a native Rex extension format: a config module launches a separate
 event-driven `rex do` watcher, like cc-resume.
@@ -69,9 +94,9 @@ pkill -f 'cc-sidecar/watcher\.lua'; rex config reload
 | Show Sidecar Pane | Opens the pane beside the focused Claude, or another Claude in the tab that has none |
 | Disable / Enable Sidecar Pane Auto-Show | Whether a pane opens by itself when Claude starts. On by default |
 
-The choice is saved as `{"auto_show": false}` in `cc-sidecar/settings.json`, which
-git ignores. It applies from the next Claude that starts, so open panes stay.
-The palette shows whichever of Disable and Enable applies. For a key, bind
+The choice is saved as `{"auto_show": false}` in `cc-sidecar/settings.json`,
+which git ignores. It applies from the next Claude that starts, so open panes
+stay. The palette shows whichever of Disable and Enable applies. For a key, bind
 `cc_sidecar_show` or `cc_sidecar_auto_show` with `rex.bind`.
 
 ## Behavior
@@ -79,19 +104,17 @@ The palette shows whichever of Disable and Enable applies. For a key, bind
 - Claude is recognised by its program name, `claude`, in the foreground or as
   the parent of the foreground command. A pane started as `rex split -- claude`
   is found by a second look a second after its shell starts.
-- The sidecar pane takes 20% of the width, and focus stays on the Claude
-  pane.
-- The pane follows Claude's directory: after `/cd`, the Diff tab, the changed
-  marks and the pane's label switch to the new directory's repository within
-  a couple of seconds. The Diff tab covers the whole repository, not only the
-  folder Claude is in.
-- A sidecar pane you close stays closed until Claude starts again in that pane,
-  or you run Show Sidecar Pane.
-- When the watcher starts, it replaces leftover sidecar panes with new ones.
-- cc-resume doesn't save sidecar panes; they come back with the resumed
-  Claude.
-- Errors go to `~/.config/rex/state/cc-sidecar.log`; the pane shows its
-  own.
+- The pane takes 20% of the width, and focus stays on the Claude pane.
+- The pane follows Claude's directory: after `/cd`, the scopes and the pane's
+  label switch to the new directory's repository within
+  a couple of seconds. They cover the whole repository, not only the folder
+  Claude is in.
+- A pane you close stays closed until Claude starts again in that pane, or you
+  run Show Sidecar Pane.
+- When the watcher starts, it replaces leftover sidecar panes with new ones,
+  including `Changes:` panes from before this extension was renamed.
+- cc-resume doesn't save sidecar panes; they come back with the resumed Claude.
+- Errors go to `~/.config/rex/state/cc-sidecar.log`; the pane shows its own.
 
 ## Files
 
@@ -101,6 +124,7 @@ The palette shows whichever of Disable and Enable applies. For a key, bind
 - `watcher.lua` opens and closes the panes.
 - `panel.lua` runs in each pane: reads git and the transcript, and draws
   the tabs.
+- `diff-view` draws one diff in the floating pane.
 
 ## Tests
 

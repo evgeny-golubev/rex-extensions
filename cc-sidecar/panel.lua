@@ -1,20 +1,18 @@
--- Runs in a sidecar pane, with tabs: what the Claude beside it did
--- (Activity); what was asked, decided and left open in its session
--- (Context); and, in a git repository, the uncommitted changes (Diff). The
--- watcher passes the Claude pane's block ID and its directory (the
--- repository root, in one) as `claude=` and `cwd=`. The session is read from Claude Code's own files, so
--- no Claude Code setting is needed. With CC_SIDECAR_TEST set, this file
--- returns its functions instead of running.
+-- Runs in a sidecar pane, with two tabs: what changed, by scope (Changes), and
+-- what the Claude beside it did, was asked and left open (Info). The watcher
+-- passes the Claude pane's block ID and its directory (the repository root, in
+-- one) as `claude=` and `cwd=`. The session is read from Claude Code's own
+-- files, so no Claude Code setting is needed. With CC_SIDECAR_TEST set, this
+-- file returns its functions instead of running.
 
 local M = {}
 
 local terminal = "com.superlogical.terminal"
 local home = os.getenv("HOME") or ""
+local dir = debug.getinfo(1, "S").source:match("^@?(.*/)") or "./"
+local settings = dofile(dir .. "settings.lua")
 
---- The tabs, in order; Diff only in a git repository.
-function M.tabs(git)
-	return git and { "Activity", "Context", "Diff" } or { "Activity", "Context" }
-end
+M.tabs = { "Info", "Changes" }
 
 --- The scopes of the Changes tab; only Last Turn works without git.
 function M.scopes(git)
@@ -68,16 +66,6 @@ local function cut(s, n)
 		count = count + 1
 	end
 	return s:sub(1, i - 1), s:sub(i)
-end
-
---- Cuts plain text to n columns from the left, so a path keeps its file name.
-function M.clip_left(s, n)
-	local w = M.width(s)
-	if w <= n then
-		return s
-	end
-	local _, tail = cut(s, w - n + 1)
-	return "…" .. tail
 end
 
 --- Word-wraps text to cols columns. The first line starts with `first`, the
@@ -192,8 +180,6 @@ function M.new_state()
 		waiting = {},
 		tasks = {},
 		task_order = {},
-		files = {},
-		file_order = {},
 		failures = {},
 		tests = {},
 		compactions = 0,
@@ -337,20 +323,6 @@ local function tool_result(state, item, record)
 	elseif (tool.name == "Edit" or tool.name == "Write" or tool.name == "NotebookEdit") and not failed then
 		local path = input.file_path or input.notebook_path
 		if path then
-			local f = state.files[path]
-			if not f then
-				f = { edits = 0 }
-				state.files[path] = f
-			end
-			f.edits = f.edits + 1
-			f.seq = state.seq
-			for i, p in ipairs(state.file_order) do
-				if p == path then
-					table.remove(state.file_order, i)
-					break
-				end
-			end
-			state.file_order[#state.file_order + 1] = path
 			turn_edit(state, path, extra)
 		end
 	elseif tool.name == "Bash" then
@@ -558,9 +530,7 @@ end
 
 local status_marks = { completed = green .. "✓" .. reset, in_progress = yellow .. "▸" .. reset }
 
-function M.context_lines(state, cols)
-	local out = {}
-
+local function open_section(out, state, cols)
 	local open = {}
 	for id in pairs(state.waiting) do
 		local tool = state.tools[id]
@@ -589,7 +559,9 @@ function M.context_lines(state, cols)
 	end
 	heading(out, "Open", #open == 0 and "none" or nil)
 	add(out, open)
+end
 
+local function summary_section(out, state, cols)
 	local summary = M.summary_lines(state.summary)
 	if #summary > 0 then
 		heading(out, "From the last summary")
@@ -601,7 +573,9 @@ function M.context_lines(state, cols)
 			end
 		end
 	end
+end
 
+local function decisions_section(out, state, cols)
 	local decided = {}
 	for i = #state.decisions, 1, -1 do
 		local d = state.decisions[i]
@@ -625,14 +599,14 @@ function M.context_lines(state, cols)
 	end
 	heading(out, "Decisions", #state.decisions == 0 and "none" or nil)
 	add(out, decided)
+end
 
+local function requests_section(out, state, cols)
 	local shown = math.min(#state.prompts, 5)
 	heading(out, "Requests", #state.prompts == 0 and "none" or (shown < #state.prompts and ("last " .. shown .. " of " .. #state.prompts)) or tostring(shown))
 	for i = #state.prompts, #state.prompts - shown + 1, -1 do
 		add(out, M.wrap(state.prompts[i].text, cols, cyan .. "› " .. reset, "  ", 6))
 	end
-
-	return out
 end
 
 local function duration(ms)
@@ -643,8 +617,7 @@ local function duration(ms)
 	return m .. "m"
 end
 
-function M.activity_lines(state, cols, root, changed)
-	local out = {}
+local function session_section(out, state, cols)
 	heading(out, "Session")
 	local facts = {
 		{ "Title", state.title },
@@ -660,42 +633,76 @@ function M.activity_lines(state, cols, root, changed)
 			add(out, M.wrap(tostring(f[2]), cols, dim .. string.format("%-12s", f[1]) .. reset, string.rep(" ", 12)))
 		end
 	end
+end
 
-	local inside, outside = {}, 0
-	for i = #state.file_order, 1, -1 do
-		local path = state.file_order[i]
-		if root and path:sub(1, #root + 1) == root .. "/" then
-			inside[#inside + 1] = path
-		else
-			outside = outside + 1
-		end
-	end
-	heading(out, "Files Claude edited", #state.file_order > 0 and tostring(#state.file_order) or "none")
-	for _, path in ipairs(inside) do
-		local mark = changed[path] and (yellow .. "● " .. reset) or (dim .. "○ " .. reset)
-		local edits = state.files[path].edits
-		local count = edits > 1 and (" ×" .. edits) or ""
-		out[#out + 1] = mark .. M.clip_left(short_path(path, root), cols - 2 - #count) .. dim .. count .. reset
-	end
-	if outside > 0 then
-		out[#out + 1] = dim .. "+ " .. outside .. " outside the repository" .. reset
-	end
-
+local function tests_section(out, state, cols)
 	heading(out, "Tests", #state.tests > 0 and tostring(#state.tests) or "none")
 	for i = #state.tests, math.max(1, #state.tests - 7), -1 do
 		local t = state.tests[i]
 		out[#out + 1] = M.clip((t.ok and (green .. "✓ ") or (red .. "✗ ")) .. reset .. t.command, cols)
 	end
+end
 
+local function failed_section(out, state, cols)
 	heading(out, "Failed commands", #state.failures > 0 and tostring(#state.failures) or "none")
 	for i = #state.failures, math.max(1, #state.failures - 7), -1 do
 		local f = state.failures[i]
 		out[#out + 1] = M.clip(red .. "✗ " .. reset .. f.command, cols)
 		out[#out + 1] = M.clip("  " .. dim .. f.error .. reset, cols)
 	end
-	return out
 end
 
+local function time_left(seconds)
+	local m = math.max(1, math.ceil(seconds / 60))
+	if m >= 1440 then
+		return string.format("%dd %dh", math.floor(m / 1440), math.floor(m % 1440 / 60))
+	elseif m >= 60 then
+		return string.format("%dh %dm", math.floor(m / 60), m % 60)
+	end
+	return m .. "m"
+end
+
+--- The 5-hour and 7-day limits, from the status line's saved input. A window
+--- that has reset since it was saved counts as unused.
+local function usage_section(out, limits, cols, now)
+	if type(limits) ~= "table" then
+		return
+	end
+	local shown = false
+	for _, w in ipairs({ { "Session (5h)", limits.five_hour }, { "Week (7d)", limits.seven_day } }) do
+		local name, limit = w[1], w[2]
+		if type(limit) == "table" and limit.used_percentage then
+			if not shown then
+				heading(out, "Usage")
+				shown = true
+			end
+			local left = limit.resets_at and limit.resets_at - now or nil
+			local used = (left and left <= 0) and 0 or limit.used_percentage
+			local percent = math.floor(used + 0.5) .. "%"
+			out[#out + 1] = name .. string.rep(" ", math.max(1, cols - M.width(name) - #percent)) .. percent
+			local filled = math.max(0, math.min(cols, math.floor(cols * used / 100 + 0.5)))
+			local colour = used >= 90 and red or used >= 70 and yellow or green
+			out[#out + 1] = colour .. string.rep("━", filled) .. reset .. dim .. string.rep("─", cols - filled) .. reset
+			if left and left > 0 then
+				out[#out + 1] = dim .. "Resets in " .. time_left(left) .. reset
+			end
+		end
+	end
+end
+
+--- Everything on the Info tab, most useful first.
+function M.info_lines(state, cols, limits, now)
+	local out = {}
+	session_section(out, state, cols)
+	usage_section(out, limits, cols, now or os.time())
+	open_section(out, state, cols)
+	summary_section(out, state, cols)
+	tests_section(out, state, cols)
+	failed_section(out, state, cols)
+	decisions_section(out, state, cols)
+	requests_section(out, state, cols)
+	return out
+end
 
 -- Changes -------------------------------------------------------------------
 
@@ -943,40 +950,113 @@ end
 
 
 
---- The tab bar, with where the shown lines are when they don't all fit.
-function M.tab_bar(tabs, active, cols, position)
-	local parts = {}
-	for i, name in ipairs(tabs) do
-		local label = " " .. i .. " " .. name .. " "
+--- The tab bar, with where the shown lines are when they don't all fit, and the
+--- columns each tab takes.
+function M.tab_bar(tabs, active, cols, position, badges)
+	local parts, ranges, column = {}, {}, 1
+	for _, name in ipairs(tabs) do
+		local badge = badges and badges[name]
+		local label = " " .. name .. " " .. (badge and (badge .. " ") or "")
 		parts[#parts + 1] = (name == active and ("\27[7m" .. label .. reset) or (dim .. label .. reset))
+		ranges[#ranges + 1] = { from = column, to = column + M.width(label) - 1, action = { kind = "tab", tab = name } }
+		column = column + M.width(label) + 1
 	end
 	local bar = table.concat(parts, " ")
 	local hint = position or ""
 	if hint ~= "" and M.width(bar) + M.width(hint) + 2 <= cols then
 		bar = bar .. string.rep(" ", cols - M.width(bar) - M.width(hint)) .. dim .. hint .. reset
 	end
-	return M.clip(bar, cols)
+	return M.clip(bar, cols), ranges
 end
 
---- The rows left for a tab's lines, under the tab bar and its blank row.
-function M.page(rows)
-	return math.max(1, rows - 2)
+--- The rows left for a tab's lines, under the tab bar, its blank row and any
+--- pinned lines.
+function M.page(rows, pinned)
+	return math.max(1, rows - 2 - (pinned or 0))
 end
 
---- The whole screen: the tab bar, a blank row, then the tab's lines from
---- `scroll` on.
+--- The whole screen: the tab bar, a blank row, any pinned lines, then the tab's
+--- lines from `scroll` on. Also returns the tab bar's columns.
 --- Lines stop a column short of the edge, where erasing the rest of a full
 --- line would also erase its last character.
-function M.frame(tabs, active, lines, scroll, cols, rows)
+function M.frame(tabs, active, lines, scroll, cols, rows, opts)
+	opts = opts or {}
 	cols = cols - 1
-	local page = M.page(rows)
+	local pinned = opts.pinned or {}
+	local page = M.page(rows, #pinned)
 	local last = math.min(#lines, scroll + page)
 	local position = #lines > page and string.format("%d–%d of %d", scroll + 1, last, #lines) or nil
-	local out = { M.tab_bar(tabs, active, cols, position), "" }
+	local bar, ranges = M.tab_bar(tabs, active, cols, position, opts.badges)
+	local out = { bar, "" }
+	for _, line in ipairs(pinned) do
+		out[#out + 1] = M.clip(line, cols)
+	end
 	for i = scroll + 1, last do
 		out[#out + 1] = M.clip(lines[i], cols)
 	end
-	return "\27[H" .. table.concat(out, "\27[K\r\n") .. "\27[K\27[J"
+	return "\27[H" .. table.concat(out, "\27[K\r\n") .. "\27[K\27[J", ranges
+end
+
+--- What a click at a 1-based column and row does, or nil. `layout` has the tab
+--- bar's columns (`tabs`), and from the tab's view `hits`, `pinned` (a count),
+--- `actions` and `scroll`.
+function M.hit(layout, x, y)
+	local function in_ranges(ranges)
+		for _, r in ipairs(ranges or {}) do
+			if x >= r.from and x <= r.to then
+				return r.action
+			end
+		end
+	end
+	if y == 1 then
+		return in_ranges(layout.tabs)
+	elseif y == 2 then
+		return nil
+	elseif y <= 2 + layout.pinned then
+		return in_ranges(layout.hits[y - 2])
+	end
+	return layout.actions[y - 2 - layout.pinned + layout.scroll]
+end
+
+--- The window that holds a block, from a session view.
+function M.window_of(view, block_id)
+	for _, w in ipairs(view.windows or {}) do
+		for _, l in ipairs(w.layers or {}) do
+			for _, b in ipairs(l.blocks or {}) do
+				if b.block_id == block_id then
+					return w
+				end
+			end
+		end
+	end
+end
+
+function M.float_closed(view, block_id)
+	return M.window_of(view, block_id) == nil
+end
+
+--- Whether a block's tab is the one in front.
+function M.is_active(view, block_id)
+	local window = M.window_of(view, block_id)
+	return window ~= nil and window.window_id == view.active_window_id
+end
+
+local diff_label = "Diff: "
+
+--- The floats an earlier diff left in a window.
+function M.old_diffs(window)
+	local found = {}
+	for _, l in ipairs(window.layers or {}) do
+		if l.kind ~= "tiled" then
+			for _, b in ipairs(l.blocks or {}) do
+				if (b.label or ""):sub(1, #diff_label) == diff_label then
+					found[#found + 1] = l.layer_id
+					break
+				end
+			end
+		end
+	end
+	return found
 end
 
 -- Gathering -----------------------------------------------------------------
@@ -1051,16 +1131,19 @@ local panel = {
 	block_id = os.getenv("REX_BLOCK"),
 	claude = rex.args and rex.args.claude,
 	root = rex.args and rex.args.cwd or os.getenv("PWD"),
-	tabs = M.tabs(false),
-	tab = "Activity",
+	tab = "Changes",
 	--- Tab name -> the first line shown.
 	scroll = {},
 	cols = 80,
 	rows = 24,
-	diff = {},
-	changed = {},
-	--- The last built lines, and the tab and width they were built for;
-	--- cleared by each gather.
+	git = false,
+	files = {},
+	head = true,
+	scope = "Uncommitted",
+	tree = settings.tree(dir),
+	--- Scope -> the key of the selected row.
+	selected = {},
+	--- The tab's last built view; cleared by anything that changes it.
 	cache = nil,
 	state = M.new_state(),
 }
@@ -1070,10 +1153,10 @@ local function git(...)
 	return r and r.ok and r.stdout or ""
 end
 
---- `git status --porcelain -b -z`, as `git status -sb` shows it, with the
---- changed files' paths and whether the branch has a commit yet.
-function M.status(out, root)
-	local result = { lines = {}, changed = {}, head = true }
+--- `git status --porcelain -b -z`: the branch, whether it has a commit yet, and
+--- the changed files.
+function M.status(out)
+	local result = { files = {}, head = true }
 	local fields = {}
 	for field in out:gmatch("[^%z]+") do
 		fields[#fields + 1] = field
@@ -1084,19 +1167,14 @@ function M.status(out, root)
 		local branch = f:match("^## (.*)")
 		if branch then
 			result.head = not branch:match("^No commits yet")
-			local name, rest = branch:match("^(.-)(%.%.%..*)$")
-			result.lines[#result.lines + 1] = "## " .. green .. (name or branch) .. reset .. (rest and (red .. rest .. reset) or "")
+			result.branch = branch:match("^No commits yet on (.*)$") or branch:match("^(.-)%.%.%.") or branch
 		else
 			local x, y, path = f:sub(1, 1), f:sub(2, 2), f:sub(4)
-			local shown = path
 			-- A rename or copy is followed by the path it came from.
 			if x == "R" or x == "C" then
 				i = i + 1
-				shown = (fields[i] or "") .. " -> " .. path
 			end
-			result.changed[root .. "/" .. path] = true
-			local mark = x == "?" and (red .. "??" .. reset) or (green .. x .. reset .. red .. y .. reset)
-			result.lines[#result.lines + 1] = mark .. " " .. shown
+			result.files[#result.files + 1] = { x = x, y = y, path = path }
 		end
 		i = i + 1
 	end
@@ -1113,13 +1191,94 @@ local function follow(cwd)
 	local root = r and r.ok and (r.stdout:gsub("%s+$", "")) or cwd
 	if root ~= panel.root then
 		panel.root = root
-		panel.scroll.Diff = 0
+		panel.scroll.Changes = 0
+			panel.selected = {}
 		rex.call("session.set_block_label", {
 			session_id = panel.session_id,
 			block_id = panel.block_id,
 			label = "Sidecar: " .. (root:match("[^/]+$") or root),
 		})
 	end
+end
+
+--- The ref the Branch scope compares with: where origin/HEAD points, or else
+--- main or master.
+local function base_ref()
+	local remote = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):gsub("%s+$", "")
+	if remote ~= "" then
+		return remote
+	end
+	for _, name in ipairs({ "main", "master" }) do
+		if git("rev-parse", "--verify", "--quiet", name) ~= "" then
+			return name
+		end
+	end
+end
+
+--- Lines in the untracked files, for the totals. git counts them only one call
+--- per file, so this reads them, and leaves out big ones and long lists.
+local function untracked_lines(files, root)
+	local total, read = 0, 0
+	for _, file in ipairs(files) do
+		if file.x == "?" and read < 50 then
+			read = read + 1
+			local f = io.open(root .. "/" .. file.path, "rb")
+			if f then
+				local size = f:seek("end")
+				if size and size <= 1048576 then
+					f:seek("set", 0)
+					local text = f:read("*a") or ""
+					local _, n = text:gsub("\n", "")
+					total = total + n
+				end
+				f:close()
+			end
+		end
+	end
+	return total
+end
+
+--- Loads the scope on show; only that one, as the pane takes no keys while git
+--- runs.
+local function load_scope()
+	local found = false
+	for _, scope in ipairs(M.scopes(panel.git)) do
+		found = found or scope == panel.scope
+	end
+	if not found then
+		panel.scope = M.scopes(panel.git)[1]
+	end
+	local data
+	if panel.scope == "Last Turn" then
+		data = M.turn_data(panel.state, panel.root)
+		if not panel.state.path then
+			data.problem = "No Claude session found for this pane."
+		end
+	elseif panel.scope == "Uncommitted" then
+		data = M.uncommitted(panel.files)
+		data.added, data.removed = M.numstat(git("diff", "--numstat", "-z", panel.head and "HEAD" or "--cached"))
+		data.added = data.added + untracked_lines(panel.files, panel.root)
+	else
+		local ref = base_ref()
+		local base = ref and git("merge-base", "HEAD", ref):gsub("%s+$", "") or ""
+		if base == "" then
+			data = { groups = {}, problem = "No main or master branch to compare with." }
+		else
+			local rows = M.branch_rows(git("diff", "--name-status", "-z", base), panel.files)
+			data = { groups = #rows > 0 and { { title = "Changed", rows = rows } } or {}, note = "No changes on this branch.", vs = ref:gsub("^origin/", "") }
+			data.base = base
+			data.added, data.removed = M.numstat(git("diff", "--numstat", "-z", base))
+			data.added = data.added + untracked_lines(panel.files, panel.root)
+		end
+	end
+	panel.data = data
+end
+
+--- The status line's saved input for a transcript's session, if it saves it.
+local function read_limits(path)
+	local config, session = path:match("^(.*)/projects/.*/([^/]+)%.jsonl$")
+	local saved = config and read_json(config .. "/state/statusline/" .. session .. ".json")
+	return saved and saved.rate_limits or nil
 end
 
 local function gather()
@@ -1140,16 +1299,11 @@ local function gather()
 	-- One status call: git status runs slowly in big repositories, and the
 	-- pane takes no keys while it runs.
 	local r = exec({ "git", "-C", panel.root, "status", "--porcelain", "-b", "-z", "--untracked-files=all" })
-	panel.tabs = M.tabs(r and r.ok)
-	panel.diff, panel.changed = {}, {}
-	if r and r.ok then
-		local status = M.status(r.stdout, panel.root)
-		panel.diff, panel.changed = status.lines, status.changed
-		local stat = git("--no-pager", "diff", "--color=always", "--stat=" .. (panel.cols - 1), status.head and "HEAD" or "--cached")
-		panel.diff[#panel.diff + 1] = ""
-		for line in stat:gmatch("([^\n]*)\n") do
-			panel.diff[#panel.diff + 1] = line
-		end
+	panel.git = r and r.ok or false
+	panel.files, panel.branch, panel.head = {}, nil, true
+	if panel.git then
+		local status = M.status(r.stdout)
+		panel.files, panel.branch, panel.head = status.files, status.branch, status.head
 	end
 
 	if path then
@@ -1162,37 +1316,61 @@ local function gather()
 			panel.state.path = path
 			M.read_new(panel.state, path)
 		end
+		panel.limits = read_limits(path)
+	end
+
+	if panel.tab == "Changes" or not panel.data then
+		load_scope()
 	end
 end
 
-local function lines_of(tab)
-	if tab == "Diff" then
-		return panel.diff
-	elseif not panel.state.path then
-		return { dim .. "No Claude session found for this pane." .. reset }
-	elseif tab == "Context" then
-		return M.context_lines(panel.state, panel.cols - 1)
+local function build(tab)
+	if tab == "Changes" then
+		return M.changes_view({
+			title = panel.branch or (panel.root:match("[^/]+$") or panel.root),
+			scope = panel.scope,
+			scopes = M.scopes(panel.git),
+			tree = panel.tree,
+			selected = panel.selected[panel.scope],
+			data = panel.data or { groups = {}, note = "" },
+			notice = panel.notice,
+		}, panel.cols - 1)
 	end
-	return M.activity_lines(panel.state, panel.cols - 1, panel.root, panel.changed)
+	local lines = panel.state.path
+			and M.info_lines(panel.state, panel.cols - 1, panel.limits)
+		or { dim .. "No Claude session found for this pane." .. reset }
+	return { lines = lines, pinned = {}, hits = {}, actions = {}, rows = {} }
+end
+
+--- The tab's view, built again only after something cleared it.
+local function current()
+	local c = panel.cache
+	if not (c and c.tab == panel.tab and c.cols == panel.cols) then
+		c = build(panel.tab)
+		c.tab, c.cols = panel.tab, panel.cols
+		panel.cache = c
+	end
+	return c
 end
 
 local function draw()
-	local shown = false
-	for _, name in ipairs(panel.tabs) do
-		shown = shown or name == panel.tab
+	local c = current()
+	local page = M.page(panel.rows, #c.pinned)
+	local s = panel.scroll[panel.tab] or 0
+	if panel.reveal then
+		panel.reveal = false
+		for _, r in ipairs(c.rows) do
+			if r.key == panel.selected[panel.scope] then
+				s = math.max(r.line - page, math.min(s, r.line - 1))
+			end
+		end
 	end
-	if not shown then
-		panel.tab = panel.tabs[1]
-	end
-	local c = panel.cache
-	if not (c and c.tab == panel.tab and c.cols == panel.cols) then
-		c = { tab = panel.tab, cols = panel.cols, lines = lines_of(panel.tab) }
-		panel.cache = c
-	end
-	local lines = c.lines
-	local s = math.max(0, math.min(panel.scroll[panel.tab] or 0, #lines - M.page(panel.rows)))
+	s = math.max(0, math.min(s, #c.lines - page))
 	panel.scroll[panel.tab] = s
-	io.write(M.frame(panel.tabs, panel.tab, lines, s, panel.cols, panel.rows))
+	local count = #panel.files > 0 and tostring(#panel.files) or nil
+	local frame, ranges = M.frame(M.tabs, panel.tab, c.lines, s, panel.cols, panel.rows, { pinned = c.pinned, badges = { Changes = count } })
+	panel.layout = { tabs = ranges, hits = c.hits, pinned = #c.pinned, actions = c.actions, scroll = s }
+	io.write(frame)
 	if io.stdout.flush then
 		io.stdout:flush()
 	end
@@ -1202,17 +1380,161 @@ local function scroll_by(n)
 	panel.scroll[panel.tab] = math.max(0, (panel.scroll[panel.tab] or 0) + n)
 end
 
+local function set_tab(tab)
+	panel.tab = tab
+	panel.cache = nil
+	if tab == "Changes" then
+		load_scope()
+	end
+end
+
 local function switch(step)
-	for i, name in ipairs(panel.tabs) do
+	for i, name in ipairs(M.tabs) do
 		if name == panel.tab then
-			panel.tab = panel.tabs[(i - 1 + step) % #panel.tabs + 1]
+			set_tab(M.tabs[(i - 1 + step) % #M.tabs + 1])
 			return
 		end
 	end
 end
 
---- Reads the rest of an escape sequence that started with ESC, as a key
---- name: arrows and page keys.
+local function set_scope(scope)
+	panel.scope = scope
+	panel.scroll.Changes = 0
+	panel.notice = nil
+	panel.cache = nil
+	load_scope()
+end
+
+local function next_scope()
+	local scopes = M.scopes(panel.git)
+	for i, scope in ipairs(scopes) do
+		if scope == panel.scope then
+			set_scope(scopes[i % #scopes + 1])
+			return
+		end
+	end
+end
+
+local function toggle_tree()
+	panel.tree = not panel.tree
+	panel.cache = nil
+	pcall(settings.set_tree, dir, panel.tree)
+end
+
+--- Opens a row's diff in a float, replacing any earlier one.
+local function open_diff(row)
+	local attached, err = rex.call("session.attach", { session_id = panel.session_id })
+	if err ~= nil then
+		return tostring(err)
+	end
+	local window = M.window_of(attached.view, panel.block_id)
+	if not window then
+		return "This pane's tab wasn't found."
+	end
+	for _, id in ipairs(M.old_diffs(window)) do
+		rex.call("session.close_layer", { session_id = panel.session_id, layer_id = id })
+	end
+	local command = { dir .. "diff-view" }
+	if row.diff == "patch" then
+		local file = os.tmpname()
+		local f = io.open(file, "wb")
+		if not f then
+			return "Can't write the diff to a temporary file."
+		end
+		f:write(M.turn_patch(panel.state, row.absolute, row.path))
+		f:close()
+		command[2], command[3] = "patch", file
+	else
+		command[2], command[3] = "git", panel.root
+		for _, arg in ipairs(M.diff_args(row, panel.data.base, panel.head)) do
+			command[#command + 1] = arg
+		end
+	end
+	local created, opened = rex.call("session.new_layer", {
+		session_id = panel.session_id,
+		window_id = window.window_id,
+		bounds = { 0.1, 0.075, 0.8, 0.85 },
+		focus = true,
+		layout = {
+			block = {
+				flavor = terminal .. ".shell",
+				label = diff_label .. (row.path:match("[^/]+$") or row.path),
+				options = { command = command, cwd = panel.root },
+			},
+		},
+	})
+	if opened ~= nil then
+		return tostring(opened)
+	end
+	panel.float = created and created.block_ids and created.block_ids[1]
+end
+
+--- Rex focuses whichever pane it picks when a float closes, so the pane takes
+--- focus back. It doesn't if the user has moved to another tab, as focusing
+--- would bring this one back to the front.
+local function watch_float()
+	local result = rex.call("session.view", { session_id = panel.session_id })
+	local view = result and (result.view or result)
+	if view and M.float_closed(view, panel.float) then
+		panel.float = nil
+		if M.is_active(view, panel.block_id) then
+			rex.call("session.focus_block", { session_id = panel.session_id, block_id = panel.block_id })
+		end
+	end
+end
+
+local function open_row(key, row)
+	panel.selected[panel.scope] = key
+	panel.notice = open_diff(row)
+	panel.cache = nil
+end
+
+local function act(action)
+	if action.kind == "tab" then
+		set_tab(action.tab)
+	elseif action.kind == "scope" then
+		set_scope(action.scope)
+	elseif action.kind == "tree" then
+		toggle_tree()
+	elseif action.kind == "open" then
+		open_row(action.key, action.row)
+	end
+end
+
+--- Moves the selection, in the tab that has one, or scrolls.
+local function move(step)
+	local rows = current().rows
+	if #rows == 0 then
+		scroll_by(step)
+		return
+	end
+	local at = 0
+	for i, r in ipairs(rows) do
+		if r.key == panel.selected[panel.scope] then
+			at = i
+		end
+	end
+	local target = rows[math.max(1, math.min(#rows, at + step))]
+	panel.selected[panel.scope] = target.key
+	panel.reveal = true
+	panel.cache = nil
+end
+
+local function open_selected()
+	local rows = current().rows
+	for _, r in ipairs(rows) do
+		if r.key == panel.selected[panel.scope] then
+			open_row(r.key, r.row)
+			return
+		end
+	end
+	if rows[1] then
+		open_row(rows[1].key, rows[1].row)
+	end
+end
+
+--- Reads the rest of an escape sequence that started with ESC, as a key name
+--- (arrows and page keys) or, for the mouse, a table.
 local function escape()
 	local intro = io.read(1)
 	if intro ~= "[" and intro ~= "O" then
@@ -1229,31 +1551,58 @@ local function escape()
 			break
 		end
 	end
+	local button, x, y, kind = body:match("^<(%d+);(%d+);(%d+)([Mm])$")
+	if button then
+		return { button = tonumber(button), x = tonumber(x), y = tonumber(y), press = kind == "M" }
+	end
 	return ({ A = "up", B = "down", C = "right", D = "left", ["5~"] = "pageup", ["6~"] = "pagedown" })[body]
+end
+
+--- SGR mouse report: bit 64 marks the wheel, and the low two bits the button.
+local function mouse(m)
+	local button = m.button % 4
+	if m.button >= 64 and m.button < 128 then
+		scroll_by(button == 0 and -3 or 3)
+	elseif m.press and m.button < 32 and button == 0 and panel.layout then
+		local action = M.hit(panel.layout, m.x, m.y)
+		if action then
+			act(action)
+		end
+	end
 end
 
 local function key(k)
 	if k == "\27" then
 		k = escape()
 	end
-	local page = M.page(panel.rows) - 1
+	if type(k) == "table" then
+		mouse(k)
+		return
+	end
+	local page = M.page(panel.rows, #current().pinned) - 1
 	local n = tonumber(k)
-	if n and panel.tabs[n] then
-		panel.tab = panel.tabs[n]
+	if n and M.tabs[n] then
+		set_tab(M.tabs[n])
 	elseif k == "\t" or k == "right" then
 		switch(1)
 	elseif k == "left" then
 		switch(-1)
 	elseif k == "j" or k == "down" then
-		scroll_by(1)
+		move(1)
 	elseif k == "k" or k == "up" then
-		scroll_by(-1)
+		move(-1)
 	elseif k == " " or k == "pagedown" then
 		scroll_by(page)
 	elseif k == "b" or k == "pageup" then
 		scroll_by(-page)
 	elseif k == "g" then
 		panel.scroll[panel.tab] = 0
+	elseif panel.tab == "Changes" and k == "s" then
+		next_scope()
+	elseif panel.tab == "Changes" and k == "t" then
+		toggle_tree()
+	elseif panel.tab == "Changes" and (k == "\n" or k == "\r") then
+		open_selected()
 	end
 end
 
@@ -1262,29 +1611,33 @@ if CC_SIDECAR_TEST then
 end
 
 -- Keys arrive one at a time, and a read gives up after a tenth of a second,
--- so the loop redraws without waiting for a key. The mouse stays the
--- terminal's, so a drag selects text: on the alternate screen, with alternate
--- scroll (mode 1007), the wheel comes as arrow keys. A trackpad sends dozens
--- a second, so input is drawn at most every 50 ms and once it stops, and the
--- refresh waits for a second without keys. os.clock is wall time in this
--- runtime.
+-- so the loop redraws without waiting for a key. Modes 1000 and 1006 report
+-- clicks and the wheel. A trackpad sends dozens of reports a second, so input
+-- is drawn at most every 50 ms and once it stops, and the refresh waits for a
+-- second without keys. os.clock is wall time in this runtime.
 exec({ "/bin/sh", "-c", "stty -icanon -echo min 0 time 1 </dev/tty" })
-io.write("\27[?1049h\27[?1007h\27[?25l\27[2J")
-local gathered, drawn, dirty, typed = 0, 0, false, 0
+io.write("\27[?1049h\27[?1000h\27[?1006h\27[?25l\27[2J")
+local gathered, drawn, dirty, typed, watched = 0, 0, false, 0, 0
 while true do
 	local now = os.clock()
+	if panel.float and now - watched >= 0.25 then
+		watched = now
+		pcall(watch_float)
+	end
 	if now - gathered >= 2 and now - typed >= 1 then
 		gathered = now
 		local ok, err = pcall(gather)
-		if not ok then
-			panel.diff = { red .. tostring(err) .. reset }
-		end
+		panel.notice = (not ok) and tostring(err) or panel.notice
 		panel.cache = nil
 		dirty = true
 	end
 	local k = io.read(1)
 	if k then
-		key(k)
+		local ok, err = pcall(key, k)
+		if not ok then
+			panel.notice = tostring(err)
+			panel.cache = nil
+		end
 		dirty, typed = true, os.clock()
 	end
 	if dirty and (not k or os.clock() - drawn >= 0.05) then

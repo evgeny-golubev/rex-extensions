@@ -33,6 +33,17 @@ function M.set_auto_show(base, on)
 	write_json(base .. "settings.json", settings)
 end
 
+function M.tree(base)
+	local settings = read_json(base .. "settings.json") or {}
+	return settings.tree == true
+end
+
+function M.set_tree(base, on)
+	local settings = read_json(base .. "settings.json") or {}
+	settings.tree = on
+	write_json(base .. "settings.json", settings)
+end
+
 function M.request_show(base, session_id, block_id)
 	write_json(base .. "show-request.json", { session_id = session_id, block_id = block_id })
 end
