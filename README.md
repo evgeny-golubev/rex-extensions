@@ -1,16 +1,16 @@
 # Rex extensions and skills for Claude Code
 
 Make the [Rex](https://www.superlogical.com) terminal a better home for
-[Claude Code](https://claude.com/claude-code) on macOS: see what each Claude is
-doing and what you decided with it, watch your agents as pixel crabs, get your
+[Claude Code](https://claude.com/claude-code) on macOS: see what each Claude
+changed and what you decided with it, watch your agents as pixel crabs, get your
 conversations back after a restart, and let Claude show you files.
 
 | | Name | What you get | Runs as |
 | --- | --- | --- | --- |
-| Extension | [cc-sidecar](#cc-sidecar) | A side pane with each Claude's activity, open questions, decisions and uncommitted changes | Pane beside Claude |
-| Extension | [cc-crab-pond](#cc-crab-pond) | Claudes, subagents and background jobs as animated crabs, plus your usage limits | Strip along the tab's bottom |
+| Extension | [cc-sidecar](#cc-sidecar) | A side pane with what each Claude changed, by turn, uncommitted or branch, plus its activity, open questions and decisions | Pane beside Claude |
+| Extension | [cc-crab-pond](#cc-crab-pond) | Claudes, subagents and background jobs as animated crabs | Strip along the tab's bottom |
 | Extension | [cc-resume](#cc-resume) | Claude Code conversations resumed after the Rex server restarts | Background watcher |
-| Skill | [rex-view](#rex-view) | Claude shows images, Markdown and source code in a floating pane | Plugin, version 0.1.0 |
+| Skill | [rex-view](#rex-view) | Claude shows images, Markdown and source code in a floating pane | Plugin, version 0.3.0 |
 
 **Contents:** [Extensions](#extensions) · [Skills](#skills) ·
 [Requirements](#requirements) · [Install](#install) · [Update](#update) ·
@@ -23,24 +23,25 @@ Rex loads these from `init.lua`. Each one's README has the details.
 
 ### cc-sidecar
 
-Answers "what has this Claude done, and what's still waiting on me?" A pane on
+Answers "what did this Claude change, and what's still waiting on me?" A pane on
 the right, 20% of the tab, opens and closes with Claude and replaces Claude
 Code's own diff panel.
 
-![cc-sidecar's Activity, Context and Diff tabs, with made-up data](docs/cc-sidecar.png)
+![cc-sidecar's Changes and Info tabs, with made-up data](docs/cc-sidecar.png)
 
-**Activity** lists the session's facts, edited files, test runs and failed
-commands. **Context** lists open questions, your decisions and your last
-requests. **Diff** shows the uncommitted changes.
+**Changes** lists changed files for the last turn, the uncommitted work or the
+branch, as a list or a tree; click one to read its diff in a floating pane.
+**Info** lists the session's facts, usage limits, open questions, test runs,
+failed commands, your decisions and your last requests.
 [Tabs, keys and limits →](cc-sidecar/README.md)
 
 ### cc-crab-pond
 
 Shows everything running in a tab at a glance. A strip along the bottom 8% of
-each Claude tab draws your usage limits, then one animated crab per Claude,
-subagent, background job and program in the tab's other panes. Colour shows the
-kind of program, the hat shows its job, and a failed command is on fire. Shown
-here with room for three rows and sample crabs:
+each Claude tab draws one animated crab per Claude, subagent, background job and
+program in the tab's other panes. Colour shows the kind of program, the hat shows
+its job, and a failed command is on fire. Shown here with room for three rows and
+sample crabs:
 
 ![cc-crab-pond](docs/cc-crab-pond.png)
 
@@ -71,7 +72,8 @@ over Claude's tab, and `q` closes it. [Details →](plugins/rex-view/README.md)
 | --- | --- |
 | Everything | macOS with [Rex](https://www.superlogical.com) and [Claude Code](https://claude.com/claude-code) |
 | cc-crab-pond | A terminal font with Unicode 16 octant characters (Rex draws them itself), and `jq` for the status line (`brew install jq`) |
-| rex-view colours, optional | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
+| cc-sidecar and rex-view colours, optional | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
+| cc-sidecar's Usage section, optional | The status line step in [Install](#install), with `jq` |
 | rex-view formatted Markdown, optional | [`glow`](https://github.com/charmbracelet/glow) (`brew install glow`) |
 
 ## Install
@@ -102,10 +104,10 @@ over Claude's tab, and `q` closes it. [Details →](plugins/rex-view/README.md)
 4. For cc-sidecar, turn off Claude Code's own diff panel by setting
    `"diffSidebarOpen": false` in `~/.claude.json`.
 
-5. For cc-crab-pond, have Claude Code's status line command save its input,
-   which gives the crabs their names, models, outfits, subagents and your
-   usage limits. Add these lines after your status line script reads stdin
-   into `$input`:
+5. For cc-crab-pond and cc-sidecar's Usage section, have Claude Code's status
+   line command save its input, which gives the crabs their names, models,
+   outfits and subagents, and the sidecar your usage limits. Add these lines
+   after your status line script reads stdin into `$input`:
 
    ```bash
    sid=$(echo "$input" | jq -r '.session_id // empty')
@@ -134,6 +136,11 @@ git -C ~/.config/rex/extensions pull
 pkill -f 'extensions/.*/watcher\.lua'; rex config reload
 ```
 
+cc-pane is now cc-sidecar. If your `init.lua` has `require("extensions.cc-pane")`,
+change it to `require("extensions.cc-sidecar")` before you reload, and stop the old
+watcher: the command above matches it too. Open `Changes:` panes are replaced by
+new ones.
+
 Skills:
 
 ```sh
@@ -145,9 +152,9 @@ claude plugin update rex-view@rex-extensions
 
 ```text
 .claude-plugin/marketplace.json   the plugin marketplace
-cc-resume/                    extension
-cc-sidecar/                     extension
-cc-crab-pond/                        extension
+cc-resume/                        extension
+cc-sidecar/                       extension
+cc-crab-pond/                     extension
 plugins/rex-view/                 skill, as a plugin
 docs/                             pictures
 ```

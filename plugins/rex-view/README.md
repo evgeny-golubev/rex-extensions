@@ -1,8 +1,8 @@
 # Rex View for Claude Code
 
-Version 0.3.0. A Claude Code skill that shows a file in a floating pane over the tab Claude
-is running in. Ask Claude to "show me that picture" or "open the README in a
-pane". Claude also opens one unasked when it wants to show you a picture, a
+Version 0.3.0. A Claude Code skill that shows a file in a floating pane over the
+tab Claude is running in. Ask Claude to "show me that picture" or "open the
+README in a pane". Claude also opens one unasked when it wants to show you a picture, a
 report it wrote or a place in the code.
 
 | File | Shown as |

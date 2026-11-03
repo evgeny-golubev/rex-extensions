@@ -45,7 +45,8 @@ pkill -f 'cc-resume/watcher\.lua'; rex config reload
 - Claude Code is found through `~/.claude/sessions/<pid>.json`. Its original
   flags (model, permission mode) aren't known, so it resumes with defaults.
 - Other programs (ssh, nvim) come back as a shell in their last directory.
-- cc-sidecar and cc-crab-pond panes aren't saved. They reopen when Claude resumes.
+- cc-sidecar and cc-crab-pond panes aren't saved. They reopen when Claude
+  resumes.
 - State: `~/.config/rex/state/sessions.json`; launcher errors go to
   `~/.config/rex/state/sessions.log`.
 
