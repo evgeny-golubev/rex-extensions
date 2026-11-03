@@ -22,10 +22,58 @@ if [ -z "$text" ]; then
 	exit 0
 fi
 
+render_delta() {
+	local cols side=()
+	cols=$(tput cols)
+	# Below this, each side is too narrow and most lines wrap.
+	[ "$cols" -ge 120 ] && side=(--side-by-side)
+	printf '%s\n' "$text" | delta --paging=never --width="$cols" "${side[@]}" --line-numbers \
+		--line-numbers-left-format='{nm:>4} ' --line-numbers-right-format='{np:>4} ' \
+		--line-numbers-minus-style=red --line-numbers-plus-style=green --line-numbers-zero-style=dim \
+		--file-style=bold --file-decoration-style=none --hunk-header-style=omit
+}
+
+# Waits for the pane's size to change and settle, then ends the running less.
+watch_size() {
+	local was now
+	was=$(stty size </dev/tty) || return
+	while sleep 0.25; do
+		now=$(stty size </dev/tty) || return
+		kill -0 $$ 2>/dev/null || return
+		if [ "$now" != "$was" ]; then
+			sleep 0.25
+			[ "$(stty size </dev/tty)" = "$now" ] || continue
+			: >"$page.resized"
+			pkill -P $$ -x less
+			return
+		fi
+	done
+}
+
+# delta formats for one width and less can't reflow that, so a resize draws the
+# diff again. A bash trap wouldn't do: it can't run until less has ended.
+draw_delta() {
+	page=$(mktemp)
+	trap 'rm -f "$page" "$page.resized"' EXIT
+	trap 'exit' HUP TERM
+	while :; do
+		render_delta >"$page"
+		watch_size &
+		less -cR~ -P"q closes" "$page"
+		kill $! 2>/dev/null
+		[ -e "$page.resized" ] || break
+		rm -f "$page.resized"
+	done
+}
+
 # less -R passes colours only and shows other control bytes as text, so a diff
 # holding terminal codes can't move the cursor or clear the screen.
-if command -v bat >/dev/null 2>&1; then
-	printf '%s\n' "$text" | bat --language=diff --paging=never --style=plain --color=always | less -R -P"q closes"
+# less -c draws from the top row, where a short diff would otherwise sit at the
+# bottom, and -~ leaves the rows after the end blank.
+if command -v delta >/dev/null 2>&1; then
+	draw_delta
+elif command -v bat >/dev/null 2>&1; then
+	printf '%s\n' "$text" | bat --language=diff --paging=never --style=plain --color=always | less -cR~ -P"q closes"
 else
-	printf '%s\n' "$text" | less -R -P"q closes"
+	printf '%s\n' "$text" | less -cR~ -P"q closes"
 fi

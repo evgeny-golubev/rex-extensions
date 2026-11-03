@@ -20,9 +20,11 @@ switches between a list and a folder tree. Below it are three scopes:
 | **Uncommitted** | Staged and Unstaged groups; the tree merges them | `git status`, `git diff` |
 | **Branch** | Everything since the branch left `main`, including uncommitted work | `git diff` against the merge base with `origin/HEAD`, or else `main` or `master` |
 
-Click a file or press `Enter` to read its diff in a floating pane, with colours
-if [bat](https://github.com/sharkdp/bat) is installed; `q` closes it. The tab's
-count is the number of uncommitted files.
+Click a file or press `Enter` to read its diff in a floating pane; `q` closes it.
+With [delta](https://github.com/dandavison/delta) installed, the code is
+highlighted in the file's language, old and new sit side by side when the pane
+has 120 columns or more, and delta's own git settings apply. Without it, [bat](https://github.com/sharkdp/bat) colours the added and removed lines.
+The tab's count is the number of uncommitted files.
 
 Last Turn only knows Claude's Edit and Write tools, so files changed through
 Bash (`sed`, a formatter) don't show up there. Outside a git repository it's the

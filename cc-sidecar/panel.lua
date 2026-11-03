@@ -925,7 +925,8 @@ end
 
 --- A file's hunks from this turn, as the text of a patch that names it `shown`.
 function M.turn_patch(state, path, shown)
-	local out = { "--- a/" .. shown, "+++ b/" .. shown }
+	-- Without the first line, delta takes a/ and b/ for two names, as a rename.
+	local out = { "diff --git a/" .. shown .. " b/" .. shown, "--- a/" .. shown, "+++ b/" .. shown }
 	for _, hunk in ipairs(state.turn.files[path].hunks) do
 		out[#out + 1] = string.format("@@ -%d,%d +%d,%d @@", hunk.oldStart or 0, hunk.oldLines or 0, hunk.newStart or 0, hunk.newLines or 0)
 		for _, line in ipairs(type(hunk.lines) == "table" and hunk.lines or {}) do
@@ -1663,6 +1664,12 @@ local function open_diff(row)
 		return tostring(opened)
 	end
 	panel.float = created and created.block_ids and created.block_ids[1]
+	-- This script's client owns the new block, and has no window to size it, so it
+	-- stays 80x24 until the mouse moves over it. Rex.app takes over once released.
+	-- With no IDs, this call would release every block in the session.
+	if panel.float then
+		rex.call("session.disown_block", { session_id = panel.session_id, block_ids = { panel.float } })
+	end
 end
 
 --- Rex focuses whichever pane it picks when a float closes, so the pane takes
