@@ -10,7 +10,7 @@ conversations back after a restart, and let Claude show you files.
 | Extension | [cc-sidecar](#cc-sidecar) | A side pane with what each Claude changed, by turn, uncommitted or branch, plus its activity, open questions and decisions | Pane beside Claude |
 | Extension | [cc-crab-pond](#cc-crab-pond) | Claudes, subagents and background jobs as animated crabs | Strip along the tab's bottom |
 | Extension | [cc-resume](#cc-resume) | Claude Code conversations resumed after the Rex server restarts | Background watcher |
-| Skill | [rex-view](#rex-view) | Claude shows images, Markdown and source code in a floating pane | Plugin, version 0.3.0 |
+| Skill | [rex-view](#rex-view) | Claude shows images, Markdown, source code, HTML files and URLs | Plugin, version 0.4.0 |
 
 **Contents:** [Extensions](#extensions) · [Skills](#skills) ·
 [Requirements](#requirements) · [Install](#install) · [Update](#update) ·
@@ -65,7 +65,8 @@ uses them when you ask; they need nothing in `init.lua`.
 
 Ask Claude to show a file, in your own words: "show me that screenshot" or "open
 the README in a pane". Images, Markdown and source code open in a floating pane
-over Claude's tab, and `q` closes it. [Details →](plugins/rex-view/README.md)
+over Claude's tab, and `q` closes it. HTML files and URLs open in a browser
+through terminal-browser. [Details →](plugins/rex-view/README.md)
 
 ## Requirements
 
@@ -77,6 +78,7 @@ over Claude's tab, and `q` closes it. [Details →](plugins/rex-view/README.md)
 | cc-sidecar's highlighted diffs, optional | [`delta`](https://github.com/dandavison/delta) (`brew install git-delta`) |
 | cc-sidecar's Usage section, optional | The status line step in [Install](#install), with `jq` |
 | rex-view formatted Markdown, optional | [`glow`](https://github.com/charmbracelet/glow) (`brew install glow`) |
+| rex-view HTML files and URLs, optional | [`terminal-browser`](https://github.com/zenbu-labs/terminal-browser) (`brew install --cask terminal-browser`) |
 
 ## Install
 

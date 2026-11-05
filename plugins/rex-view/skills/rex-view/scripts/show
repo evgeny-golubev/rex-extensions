@@ -1,13 +1,27 @@
 #!/bin/bash
-# Opens a file in a floating pane in this Rex tab: show <path> [line]
+# Opens a file or web page in a floating pane in this Rex tab: show <path | url> [line]
 set -u
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 if [ $# -lt 1 ] || [ $# -gt 2 ]; then
-	echo "usage: show <path> [line]" >&2
+	echo "usage: show <path | url> [line]" >&2
 	exit 2
 fi
 if [ -z "${REX_SESSION:-}" ] || [ -z "${REX_BLOCK:-}" ]; then
 	echo "rex-view: not running in a Rex terminal (REX_SESSION and REX_BLOCK aren't set)" >&2
 	exit 1
+fi
+here=$(cd "$(dirname "$0")" && pwd)
+url_pattern='^(https?://|localhost(:[0-9]+)?(/|$)|127\.0\.0\.1(:[0-9]+)?(/|$))[^[:space:][:cntrl:]]*$'
+if [[ "$1" =~ $url_pattern ]]; then
+	if [ -n "${2:-}" ]; then
+		echo "rex-view: a line only applies to a file: $1" >&2
+		exit 2
+	fi
+	if ! command -v terminal-browser >/dev/null 2>&1; then
+		echo "rex-view: showing a URL needs terminal-browser; run brew install --cask terminal-browser" >&2
+		exit 1
+	fi
+	exec rex do "$here/show.lua" "path=$1" "line=" "viewer=$here/viewer"
 fi
 if [ ! -f "$1" ]; then
 	echo "rex-view: no such file: $1" >&2
@@ -17,6 +31,5 @@ if [ -n "${2:-}" ] && ! [[ "$2" =~ ^[1-9][0-9]*$ ]]; then
 	echo "rex-view: line must be a positive number: $2" >&2
 	exit 2
 fi
-here=$(cd "$(dirname "$0")" && pwd)
 path="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 exec rex do "$here/show.lua" "path=$path" "line=${2:-}" "viewer=$here/viewer"
