@@ -1,5 +1,5 @@
 #!/bin/bash
-# Draws one file or web page in the floating pane: viewer <path | url> [line]
+# Draws one file in the floating pane: viewer <path> [line]
 export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 file=$1
 line=${2:-}
@@ -79,16 +79,6 @@ draw_image() {
 	done < <(base64 -i "$1" -b 4096)
 	printf '\033_Gm=0;\033\\\033[%d;1Hq closes' "$((rows + 1))"
 }
-
-# --no-merge keeps the page in this float instead of a neighbouring browser.
-case "$(printf '%s' "$file" | tr 'A-Z' 'a-z')" in
-http://* | https://* | localhost* | 127.0.0.1*) exec terminal-browser open "$file" --no-merge ;;
-*.html | *.htm)
-	if [ -z "$line" ] && command -v terminal-browser >/dev/null 2>&1; then
-		exec terminal-browser open "$file" --no-merge
-	fi
-	;;
-esac
 
 case "$(printf '%s' "$file" | tr 'A-Z' 'a-z')" in
 *.png | *.jpg | *.jpeg | *.gif | *.webp) show_image; exit 0 ;;

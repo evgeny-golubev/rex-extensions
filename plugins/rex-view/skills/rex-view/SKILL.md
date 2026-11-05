@@ -1,6 +1,6 @@
 ---
 name: rex-view
-description: Show a file or web page to the user in their current Rex tab - images (png, jpg, gif, webp), Markdown, source code or any text file, optionally at a line, plus rendered HTML files and http, https or localhost URLs. Use whenever the user, running Claude Code in Rex (REX_SESSION is set), asks to show, open, view, display or preview a file, picture, screenshot, HTML page or URL "in Rex", "in a pane", "in a float" or "here", or asks to see an image you can't otherwise show them in the terminal, even if they don't say "pane". Also use it on your own initiative, unasked, whenever you want to show the user something that exists as a file - a picture or screenshot, a report or document you wrote, a place in the code you're pointing at. Don't use it for reading a file yourself, for a diff, or outside Rex.
+description: Show a file to the user in a floating pane in their current Rex tab - images (png, jpg, gif, webp), Markdown and source code or any text file, optionally at a line. Use whenever the user, running Claude Code in Rex (REX_SESSION is set), asks to show, open, view, display or preview a file, picture or screenshot "in Rex", "in a pane", "in a float" or "here", or asks to see an image you can't otherwise show them in the terminal, even if they don't say "pane". Also use it on your own initiative, unasked, whenever you want to show the user something that exists as a file - a picture or screenshot, a report or document you wrote, a place in the code you're pointing at. Don't use it for reading a file yourself, for a diff, or outside Rex.
 ---
 
 # rex-view
@@ -15,15 +15,6 @@ Show the file with one command:
 - The float opens over the tab this conversation is in, takes keyboard focus and replaces an earlier rex-view float in that tab. Show one file at a time, so run it again for the next file.
 - The user closes it with `q` (or `Esc` on an image). Tell them that, and name the file you opened.
 - You can't see what the float draws. Don't claim how it looks; to check an image yourself, use the Read tool.
-
-## HTML files and URLs
-
-To show a web page or render an HTML file:
-
-1. If the `mcp__terminal-browser__open` tool is available, call it with the URL. For a local file, pass a `file://` URL with an absolute, percent-encoded path. The page opens in the plugin's browser pane beside the conversation; `mcp__terminal-browser__close` or `/browser close` closes it.
-2. If the tool isn't available, or it fails, run `show` with the URL or HTML file. The page opens in a float and takes the keys, so `Cmd+W` closes it, not `q`. Tell the user that.
-
-URLs must start with `http://`, `https://`, `localhost` or `127.0.0.1`. To show an HTML file's source instead, pass `show` a `line`.
 
 ## Show things without being asked
 

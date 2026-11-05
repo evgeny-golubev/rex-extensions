@@ -31,18 +31,6 @@ function M.old_layers(window)
 	return found
 end
 
---- `show` passes files as absolute paths, so anything else is a URL.
-local function is_file(target)
-	return target:sub(1, 1) == "/"
-end
-
-function M.label(target)
-	if is_file(target) then
-		return label_prefix .. target:match("[^/]+$")
-	end
-	return label_prefix .. (target:match("^%a+://([^/?#]+)") or target:match("^[^/?#]+"))
-end
-
 function M.request(session_id, window_id, viewer, path, line)
 	local command = { viewer, path }
 	if line and line ~= "" then
@@ -56,8 +44,8 @@ function M.request(session_id, window_id, viewer, path, line)
 		layout = {
 			block = {
 				flavor = "com.superlogical.terminal.shell",
-				label = M.label(path),
-				options = { command = command, cwd = is_file(path) and (path:match("^(.*)/[^/]*$") or "/") or nil },
+				label = label_prefix .. path:match("[^/]+$"),
+				options = { command = command, cwd = path:match("^(.*)/[^/]*$") or "/" },
 			},
 		},
 	}

@@ -8,7 +8,7 @@
     {
       "name": "rex-view",
       "source": "./plugins/rex-view",
-      "description": "Show images, Markdown, source code, HTML files and URLs in Rex, in a floating pane or the terminal-browser plugin"
+      "description": "Show images, Markdown and source code in a floating pane over the Rex tab Claude runs in"
     }
   ]
 }
