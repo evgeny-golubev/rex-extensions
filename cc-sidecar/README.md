@@ -12,13 +12,21 @@ The pane has three tabs, redrawn every 2 seconds.
 ## Changes
 
 The top row shows the branch, its added and removed lines, and `≣`, which
-switches between a list and a folder tree. Below it are three scopes:
+switches between a list and a folder tree. Below it are up to three scopes:
 
 | Scope | What it lists | Where it comes from |
 | --- | --- | --- |
 | **Last Turn** | Files Claude edited since your last prompt | The hunks in Claude's transcript |
 | **Uncommitted** | Staged and Unstaged groups; the tree merges them | `git status`, `git diff` |
+| **PR** | Everything since the branch left the base of its open GitHub pull request, including uncommitted work; it takes Branch's place | `gh pr view` for the base, then `git diff` against the merge base with `origin/<base>`, or else `<base>` |
 | **Branch** | Everything since the branch left `main`, including uncommitted work | `git diff` against the merge base with `origin/HEAD`, or else `main` or `master` |
+
+On the default branch itself, which is where `origin/HEAD` points, or else `main`
+or `master`, there's no Branch scope. PR and Branch show what they compare with,
+such as `vs develop · #12`. The pull request needs [gh](https://cli.github.com),
+signed in. It's looked up when you open Changes, when the branch or repository
+changes, and every 5 minutes while Changes stays open; without `gh`, or offline,
+the scope is Branch.
 
 Click a file or press `Enter` to read its diff in a floating pane; `q` closes it.
 With [delta](https://github.com/dandavison/delta) installed, the code is

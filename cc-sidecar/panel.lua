@@ -15,9 +15,36 @@ local settings = dofile(dir .. "settings.lua")
 
 M.tabs = { "Info", "Changes", "Log" }
 
---- The scopes of the Changes tab; only Last Turn works without git.
-function M.scopes(git)
-	return git and { "Last Turn", "Uncommitted", "Branch" } or { "Last Turn" }
+--- The scopes of the Changes tab; only Last Turn works without git. The third
+--- is "PR", "Branch", or nil on the default branch.
+function M.scopes(git, third)
+	if not git then
+		return { "Last Turn" }
+	end
+	return { "Last Turn", "Uncommitted", third }
+end
+
+--- The scope shown when the scopes change: Branch and PR stand in for each other.
+function M.pick_scope(scopes, scope)
+	for _, s in ipairs(scopes) do
+		if s == scope then
+			return scope
+		end
+	end
+	if (scope == "Branch" or scope == "PR") and scopes[3] then
+		return scopes[3]
+	end
+	return scopes[1]
+end
+
+--- An open PR from `gh pr view --json number,baseRefName,state`, or nil. The base
+--- becomes a git argument, so one that reads as an option is refused.
+function M.pr_info(out)
+	local ok, pr = pcall(rex.json.decode, out or "")
+	if ok and type(pr) == "table" and pr.state == "OPEN" and type(pr.number) == "number"
+		and type(pr.baseRefName) == "string" and pr.baseRefName:match("^[^-%s]%S*$") then
+		return { number = math.floor(pr.number), base = pr.baseRefName }
+	end
 end
 
 local reset, bold, dim = "\27[0m", "\27[1m", "\27[2m"
@@ -1399,6 +1426,43 @@ local function base_ref()
 	end
 end
 
+--- The open PR of the branch, from GitHub through `gh`. It's looked up again on
+--- opening Changes, on a new branch or repository, and after 5 minutes; not on
+--- every redraw, because the pane takes no keys while it runs.
+local pr_cache, pr_ttl = nil, 300
+local function pr_lookup()
+	local branch = panel.branch
+	if not branch or branch:match("^HEAD") then
+		return nil
+	end
+	local key, now = panel.root .. "\0" .. branch, os.time()
+	local hit = pr_cache
+	if hit and hit.key == key and now - hit.at < pr_ttl then
+		return hit.pr
+	end
+	local r = exec({ "/bin/sh", "-c", 'export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"; cd "$1" && exec gh pr view --json number,baseRefName,state', "sh", panel.root })
+	local pr = r and r.ok and M.pr_info(r.stdout) or nil
+	pr_cache = { key = key, at = now, pr = pr }
+	return pr
+end
+
+--- The third scope of the Changes tab, with the PR or the ref it compares with.
+local function third_scope()
+	if not panel.git then
+		return nil
+	end
+	local pr = pr_lookup()
+	if pr then
+		local remote = "origin/" .. pr.base
+		return "PR", pr, git("rev-parse", "--verify", "--quiet", remote) ~= "" and remote or pr.base
+	end
+	local ref = base_ref()
+	if ref and panel.branch == (ref:gsub("^origin/", "")) then
+		return nil
+	end
+	return "Branch", nil, ref
+end
+
 --- Lines in the untracked files, for the totals. git counts them only one call
 --- per file, so this reads them, and leaves out big ones and long lists.
 local function untracked_lines(files, root)
@@ -1425,13 +1489,9 @@ end
 --- Loads the scope on show; only that one, as the pane takes no keys while git
 --- runs.
 local function load_scope()
-	local found = false
-	for _, scope in ipairs(M.scopes(panel.git)) do
-		found = found or scope == panel.scope
-	end
-	if not found then
-		panel.scope = M.scopes(panel.git)[1]
-	end
+	local third, pr, ref = third_scope()
+	panel.third = third
+	panel.scope = M.pick_scope(M.scopes(panel.git, third), panel.scope)
 	local data
 	if panel.scope == "Last Turn" then
 		data = M.turn_data(panel.state, panel.root)
@@ -1443,13 +1503,13 @@ local function load_scope()
 		data.added, data.removed = M.numstat(git("diff", "--numstat", "-z", panel.head and "HEAD" or "--cached"))
 		data.added = data.added + untracked_lines(panel.files, panel.root)
 	else
-		local ref = base_ref()
 		local base = ref and git("merge-base", "HEAD", ref):gsub("%s+$", "") or ""
 		if base == "" then
-			data = { groups = {}, problem = "No main or master branch to compare with." }
+			data = { groups = {}, problem = pr and ("No " .. pr.base .. " branch to compare with.") or "No main or master branch to compare with." }
 		else
 			local rows = M.branch_rows(git("diff", "--name-status", "-z", base), panel.files)
-			data = { groups = #rows > 0 and { { title = "Changed", rows = rows } } or {}, note = "No changes on this branch.", vs = ref:gsub("^origin/", "") }
+			local vs = pr and (pr.base .. " · #" .. pr.number) or (ref:gsub("^origin/", ""))
+			data = { groups = #rows > 0 and { { title = "Changed", rows = rows } } or {}, note = "No changes on this branch.", vs = vs }
 			data.base = base
 			data.added, data.removed = M.numstat(git("diff", "--numstat", "-z", base))
 			data.added = data.added + untracked_lines(panel.files, panel.root)
@@ -1516,7 +1576,7 @@ local function build(tab)
 		return M.changes_view({
 			title = panel.branch or (panel.root:match("[^/]+$") or panel.root),
 			scope = panel.scope,
-			scopes = M.scopes(panel.git),
+			scopes = M.scopes(panel.git, panel.third),
 			tree = panel.tree,
 			folded = panel.folded_dirs,
 			selected = panel.selected[panel.scope],
@@ -1577,6 +1637,7 @@ local function set_tab(tab)
 	panel.tab = tab
 	panel.cache = nil
 	if tab == "Changes" then
+		pr_cache = nil
 		load_scope()
 	end
 end
@@ -1599,7 +1660,7 @@ local function set_scope(scope)
 end
 
 local function next_scope()
-	local scopes = M.scopes(panel.git)
+	local scopes = M.scopes(panel.git, panel.third)
 	for i, scope in ipairs(scopes) do
 		if scope == panel.scope then
 			set_scope(scopes[i % #scopes + 1])

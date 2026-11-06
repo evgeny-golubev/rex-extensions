@@ -7,7 +7,7 @@ conversations back after a restart, and let Claude show you files.
 
 | | Name | What you get | Runs as |
 | --- | --- | --- | --- |
-| Extension | [cc-sidecar](#cc-sidecar) | A side pane with what each Claude changed, by turn, uncommitted or branch, plus its activity, open questions and decisions | Pane beside Claude |
+| Extension | [cc-sidecar](#cc-sidecar) | A side pane with what each Claude changed, by turn, uncommitted, branch or pull request, plus its activity, open questions and decisions | Pane beside Claude |
 | Extension | [cc-crab-pond](#cc-crab-pond) | Claudes, subagents and background jobs as animated crabs | Strip along the tab's bottom |
 | Extension | [cc-resume](#cc-resume) | Claude Code conversations resumed after the Rex server restarts | Background watcher |
 | Skill | [rex-view](#rex-view) | Claude shows images, Markdown and source code in a floating pane | Plugin, version 0.5.0 |
@@ -29,8 +29,8 @@ Code's own diff panel.
 
 ![cc-sidecar's Changes, Info and Log tabs, with made-up data](docs/cc-sidecar.png)
 
-**Changes** lists changed files for the last turn, the uncommitted work or the
-branch, as a list or a tree; click one to read its diff in a floating pane.
+**Changes** lists changed files for the last turn, the uncommitted work, or the
+branch or its open pull request, as a list or a tree; click one to read its diff in a floating pane.
 **Info** lists the session's facts, usage limits, open questions, test runs and
 failed commands, in sections you can fold. **Log** shows the last summary, then
 your decisions, requests and Claude's responses, dated and newest first.
@@ -76,6 +76,7 @@ over Claude's tab, and `q` closes it. [Details →](plugins/rex-view/README.md)
 | cc-sidecar and rex-view colours, optional | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
 | cc-sidecar's highlighted diffs, optional | [`delta`](https://github.com/dandavison/delta) (`brew install git-delta`) |
 | cc-sidecar's Usage section, optional | The status line step in [Install](#install), with `jq` |
+| cc-sidecar's PR scope, optional | [`gh`](https://cli.github.com), signed in (`brew install gh`, `gh auth login`) |
 | rex-view formatted Markdown, optional | [`glow`](https://github.com/charmbracelet/glow) (`brew install glow`) |
 
 ## Install

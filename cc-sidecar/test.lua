@@ -558,7 +558,7 @@ local ok2, err2 = pcall(function()
 	has(P.turn_patch(turn, "/src/app/new.lua", "new.lua"), "@@ -0,0 +1,2 @@\n+one\n+two\n", "new file's hunk")
 
 	-- The Changes view: pinned header, grouped list and clickable rows.
-	local v = { title = "feature/x", scope = "Uncommitted", scopes = P.scopes(true), data = data }
+	local v = { title = "feature/x", scope = "Uncommitted", scopes = P.scopes(true, "Branch"), data = data }
 	data.added, data.removed = 7, 2
 	local built = P.changes_view(v, 40)
 	equal(#built.pinned, 4, "pinned lines")
@@ -575,6 +575,19 @@ local ok2, err2 = pcall(function()
 	v.selected = built.rows[1].key
 	has(plain(P.changes_view(v, 40).lines), "› ", "selected row")
 	equal(table.concat(P.scopes(false), ","), "Last Turn", "scopes without git")
+	equal(table.concat(P.scopes(true, "PR"), ","), "Last Turn,Uncommitted,PR", "a PR instead of Branch")
+	equal(table.concat(P.scopes(true), ","), "Last Turn,Uncommitted", "no Branch on the default branch")
+	equal(P.pick_scope(P.scopes(true, "PR"), "Branch"), "PR", "Branch moves to PR")
+	equal(P.pick_scope(P.scopes(true, "Branch"), "PR"), "Branch", "PR moves to Branch")
+	equal(P.pick_scope(P.scopes(true), "Branch"), "Last Turn", "Branch gone on the default branch")
+	equal(P.pick_scope(P.scopes(true), "Uncommitted"), "Uncommitted", "a scope that stays")
+	local pr = P.pr_info('{"number":12,"baseRefName":"develop","state":"OPEN"}')
+	equal(pr and pr.number, 12, "PR number")
+	equal(pr and pr.base, "develop", "PR base")
+	equal(P.pr_info('{"number":12,"baseRefName":"develop","state":"MERGED"}'), nil, "merged PR")
+	equal(P.pr_info('{"number":12,"baseRefName":"--output=x","state":"OPEN"}'), nil, "a base that reads as an option")
+	equal(P.pr_info("no pull requests found"), nil, "no PR")
+	equal(P.pr_info(nil), nil, "gh failed")
 
 	-- The tree merges the groups and lists folders.
 	v.tree, v.selected = true, nil
@@ -596,7 +609,7 @@ local ok2, err2 = pcall(function()
 		diffs[r.row.diff] = true
 	end
 	equal(diffs.head, true, "tree rows' diffs")
-	local deep = P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true), tree = true, data = { groups = { { title = "Changed", rows = {
+	local deep = P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true, "Branch"), tree = true, data = { groups = { { title = "Changed", rows = {
 		{ path = "src/cart/a.ts", mark = "M" }, { path = "src/cart/b.ts", mark = "A" }, { path = "src/ui/c.ts", mark = "M" }, { path = "z.ts", mark = "D" },
 	} } }, vs = "main" } }, 30)
 	local shown_tree = plain(deep.lines)
@@ -607,7 +620,7 @@ local ok2, err2 = pcall(function()
 	has(shown_tree, "z.ts", "top-level file")
 
 	-- Folders come before files at each level, each by name.
-	local ordered = P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true), tree = true, data = { groups = { { title = "Changed", rows = {
+	local ordered = P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true, "Branch"), tree = true, data = { groups = { { title = "Changed", rows = {
 		{ path = "z.ts", mark = "M" }, { path = "a.ts", mark = "M" }, { path = "lib/x.ts", mark = "M" }, { path = "lib/sub/y.ts", mark = "M" },
 		{ path = "lib/a.ts", mark = "M" }, { path = "lib-b/k.ts", mark = "M" }, { path = "app/m.ts", mark = "M" },
 	} } }, note = "" } }, 40)
@@ -620,7 +633,7 @@ local ok2, err2 = pcall(function()
 	-- Folders fold, and take what's under them along, nested folders included.
 	local fold_rows = { { path = "src/cart/a.ts", mark = "M" }, { path = "src/cart/b.ts", mark = "M" }, { path = "src/ui/c.ts", mark = "A" }, { path = "z.ts", mark = "M" } }
 	local function fold_view(folded, selected)
-		return P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true), tree = true, folded = folded, selected = selected,
+		return P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true, "Branch"), tree = true, folded = folded, selected = selected,
 			data = { groups = { { title = "Changed", rows = fold_rows } }, note = "" } }, 40)
 	end
 	local all_open = fold_view({})
@@ -660,11 +673,11 @@ local ok2, err2 = pcall(function()
 	end
 
 	-- Narrow panes get the short scope names; the columns follow.
-	local narrow, narrow_ranges = P.scope_bar(P.scopes(true), "Branch", 26)
+	local narrow, narrow_ranges = P.scope_bar(P.scopes(true, "Branch"), "Branch", 26)
 	has(plain({ narrow }), "Local", "short name")
 	hasnt(plain({ narrow }), "Uncommitted", "long name")
 	equal(narrow_ranges[3].action.scope, "Branch", "last scope")
-	local _, wide_ranges = P.scope_bar(P.scopes(true), "Branch", 60)
+	local _, wide_ranges = P.scope_bar(P.scopes(true, "Branch"), "Branch", 60)
 	equal(wide_ranges[1].from, 1, "first scope's column")
 	equal(wide_ranges[2].from, wide_ranges[1].to + 2, "columns leave a space")
 
