@@ -5,7 +5,7 @@ Code, and closes it when Claude exits or its pane closes. It stands in for
 Claude Code's own diff panel; turn that one off with `"diffSidebarOpen": false`
 in `~/.claude.json`.
 
-![The Changes, Info and Log tabs, with made-up data](../docs/cc-sidecar.png)
+![The Changes tab on a pull request, Info with links and files from Claude's replies, and Log, with made-up data](../docs/cc-sidecar.png)
 
 The pane has three tabs, redrawn every 2 seconds.
 
@@ -45,13 +45,15 @@ update to it can empty this scope and the Info and Log tabs.
 
 ## Info
 
-Opens first. Open, Tests and Failed commands fold; see [Folding](#folding).
+Opens first. Open, Links and files, Tests and Failed commands fold; see
+[Folding](#folding).
 
 | Section | What's in it |
 | --- | --- |
 | **Session** | Title, branch, model, reasoning level, context size, how often it was compacted, and Claude's working time |
 | **Usage** | Your 5-hour and 7-day limits and when they reset. Needs the status line step in the [main README](../README.md#install); hidden without it |
 | **Open** | Questions and plans waiting for your answer, questions at the end of Claude's last reply, and unfinished tasks |
+| **Links and files** | The files, images and links in Claude's last 3 final messages, as [Rex View](#rex-view) lists them. Click one to view it or open it in the browser, as Enter does there; **open panel** at the end opens Rex View's float |
 | **Tests** | The latest test runs and whether they passed. A run counts as a test by its command: `pytest`, `npm test`, `go test`, a script named test or spec |
 | **Failed commands** | The latest failures, with their first error line |
 
@@ -71,6 +73,93 @@ The other three sections start each entry with theirs, run newest first and show
 A section with more than one page ends with `← Next 2/10 Previous →`. Previous
 goes to earlier entries and Next to later ones. Click them, or highlight the
 section and press `]` or `[`. The page isn't saved.
+
+## Rex View
+
+Press `Cmd+Ctrl+Alt+Shift+O`, or run **Rex View: Open from Claude's Replies**
+from the palette, to list what Claude's last 10 replies mention, newest first. A reply is
+Claude's final message after one of your prompts, as in the Log tab's
+Responses; what it wrote between tool calls doesn't count. It
+reads the focused pane's Claude, or else the first Claude in the tab, and opens
+over the tab in a float:
+
+![Rex View's float with files, Jira keys, a pull request and a link, with made-up data](../docs/rex-view.png)
+
+| Row | Enter | `Ctrl+E` |
+| --- | --- | --- |
+| A text file that exists: absolute, `~/`, or relative to Claude's directory, with an optional `:line` | Views it in the [rex-view](../plugins/rex-view/README.md) viewer, at the line | Edits it in your editor, in the float |
+| An image: png, jpg, gif or webp | Views it | Views it |
+| An `http` or `https` link | Opens it in your browser | Opens it |
+| Text that a link pattern matches | Opens the link it makes | Opens it |
+
+Type to filter. `Ctrl+Y` copies the path or link, and `Esc` closes the list.
+Folders aren't listed. It needs [fzf](https://github.com/junegunn/fzf) for the
+list; without it, rows are numbered and you type one. Each float replaces the
+one before, including a rex-view float Claude opened.
+
+### Editor
+
+**Rex View: Set Editor** asks for the command `Ctrl+E` runs, such as `nvim`,
+`code -w` or `subl -w`; the file is added at the end. Without one, it's
+`$VISUAL`, then `$EDITOR`, then `vim`. It's saved as `"editor"` in
+`settings.json`.
+
+### Link patterns
+
+A link pattern turns text in a reply into a link: a Jira key, or a pull request
+number. Each one is locked to a directory, and applies to Claudes working in it
+or below it; `/` is every project. **Rex View: Edit Link Patterns** lists them by
+directory; Enter edits one, `Ctrl+A` adds one and `Ctrl+D` deletes one. A new
+one starts with the directory of the tab's Claude. There are none until you add
+them. They're saved in `settings.json`, as the directory, then a
+[Lua pattern](https://www.lua.org/manual/5.1/manual.html#5.4.1) and the link
+basis that the match is added to:
+
+```json
+{
+  "link_patterns": {
+    "/": {
+      "%W(%u+%-%d+)": "https://acme.atlassian.net/browse/"
+    },
+    "/Users/you/Sites/acme": {
+      "%W#(%d+)": "https://github.com/acme/web/pull/",
+      "acme/web#(%d+)": "https://github.com/acme/web/pull/",
+      "web!(%d+)": "https://gitlab.com/acme/web/-/merge_requests/"
+    },
+    "/Users/you/Sites/acme/mobile": {
+      "%W(%u+%-%d+)": "https://acme-mobile.atlassian.net/browse/"
+    }
+  }
+}
+```
+
+For a Claude in a directory, Rex View takes that directory's patterns, then its
+parent's, and so on up to `/`, and uses them all. When two set the same
+pattern, the nearer one wins. With the example, `PROJ-12` opens
+`https://acme-mobile.atlassian.net/browse/PROJ-12` under `acme/mobile`, and
+`https://acme.atlassian.net/browse/PROJ-12` everywhere else. `acme/web#45` and
+`#45` open a pull request only under `acme`, and not in `acme-old`, since directories
+match whole path parts.
+
+A pattern with a capture adds only the capture, so `acme/web#45` opens
+`https://github.com/acme/web/pull/45`. In Lua patterns `%` escapes, so a dash is
+`%-`, `%d` is a digit and `%u` a capital letter. A basis must start with
+`http://` or `https://`. A pattern that isn't valid matches nothing.
+
+Rex's Lua doesn't match `%f` word boundaries, so start a pattern with `%W`, a
+character that isn't a letter or digit, and capture what follows: `%W(TF%-%d+)`
+matches `TF-12` but not the `TF-8` in `UTF-8`, and `%W#(%d+)` matches `#12` but
+not `repo#12`. A reply is matched with a line break before and after it, so
+`%W` matches at its start and end too. The `#` rule in the example is locked to
+`acme`, where a bare `#12` means that repository's pull request.
+
+### Replies read
+
+Rex View's float reads the last 10 replies, and the Info tab's Links and files
+section the last 3. To change them, set `"view_replies"` and `"info_replies"`
+in `settings.json`, such as `{"view_replies": 20, "info_replies": 5}`. The float
+reads only the last 16 MB of the transcript, and the section the last 10
+replies.
 
 ## Where Info and Log get their data
 
@@ -133,11 +222,16 @@ pkill -f 'cc-sidecar/watcher\.lua'; rex config reload
 |---|---|
 | Show Sidecar Pane | Opens the pane beside the focused Claude, or another Claude in the tab that has none |
 | Disable / Enable Sidecar Pane Auto-Show | Whether a pane opens by itself when Claude starts. On by default |
+| Rex View: Open from Claude's Replies | The [Rex View](#rex-view) list; also `Cmd+Ctrl+Alt+Shift+O` |
+| Rex View: Set Editor | The command that [edits files](#editor) |
+| Rex View: Edit Link Patterns | Adds, edits and deletes [link patterns](#link-patterns) |
 
 The choice is saved as `{"auto_show": false}` in `cc-sidecar/settings.json`,
 which git ignores. It applies from the next Claude that starts, so open panes
 stay. The palette shows whichever of Disable and Enable applies. For a key, bind
-`cc_sidecar_show` or `cc_sidecar_auto_show` with `rex.bind`.
+`cc_sidecar_show` or `cc_sidecar_auto_show` with `rex.bind`. The Rex View
+actions are `cc_sidecar_view`, `cc_sidecar_view_editor` and
+`cc_sidecar_view_patterns`.
 
 ## Behavior
 
@@ -158,13 +252,18 @@ stay. The palette shows whichever of Disable and Enable applies. For a key, bind
 
 ## Files
 
-- `init.lua` starts the watcher and defines the palette actions.
+- `init.lua` starts the watcher, defines the palette actions and binds Rex
+  View's key.
+- `claude.lua` finds a pane's Claude and its transcript.
 - `settings.lua` reads and writes `settings.json`, and passes Show requests to
   the watcher through `show-request.json`.
 - `watcher.lua` opens and closes the panes.
 - `panel.lua` runs in each pane: reads git and the transcript, and draws
   the tabs.
 - `diff-view` draws one diff in the floating pane.
+- `mentions.lua` finds the files, images and links in Claude's replies;
+  `view-collect.lua` writes them as Rex View's list, and `view-picker` shows it.
+- `view-settings` asks for the editor and edits the link patterns.
 
 ## Tests
 
