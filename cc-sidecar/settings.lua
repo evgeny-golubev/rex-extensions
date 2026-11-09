@@ -74,6 +74,28 @@ function M.set_folded_dir(base, root, path, on)
 	write_json(base .. "settings.json", settings)
 end
 
+local function count(base, key, default)
+	local settings = read_json(base .. "settings.json") or {}
+	local n = tonumber(settings[key])
+	return n and n >= 1 and math.floor(n) or default
+end
+
+--- How many of Claude's last replies the Rex View picker reads.
+function M.view_replies(base)
+	return count(base, "view_replies", 10)
+end
+
+--- How many of them the Info tab's Links and files section reads.
+function M.info_replies(base)
+	return count(base, "info_replies", 3)
+end
+
+--- Directory -> { Lua pattern -> link basis }, for the Rex View picker.
+function M.link_patterns(base)
+	local settings = read_json(base .. "settings.json") or {}
+	return type(settings.link_patterns) == "table" and settings.link_patterns or {}
+end
+
 function M.request_show(base, session_id, block_id)
 	write_json(base .. "show-request.json", { session_id = session_id, block_id = block_id })
 end
