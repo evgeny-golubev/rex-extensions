@@ -347,6 +347,7 @@ ok, err = pcall(function()
 	equal(P.helper_pane("Crabs"), true, "the pond's pane")
 	equal(P.helper_pane("Sidecar: rex"), true, "a sidecar pane")
 	equal(P.helper_pane("Diff: panel.lua"), true, "a sidecar's diff float")
+	equal(P.helper_pane("View: Claude's replies"), true, "a Rex View float")
 	equal(P.helper_pane("shell"), false, "a shell pane")
 	equal(P.helper_pane(""), false, "a pane with no label")
 

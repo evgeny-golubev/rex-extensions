@@ -711,9 +711,10 @@ local ok2, err2 = pcall(function()
 		{ layer_id = "t", kind = "tiled", blocks = { { block_id = "me", label = "Diff: tiled" } } },
 		{ layer_id = "f", kind = "floating", blocks = { { block_id = "d", label = "Diff: a.lua" } } },
 		{ layer_id = "o", kind = "floating", blocks = { { block_id = "o", label = "View: a.lua" } } },
+		{ layer_id = "x", kind = "floating", blocks = { { block_id = "x", label = "scratch" } } },
 	} } } }
 	equal(P.window_of(view, "me").window_id, "w", "window of the pane")
-	equal(table.concat(P.old_diffs(view.windows[1]), ","), "f", "earlier diff floats")
+	equal(table.concat(P.old_diffs(view.windows[1]), ","), "f,o", "earlier diff and Rex View floats, not others")
 
 	-- After a float closes, focus comes back only if the tab is still in front.
 	equal(P.float_closed(view, "d"), false, "float still open")
@@ -854,5 +855,114 @@ local ok2, err2 = pcall(function()
 end)
 if not ok2 then
 	error(err2, 0)
+end
+-- Rex View: what Claude's last replies mention.
+do
+	local V = dofile(dir .. "mentions.lua")
+	local function rec(t) return rex.json.encode(t) end
+	local function said(text) return rec({ type = "assistant", message = { content = { { type = "text", text = text } } } }) end
+	local function asked(text) return rec({ type = "user", message = { content = text } }) end
+	local result = rec({ type = "user", message = { content = { { type = "tool_result", content = "x" } } } })
+	local lines = { asked("one"), said("old.md"), asked("two"), said("first part"), result, said("second part"), asked("three"), said("newest") }
+	local turns = V.turns(lines, 2)
+	equal(#turns, 2, "only the last n turns")
+	equal(turns[1], "newest", "newest first")
+	equal(turns[2], "second part", "only the final message, and a tool result doesn't end a turn")
+	equal(#V.turns(lines, 9), 3, "fewer turns than asked")
+	equal(#V.turns({ said("still answering") }, 3), 1, "a turn without its prompt in the tail")
+
+	local p, l = V.path_token("(`src/app.lua:12`),")
+	equal(p, "src/app.lua", "path out of punctuation")
+	equal(l, "12", "its line")
+	equal(select(2, V.path_token("a.lua:3:7")), "3", "line and column")
+	equal(V.path_token("hello"), nil, "a plain word")
+	equal(V.path_token("`src/ui/View.tsx`."), "src/ui/View.tsx", "a code span before a full stop")
+	equal(V.path_token("https://x.io/a.md"), nil, "a URL isn't a path")
+
+	local files = { ["/r/src/app.lua"] = "file", ["/r/shot.png"] = "file", ["/r/docs"] = "dir", ["/abs/notes.txt"] = "file" }
+	local function kind(path) return files[path] end
+	local rows = V.find({
+		"See `src/app.lua:12` and ![shot](shot.png), docs/ and /abs/notes.txt. Also missing.md.",
+		"PR https://github.com/acme/web/pull/7, ticket PROJ-12 and acme/web#45; again src/app.lua:12",
+	}, "/r", V.rules_for({ ["/"] = {
+		["%u+%-%d+"] = "https://acme.atlassian.net/browse/",
+		["acme/web#(%d+)"] = "https://github.com/acme/web/pull/",
+		["bad[pattern"] = "https://x.io/",
+		["PROJ"] = "not a link",
+	} }, "/r"), kind)
+	local by = {}
+	for i, r in ipairs(rows) do by[r.target] = { i = i, row = r } end
+	equal(by["/r/src/app.lua"].row.kind, "text", "a text file")
+	equal(by["/r/src/app.lua"].row.line, "12", "with its line")
+	equal(by["/r/src/app.lua"].row.label, "src/app.lua:12", "shown relative to Claude's folder")
+	equal(by["/r/shot.png"].row.kind, "image", "an image from a Markdown link")
+	equal(by["/abs/notes.txt"] ~= nil, true, "an absolute path")
+	equal(by["/r/docs"], nil, "folders aren't listed")
+	equal(by["https://github.com/acme/web/pull/7"].row.kind, "link", "a URL")
+	equal(by["https://acme.atlassian.net/browse/PROJ-12"].row.label, "PROJ-12", "a pattern match")
+	equal(by["https://acme.atlassian.net/browse/PROJ-12"].row.note, "acme.atlassian.net", "the basis' host")
+	equal(by["https://github.com/acme/web/pull/45"] ~= nil, true, "a capture goes after the basis")
+	equal(by["https://x.io/"], nil, "a pattern that doesn't compile")
+	equal(by["/r/src/app.lua"].i < by["https://github.com/acme/web/pull/7"].i, true, "newest turn first")
+	local count = 0
+	for _, r in ipairs(rows) do if r.target == "/r/src/app.lua" then count = count + 1 end end
+	equal(count, 1, "listed once")
+	equal(#V.find({ "PROJ-1" }, "/r", nil, kind), 0, "no patterns by default")
+	local jira = V.rules_for({ ["/"] = { ["%W(TF%-%d+)"] = "https://j.example/browse/", ["%W#(%d+)"] = "https://g.example/pull/" } }, "/r")
+	local keyed = {}
+	for _, r in ipairs(V.find({ "TF-12 first, UTF-8 isn't, (TF-3) is, see #5 but not repo#6" }, "/r", jira, kind)) do keyed[r.target] = r.label end
+	equal(keyed["https://j.example/browse/TF-12"], "TF-12", "a key at the start, with a clean label")
+	equal(keyed["https://j.example/browse/TF-3"], "TF-3", "a key in brackets")
+	equal(keyed["https://j.example/browse/TF-8"], nil, "not inside a word")
+	equal(keyed["https://g.example/pull/5"], "#5", "a bare number")
+	equal(keyed["https://g.example/pull/6"], nil, "not after a repository name")
+
+	-- Link patterns locked to directories.
+	local saved = {
+		["/"] = { ["%u+%-%d+"] = "https://all.example/browse/", ["#(%d+)"] = "https://all.example/pr/" },
+		["/w/acme/"] = { ["acme#(%d+)"] = "https://github.com/acme/pull/" },
+		["/w/acme/mobile"] = { ["%u+%-%d+"] = "https://mobile.example/browse/" },
+		["/w/acme-old"] = { ["old#(%d+)"] = "https://old.example/" },
+		["%d+x"] = "https://flat.example/",
+	}
+	local function patterns_of(rules)
+		local out = {}
+		for _, r in ipairs(rules) do out[#out + 1] = r.pattern .. "=" .. r.basis:match("//([^/]+)") end
+		return table.concat(out, " ")
+	end
+	equal(patterns_of(V.rules_for(saved, "/w/acme/mobile/src")),
+		"%u+%-%d+=mobile.example acme#(%d+)=github.com #(%d+)=all.example %d+x=flat.example",
+		"nearest first, a nearer pattern wins, and the flat one counts for every project")
+	equal(patterns_of(V.rules_for(saved, "/w/acme")), "acme#(%d+)=github.com #(%d+)=all.example %d+x=flat.example %u+%-%d+=all.example", "a trailing slash in the key")
+	equal(patterns_of(V.rules_for(saved, "/w/acme-older")), "#(%d+)=all.example %d+x=flat.example %u+%-%d+=all.example", "whole path parts only")
+	equal(patterns_of(V.rules_for(saved, nil)), "#(%d+)=all.example %d+x=flat.example %u+%-%d+=all.example", "no directory: every project's")
+	equal(#V.rules_for(nil, "/w"), 0, "no patterns")
+	equal(V.dir_key("/w/x//"), "/w/x", "trailing slashes")
+	equal(V.dir_key("/"), "/", "the root")
+
+	-- The Info tab's Links and files section.
+	local st = { responses = { { text = "old" }, { text = "cut", full = "see https://a.example/x" }, { text = "newest" } } }
+	equal(table.concat(P.last_responses(st, 2), "|"), "newest|see https://a.example/x", "newest first, whole text")
+	equal(#P.last_responses(st, 9), 3, "fewer than asked")
+	local links = { n = 3, rows = { { kind = "link", label = "a.example/x", target = "https://a.example/x" }, { kind = "text", label = "src/app.lua:3", target = "/r/src/app.lua", line = "3" } } }
+	local info = P.info_lines(P.new_state(), 40, nil, 0, {}, nil, links)
+	local shown = plain(info)
+	has(shown, "Links and files", "section heading")
+	equal(shown:find("Open", 1, true) < shown:find("Links and files", 1, true), true, "after Open")
+	equal(shown:find("Links and files", 1, true) < shown:find("Tests", 1, true), true, "before Tests")
+	has(shown, "src/app.lua:3  text", "a file row")
+	local kinds = {}
+	for _, a in pairs(info.actions) do kinds[a.kind] = (kinds[a.kind] or 0) + 1 end
+	equal(kinds.mention, 2, "each row opens")
+	equal(kinds.view_panel, 1, "open panel")
+	has(shown, "open panel", "the open panel row")
+	local folded = plain(P.info_lines(P.new_state(), 40, nil, 0, { ["Links and files"] = true }, nil, links))
+	hasnt(folded, "open panel", "folded")
+	has(plain(P.info_lines(P.new_state(), 40, nil, 0, {}, nil, { n = 3, rows = {} })), "Nothing in Claude's last 3 replies.", "nothing found")
+	local tsv = V.tsv({ { kind = "text", label = "a\tb", target = "/r/a", line = "3" } })
+	equal(select(2, tsv:gsub("\t", "")), 3, "tabs only between fields")
+	equal(V.kind("/") , "dir", "a real folder")
+	equal(V.kind(dir .. "test.lua"), "file", "a real file")
+	equal(V.kind(dir .. "no-such-file"), nil, "a missing file")
 end
 return "cc-sidecar: all tests passed"

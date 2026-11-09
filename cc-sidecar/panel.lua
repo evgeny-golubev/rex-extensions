@@ -12,6 +12,11 @@ local terminal = "com.superlogical.terminal"
 local home = os.getenv("HOME") or ""
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)") or "./"
 local settings = dofile(dir .. "settings.lua")
+local claude = dofile(dir .. "claude.lua")
+local mentions = dofile(dir .. "mentions.lua")
+local rex_binary = home
+	.. "/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
+local viewer = dir .. "../plugins/rex-view/skills/rex-view/scripts/viewer"
 
 M.tabs = { "Info", "Changes", "Log" }
 
@@ -395,15 +400,23 @@ function M.plan_title(plan)
 	return (first_line(plan):gsub("^#+%s*", ""))
 end
 
+--- How many responses keep their whole text, for the Links and files section.
+local full_responses = 10
+
 --- Claude's latest words in a turn are its response, so each text replaces the
---- one before it until the next prompt. Kept short: a session has many.
+--- one before it until the next prompt. Kept short, but for the last few: a
+--- session has many.
 local function respond(state, text)
-	local entry = { text = (cut(text, 2000)), seq = state.seq, at = state.at }
+	local entry = { text = (cut(text, 2000)), full = text, seq = state.seq, at = state.at }
 	local latest = state.responses[#state.responses]
 	if latest and latest.seq > state.last_prompt then
 		state.responses[#state.responses] = entry
 	else
 		state.responses[#state.responses + 1] = entry
+		local old = state.responses[#state.responses - full_responses]
+		if old then
+			old.full = nil
+		end
 	end
 end
 
@@ -754,11 +767,45 @@ local function usage_section(out, limits, cols, now)
 end
 
 --- Everything on the Info tab, most useful first.
-function M.info_lines(state, cols, limits, now, folded, focus)
+--- The texts of the last n responses, newest first.
+function M.last_responses(state, n)
+	local texts = {}
+	for i = #state.responses, math.max(1, #state.responses - n + 1), -1 do
+		local r = state.responses[i]
+		texts[#texts + 1] = r.full or r.text
+	end
+	return texts
+end
+
+--- What Claude's last replies mention, as Rex View lists it, with a click that
+--- opens each, and one that opens Rex View's float.
+local function links_section(out, links, cols)
+	if not links then
+		return
+	end
+	local rows = links.rows
+	section(out, "Links and files", "↗", #rows > 0 and tostring(#rows) or "none", function()
+		if #rows == 0 then
+			out[#out + 1] = dim .. "Nothing in Claude's last " .. links.n .. (links.n == 1 and " reply." or " replies.") .. reset
+		end
+		for _, r in ipairs(rows) do
+			local note = r.note or r.kind
+			local room = math.max(1, cols - M.width(note) - 2)
+			out[#out + 1] = M.clip(r.label, room) .. "  " .. dim .. note .. reset
+			out.actions[#out] = { kind = "mention", row = r }
+		end
+		out[#out + 1] = ""
+		out[#out + 1] = cyan .. "open panel" .. reset
+		out.actions[#out] = { kind = "view_panel" }
+	end)
+end
+
+function M.info_lines(state, cols, limits, now, folded, focus, links)
 	local out = new_lines(folded, focus)
 	session_section(out, state, cols)
 	usage_section(out, limits, cols, now or os.time())
 	open_section(out, state, cols)
+	links_section(out, links, cols)
 	tests_section(out, state, cols)
 	failed_section(out, state, cols)
 	return out
@@ -1244,15 +1291,17 @@ function M.is_active(view, block_id)
 	return window ~= nil and window.window_id == view.active_window_id
 end
 
-local diff_label = "Diff: "
+local diff_label, view_label = "Diff: ", "View: "
 
---- The floats an earlier diff left in a window.
+--- The floats an earlier diff or Rex View left in a window; one replaces the
+--- other.
 function M.old_diffs(window)
 	local found = {}
 	for _, l in ipairs(window.layers or {}) do
 		if l.kind ~= "tiled" then
 			for _, b in ipairs(l.blocks or {}) do
-				if (b.label or ""):sub(1, #diff_label) == diff_label then
+				local label = b.label or ""
+				if label:sub(1, #diff_label) == diff_label or label:sub(1, #view_label) == view_label then
 					found[#found + 1] = l.layer_id
 					break
 				end
@@ -1280,54 +1329,9 @@ local function read_json(path)
 	return ok and value or nil
 end
 
-local function is_claude(p)
-	return p ~= nil and p.argv0 ~= nil and p.argv0:match("[^/]*$") == "claude"
-end
-
-function M.claude_pid(process)
-	if not process then
-		return nil
-	end
-	if is_claude(process.foreground) then
-		return process.foreground.pid
-	end
-	for _, p in ipairs(process.ancestors or {}) do
-		if is_claude(p) then
-			return p.pid
-		end
-	end
-end
-
---- Claude Code keeps a project's transcripts in a folder named after its
---- directory, with every character but letters and digits made a dash.
-function M.project_dir(cwd)
-	return (cwd:gsub("[^%w]", "-"))
-end
-
-local found = {}
-
---- The transcript and current directory of the Claude with this process ID,
---- from the session file Claude Code writes for each running Claude. /cd
---- changes the directory there, and moves the transcript with it.
-function M.transcript(pid)
-	local dirs = { os.getenv("CLAUDE_CONFIG_DIR"), home .. "/.claude" }
-	for _, dir in pairs(dirs) do
-		local s = read_json(dir .. "/sessions/" .. pid .. ".json")
-		if s and s.sessionId then
-			local path = s.cwd and (dir .. "/projects/" .. M.project_dir(s.cwd) .. "/" .. s.sessionId .. ".jsonl")
-			local f = path and io.open(path, "rb")
-			if f then
-				f:close()
-				return path, s.cwd
-			end
-			if found[s.sessionId] == nil then
-				local r = exec({ "/usr/bin/find", dir .. "/projects", "-maxdepth", "2", "-name", s.sessionId .. ".jsonl" })
-				found[s.sessionId] = r and r.ok and r.stdout:match("[^\n]+") or false
-			end
-			return found[s.sessionId] or nil, s.cwd
-		end
-	end
-end
+M.claude_pid = claude.pid
+M.project_dir = claude.project_dir
+M.transcript = claude.transcript
 
 local panel = {
 	session_id = os.getenv("REX_SESSION"),
@@ -1525,6 +1529,25 @@ local function read_limits(path)
 	return saved and saved.rate_limits or nil
 end
 
+--- The Links and files section's rows, worked out again only when the replies,
+--- Claude's directory or the settings change.
+local function refresh_links()
+	local n = settings.info_replies(dir)
+	local patterns = settings.link_patterns(dir)
+	local texts = M.last_responses(panel.state, n)
+	local ok, encoded = pcall(rex.json.encode, patterns)
+	local key = { panel.cwd or "", n, ok and encoded or "" }
+	for _, text in ipairs(texts) do
+		key[#key + 1] = #text .. ":" .. text:sub(1, 64)
+	end
+	key = table.concat(key, "\0")
+	if key ~= panel.links_key then
+		panel.links_key = key
+		panel.links = { n = n, rows = mentions.find(texts, panel.cwd, mentions.rules_for(patterns, panel.cwd)) }
+		panel.cache = nil
+	end
+end
+
 local function gather()
 	local size = rex.block.call(terminal, "size", { session_id = panel.session_id, block_id = panel.block_id })
 	if size and size.columns then
@@ -1569,6 +1592,7 @@ local function gather()
 	if panel.tab == "Changes" or not panel.data then
 		load_scope()
 	end
+	refresh_links()
 end
 
 local function build(tab)
@@ -1590,7 +1614,7 @@ local function build(tab)
 	elseif tab == "Log" then
 		lines = M.log_lines(panel.state, panel.cols - 1, panel.folded, panel.focus.Log, panel.pages)
 	else
-		lines = M.info_lines(panel.state, panel.cols - 1, panel.limits, nil, panel.folded, panel.focus.Info)
+		lines = M.info_lines(panel.state, panel.cols - 1, panel.limits, nil, panel.folded, panel.focus.Info, panel.links)
 	end
 	return { lines = lines, pinned = {}, hits = {}, actions = lines.actions or {}, sections = lines.sections or {}, rows = {} }
 end
@@ -1723,8 +1747,9 @@ local function page_focused(step)
 	end
 end
 
---- Opens a row's diff in a float, replacing any earlier one.
-local function open_diff(row)
+--- Opens a float over this pane's tab, replacing an earlier diff or Rex View.
+--- Returns a message when it can't.
+local function open_float(label, command, cwd)
 	local attached, err = rex.call("session.attach", { session_id = panel.session_id })
 	if err ~= nil then
 		return tostring(err)
@@ -1736,6 +1761,33 @@ local function open_diff(row)
 	for _, id in ipairs(M.old_diffs(window)) do
 		rex.call("session.close_layer", { session_id = panel.session_id, layer_id = id })
 	end
+	local created, opened = rex.call("session.new_layer", {
+		session_id = panel.session_id,
+		window_id = window.window_id,
+		bounds = { 0.1, 0.075, 0.8, 0.85 },
+		focus = true,
+		layout = {
+			block = {
+				flavor = terminal .. ".shell",
+				label = label,
+				options = { command = command, cwd = cwd },
+			},
+		},
+	})
+	if opened ~= nil then
+		return tostring(opened)
+	end
+	panel.float = created and created.block_ids and created.block_ids[1]
+	-- This script's client owns the new block, and has no window to size it, so it
+	-- stays 80x24 until the mouse moves over it. Rex.app takes over once released.
+	-- With no IDs, this call would release every block in the session.
+	if panel.float then
+		rex.call("session.disown_block", { session_id = panel.session_id, block_ids = { panel.float } })
+	end
+end
+
+--- Opens a row's diff in a float.
+local function open_diff(row)
 	local command = { dir .. "diff-view" }
 	if row.diff == "patch" then
 		local file = os.tmpname()
@@ -1752,29 +1804,32 @@ local function open_diff(row)
 			command[#command + 1] = arg
 		end
 	end
-	local created, opened = rex.call("session.new_layer", {
-		session_id = panel.session_id,
-		window_id = window.window_id,
-		bounds = { 0.1, 0.075, 0.8, 0.85 },
-		focus = true,
-		layout = {
-			block = {
-				flavor = terminal .. ".shell",
-				label = diff_label .. (row.path:match("[^/]+$") or row.path),
-				options = { command = command, cwd = panel.root },
-			},
-		},
-	})
-	if opened ~= nil then
-		return tostring(opened)
+	return open_float(diff_label .. (row.path:match("[^/]+$") or row.path), command, panel.root)
+end
+
+--- What a click on a Links and files row does: Rex View's Enter.
+local function open_mention(row)
+	if row.kind == "link" then
+		if row.target:match("^https?://") then
+			exec({ "/usr/bin/open", row.target })
+		end
+		return
 	end
-	panel.float = created and created.block_ids and created.block_ids[1]
-	-- This script's client owns the new block, and has no window to size it, so it
-	-- stays 80x24 until the mouse moves over it. Rex.app takes over once released.
-	-- With no IDs, this call would release every block in the session.
-	if panel.float then
-		rex.call("session.disown_block", { session_id = panel.session_id, block_ids = { panel.float } })
+	local f = io.open(viewer, "rb")
+	local command = { viewer, row.target, row.line }
+	if f then
+		f:close()
+	else
+		command = { "/usr/bin/less", "-R", "--", row.target }
 	end
+	return open_float(view_label .. (row.target:match("[^/]+$") or row.target), command, row.target:match("^(.*)/[^/]*$"))
+end
+
+local function open_view_panel()
+	if not panel.claude then
+		return "No Claude pane for this sidecar."
+	end
+	return open_float(view_label .. "Claude's replies", { dir .. "view-picker", rex_binary, panel.session_id, panel.claude }, panel.cwd)
 end
 
 --- Rex focuses whichever pane it picks when a float closes, so the pane takes
@@ -1821,6 +1876,10 @@ local function act(action)
 	elseif action.kind == "page" then
 		panel.pages[action.name] = action.page
 		panel.cache = nil
+	elseif action.kind == "mention" then
+		panel.notice = open_mention(action.row)
+	elseif action.kind == "view_panel" then
+		panel.notice = open_view_panel()
 	end
 end
 

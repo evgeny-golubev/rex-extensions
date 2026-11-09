@@ -305,7 +305,7 @@ end
 
 --- Panes the extensions open for themselves, which aren't work in the tab.
 function M.helper_pane(label)
-	return label == "Crabs" or label:sub(1, 9) == "Sidecar: " or label:sub(1, 6) == "Diff: "
+	return label == "Crabs" or label:sub(1, 9) == "Sidecar: " or label:sub(1, 6) == "Diff: " or label:sub(1, 6) == "View: "
 end
 
 --- Merges crabs with the same title and description into one, which counts
