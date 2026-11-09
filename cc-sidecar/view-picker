@@ -1,0 +1,81 @@
+#!/bin/bash
+# The Rex View picker, in a float: view-picker <rex> <session> <claude block>
+# Lists what Claude's last replies mention. Enter views a file or image in the
+# rex-view viewer, or opens a link in the browser; Ctrl-E edits a text file in
+# the editor, here in the float; Ctrl-Y copies.
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+rex_bin=$1
+session=$2
+claude=$3
+here=$(cd "$(dirname "$0")" && pwd)
+viewer="$here/../plugins/rex-view/skills/rex-view/scripts/viewer"
+settings="$here/settings.json"
+
+list=$(mktemp -t rex-view)
+trap 'rm -f "$list" "$list.err"' EXIT
+
+notice() {
+	printf '\n  %s\n\n  Press any key to close' "$1"
+	read -rsn1
+	exit 0
+}
+
+"$rex_bin" --autostart=false do "$here/view-collect.lua" "session=$session" "claude=$claude" "out=$list" >/dev/null 2>"$list.err" ||
+	notice "Couldn't read Claude's replies: $(head -c 300 "$list.err")"
+first=$(head -n 1 "$list")
+case $first in
+"!"*) notice "${first#!}" ;;
+"") notice "Couldn't read Claude's replies." ;;
+esac
+
+if command -v fzf >/dev/null 2>&1; then
+	out=$(fzf --ansi --no-sort --reverse --delimiter='	' --with-nth=1 --prompt='open> ' \
+		--expect=ctrl-e,ctrl-y \
+		--header='enter: view or open · ctrl-e: edit · ctrl-y: copy · esc: close' <"$list")
+	key=$(printf '%s\n' "$out" | sed -n 1p)
+	pick=$(printf '%s\n' "$out" | sed -n 2p)
+else
+	i=0
+	while IFS='	' read -r shown _; do
+		i=$((i + 1))
+		printf '%3d  %b\n' "$i" "$shown"
+	done <"$list"
+	printf '\nOpen which? A number, or e and a number to edit: '
+	read -r answer
+	case $answer in
+	e*) key=ctrl-e n=${answer#e} ;;
+	*) key= n=$answer ;;
+	esac
+	n=$(printf '%s' "$n" | tr -d ' ')
+	case $n in "" | *[!0-9]*) exit 0 ;; esac
+	pick=$(sed -n "${n}p" "$list")
+fi
+[ -n "$pick" ] || exit 0
+target=$(printf '%s' "$pick" | cut -f 2)
+line=$(printf '%s' "$pick" | cut -f 3)
+kind=$(printf '%s' "$pick" | cut -f 4)
+
+if [ "$key" = ctrl-y ]; then
+	printf '%s' "$target" | pbcopy
+	printf 'Copied.'
+	sleep 0.6
+	exit 0
+fi
+
+if [ "$kind" = link ]; then
+	case $target in
+	http://* | https://*) open "$target" ;;
+	esac
+	exit 0
+fi
+
+if [ "$key" = ctrl-e ] && [ "$kind" = text ]; then
+	editor=$(jq -r '.editor // empty' "$settings" 2>/dev/null)
+	editor=${editor:-${VISUAL:-${EDITOR:-vim}}}
+	cd "$(dirname "$target")" || exit 1
+	# The editor setting is the user's own shell code, so it isn't quoted.
+	exec /bin/sh -c "$editor \"\$1\"" sh "$target"
+fi
+
+[ -x "$viewer" ] || exec less -R ${line:+"+${line}g"} -- "$target"
+exec "$viewer" "$target" $line

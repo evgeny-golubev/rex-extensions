@@ -1,0 +1,179 @@
+#!/bin/bash
+# The Rex View settings floats, which write cc-sidecar's settings.json:
+#   view-settings editor     ask for the editor command
+#   view-settings patterns [dir]   list, add, edit and delete link patterns;
+#                                  dir is where a new one applies at first
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+here=$(cd "$(dirname "$0")" && pwd)
+file="$here/settings.json"
+[ -s "$file" ] || printf '{}\n' >"$file"
+
+# Written whole and renamed into place, as settings.lua does, so a sidecar pane
+# never reads half a file.
+save() {
+	jq "$@" "$file" >"$file.tmp" && mv "$file.tmp" "$file"
+}
+
+# Directory -> { pattern -> basis }. rex.json can write an empty table as [],
+# so anything but an object counts as no patterns, and a pattern saved without
+# a directory counts as one for "/", every project.
+groups='(.link_patterns | if type == "object" then . else {} end
+	| reduce to_entries[] as $e ({};
+		if ($e.value | type) == "object" then .[$e.key] = ((.[$e.key] // {}) + $e.value)
+		elif ($e.value | type) == "string" then .["/"][$e.key] = $e.value
+		else . end))'
+
+ask() {
+	local prompt=$1 now=$2 answer
+	if [ -n "$now" ]; then
+		printf '%s\n  now: %s\n  new (empty keeps it): ' "$prompt" "$now" >&2
+	else
+		printf '%s\n  > ' "$prompt" >&2
+	fi
+	read -r -e answer
+	printf '%s' "${answer:-$now}"
+}
+
+pause() {
+	printf '\n%s\nPress any key' "$1"
+	read -rsn1
+}
+
+editor() {
+	local now new
+	now=$(jq -r '.editor // empty' "$file")
+	printf 'Rex View editor\n\n'
+	printf 'The command that opens a file for editing, such as nvim, "code -w" or\n'
+	printf '"subl -w". The file is added at the end. Without one, Rex View uses\n'
+	printf '$VISUAL, then $EDITOR, then vim. Type - to remove it.\n\n'
+	new=$(ask "Editor" "$now")
+	if [ "$new" = - ]; then
+		save 'del(.editor)'
+		pause "Removed. Files open in \$VISUAL, \$EDITOR or vim."
+	elif [ -n "$new" ] && [ "$new" != "$now" ]; then
+		save --arg e "$new" '.editor = $e'
+		pause "Saved: $new"
+	fi
+}
+
+# Asks for the directory a rule applies in; prints it absolute, or nothing.
+ask_dir() {
+	local dir
+	dir=$(ask "Directory it applies in, and below it; / for every project" "$1")
+	case $dir in
+	"~") dir=$HOME ;;
+	"~/"*) dir="$HOME/${dir#\~/}" ;;
+	esac
+	while [ "$dir" != / ] && [ "${dir%/}" != "$dir" ]; do dir=${dir%/}; done
+	case $dir in
+	/*) ;;
+	*)
+		pause "The directory must start with / or ~/."
+		return 1
+		;;
+	esac
+	if [ ! -d "$dir" ]; then
+		pause "There's no directory $dir."
+		return 1
+	fi
+	printf '%s' "$dir"
+}
+
+# Asks for a directory, a pattern and a basis; prints them tab-separated.
+ask_rule() {
+	local dir pattern basis
+	dir=$(ask_dir "$1") || return 1
+	pattern=$(ask "Lua pattern, such as PROJ%-%d+ or acme/web#(%d+)" "$2")
+	[ -n "$pattern" ] || return 1
+	basis=$(ask "Link basis: the match, or its capture, is added to its end" "$3")
+	case $basis in
+	http://* | https://*) ;;
+	*)
+		pause "The basis must start with http:// or https://."
+		return 1
+		;;
+	esac
+	printf '%s\t%s\t%s' "$dir" "$pattern" "$basis"
+}
+
+# put <old dir> <old pattern> <dir> <pattern> <basis>; the old ones are empty
+# for a new rule.
+put() {
+	save --arg od "$1" --arg op "$2" --arg d "$3" --arg p "$4" --arg b "$5" \
+		".link_patterns = ($groups
+			| (if \$od != \"\" then .[\$od] |= del(.[\$op]) else . end)
+			| .[\$d] = ((.[\$d] // {}) + {(\$p): \$b})
+			| with_entries(select((.value | length) > 0)))"
+}
+
+remove() {
+	save --arg d "$1" --arg p "$2" \
+		".link_patterns = ($groups | .[\$d] |= del(.[\$p]) | with_entries(select((.value | length) > 0)))"
+}
+
+# Each rule as what's shown, then its directory, pattern and basis.
+rules() {
+	jq -r "[$groups | to_entries[] | .key as \$d | .value | to_entries[]
+		| select(.value | type == \"string\") | [\$d, .key, .value]] | sort[] | @tsv" "$file" |
+		while IFS='	' read -r d p b; do
+			shown=$d
+			case $d in "$HOME" | "$HOME"/*) shown="~${d#"$HOME"}" ;; esac
+			printf '%s   %s  →  %s\t%s\t%s\t%s\n' "$shown" "$p" "$b" "$d" "$p" "$b"
+		done
+}
+
+patterns() {
+	local start=${1:-/} out key pick dir pattern basis rule
+	while :; do
+		clear
+		if command -v fzf >/dev/null 2>&1; then
+			out=$(rules | fzf --reverse --no-sort --delimiter='	' --with-nth=1 --prompt='pattern> ' \
+				--expect=ctrl-a,ctrl-d \
+				--header='Rex View link patterns, by the directory they apply in. enter: edit · ctrl-a: add · ctrl-d: delete · esc: close')
+			[ -n "$out" ] || return 0
+			key=$(printf '%s\n' "$out" | sed -n 1p)
+			pick=$(printf '%s\n' "$out" | sed -n 2p)
+		else
+			printf 'Rex View link patterns\n\n'
+			rules | cut -f 1 | nl -w3 -s'  '
+			printf '\na: add, e and a number: edit, d and a number: delete, q: close\n> '
+			read -r answer
+			case $answer in
+			a) key=ctrl-a pick= ;;
+			e*) key= pick=$(rules | sed -n "$(printf '%s' "${answer#e}" | tr -cd 0-9)p") ;;
+			d*) key=ctrl-d pick=$(rules | sed -n "$(printf '%s' "${answer#d}" | tr -cd 0-9)p") ;;
+			*) return 0 ;;
+			esac
+		fi
+		dir=$(printf '%s' "$pick" | cut -f 2)
+		pattern=$(printf '%s' "$pick" | cut -f 3)
+		basis=$(printf '%s' "$pick" | cut -f 4)
+		clear
+		case $key in
+		ctrl-a)
+			rule=$(ask_rule "$start" "" "") &&
+				put "" "" "$(printf '%s' "$rule" | cut -f 1)" "$(printf '%s' "$rule" | cut -f 2)" "$(printf '%s' "$rule" | cut -f 3)"
+			;;
+		ctrl-d)
+			[ -n "$pattern" ] || continue
+			printf 'Delete %s  →  %s in %s? [y/N] ' "$pattern" "$basis" "$dir"
+			read -r answer
+			case $answer in [yY]*) remove "$dir" "$pattern" ;; esac
+			;;
+		*)
+			[ -n "$pattern" ] || continue
+			rule=$(ask_rule "$dir" "$pattern" "$basis") &&
+				put "$dir" "$pattern" "$(printf '%s' "$rule" | cut -f 1)" "$(printf '%s' "$rule" | cut -f 2)" "$(printf '%s' "$rule" | cut -f 3)"
+			;;
+		esac
+	done
+}
+
+case $1 in
+editor) editor ;;
+patterns) patterns "${2:-}" ;;
+*)
+	echo "usage: view-settings editor|patterns [dir]" >&2
+	exit 2
+	;;
+esac
