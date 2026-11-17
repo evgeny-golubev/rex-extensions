@@ -56,6 +56,7 @@ Opens first. Every box folds; see [Folding](#folding).
 | **ADVISOR** | The advisor tool's consults on a timeline from your first prompt, how long ago the last one was and how long it took. Shown only once Claude consults it |
 | **GATE** | A dotted cell (`⣿`) for each latest permission check: green allowed by a rule or the mode, cyan by the auto-mode classifier, blue by you, red ✗ denied, dim made inside a subagent. Then the totals, and the checks by family: click `file`, `shell` or `other`, or press `f`, `s` or `o`, to list that family's last 5 checks |
 | **AGENTS** | The latest 8 subagents as lanes on one time axis, newest first, each with its time. A running one has a pulsing lavender ● and a ticking clock. Click a lane for its type, context, steps, last 3 tool calls and the start of its answer |
+| **PROCESSES** | The shells Claude runs right now, newest first, each with a pulsing ● and how long it has run, found as cc-crab-pond finds them: a monitor by its description, other shells by their program, `monitor` for one running `tail` and `waiting` for one that only sleeps. Only executable names are read from `ps`, never arguments. Hidden while none run |
 | **OPEN** | Questions and plans waiting for your answer, questions at the end of Claude's last reply, and unfinished tasks |
 | **Receipt** | The running turn, or the last one: how long, the agents it started, and its edits and errors. Then tests and failed commands: click either for the latest 8. A run counts as a test by its command: `pytest`, `npm test`, `go test`, a script named test or spec |
 | **LOG** | Your prompts, agents starting and finishing, edits, failed commands, denied permission checks and advisor consults, each with its time. It fills the rows under the other boxes, or, when they fill the screen, a screen of its own below them |
@@ -82,7 +83,9 @@ calls doesn't count. **Search Panel**, pinned at the top, opens the
 | **Other** | Other files that exist, such as source code, with an optional `:line` |
 
 [Link patterns](#link-patterns) turn text such as `SHOP-12` or `#12` into PRs
-and Jira links. A category with nothing in it isn't shown, and each one folds.
+and Jira links. A category with nothing in it isn't shown, and each one folds. Each shows its
+newest 10 rows; a last row says how many more there are and opens the Search
+Panel.
 Click a row to open it as Enter does in the Search Panel: a file or image in the
 viewer, in a float, and a link in your browser. Something mentioned again is
 listed once, where it was mentioned last. At most 1,000 rows are listed.

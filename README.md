@@ -7,7 +7,7 @@ conversations back after a restart, and let Claude show you files.
 
 | | Name | What you get | Runs as |
 | --- | --- | --- | --- |
-| Extension | [cc-sidecar](#cc-sidecar) | A side pane with what each Claude changed, by turn, uncommitted, branch or pull request, plus a dashboard of its context, limits, permission checks, subagents and a session log, and the documents, PRs, Jira issues, links and files Claude's replies mention | Pane beside Claude |
+| Extension | [cc-sidecar](#cc-sidecar) | A side pane with what each Claude changed, by turn, uncommitted, branch or pull request, plus a dashboard of its context, limits, permission checks, subagents, running shells and a session log, and the documents, PRs, Jira issues, links and files Claude's replies mention | Pane beside Claude |
 | Extension | [cc-crab-pond](#cc-crab-pond) | Claudes, subagents and background jobs as animated crabs | Strip along the tab's bottom |
 | Extension | [cc-resume](#cc-resume) | Claude Code conversations resumed after the Rex server restarts | Background watcher |
 | Skill | [rex-view](#rex-view) | Claude shows images, Markdown and source code in a floating pane | Plugin, version 0.5.1 |
@@ -33,7 +33,7 @@ Code's own diff panel.
 branch or its open pull request, as a list or a tree; click one to read its diff in a floating pane.
 **Info** is a dashboard in the style of [Flightdeck](https://github.com/scasella/claude-flightdeck):
 the model, context and limits; every permission check; subagents as lanes
-on a time axis; open questions; what the last turn did; and a session log, in boxes
+on a time axis; the shells it runs; open questions; what the last turn did; and a session log, in boxes
 you can fold. **Artifacts** lists what all of
 Claude's replies mention, as Documents, PRs, Jira, URLs and Other; click one to
 view it or open it in the browser. Your own patterns turn Jira keys or PR
