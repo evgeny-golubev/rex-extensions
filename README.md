@@ -7,10 +7,10 @@ conversations back after a restart, and let Claude show you files.
 
 | | Name | What you get | Runs as |
 | --- | --- | --- | --- |
-| Extension | [cc-sidecar](#cc-sidecar) | A side pane with what each Claude changed, by turn, uncommitted, branch or pull request, plus its activity, open questions and decisions; Rex View opens the files, images and links in Claude's replies | Pane beside Claude |
+| Extension | [cc-sidecar](#cc-sidecar) | A side pane with what each Claude changed, by turn, uncommitted, branch or pull request, plus a dashboard of its context, limits, permission checks, subagents and a session log, and the documents, PRs, Jira issues, links and files Claude's replies mention | Pane beside Claude |
 | Extension | [cc-crab-pond](#cc-crab-pond) | Claudes, subagents and background jobs as animated crabs | Strip along the tab's bottom |
 | Extension | [cc-resume](#cc-resume) | Claude Code conversations resumed after the Rex server restarts | Background watcher |
-| Skill | [rex-view](#rex-view) | Claude shows images, Markdown and source code in a floating pane | Plugin, version 0.5.0 |
+| Skill | [rex-view](#rex-view) | Claude shows images, Markdown and source code in a floating pane | Plugin, version 0.5.1 |
 
 **Contents:** [Extensions](#extensions) · [Skills](#skills) ·
 [Requirements](#requirements) · [Install](#install) · [Update](#update) ·
@@ -24,21 +24,23 @@ Rex loads these from `init.lua`. Each one's README has the details.
 ### cc-sidecar
 
 Answers "what did this Claude change, and what's still waiting on me?" A pane on
-the right, 20% of the tab, opens and closes with Claude and replaces Claude
+the right, 30% of the tab, opens and closes with Claude and replaces Claude
 Code's own diff panel.
 
-![cc-sidecar's Changes tab on a pull request, Info with links and files from Claude's replies, and Log, with made-up data](docs/cc-sidecar.png)
+![cc-sidecar's Changes tab on a pull request, Info, and Artifacts with documents, PRs, Jira issues and links from Claude's replies, with made-up data](docs/cc-sidecar.png)
 
 **Changes** lists changed files for the last turn, the uncommitted work, or the
 branch or its open pull request, as a list or a tree; click one to read its diff in a floating pane.
-**Info** lists the session's facts, usage limits, open questions, test runs and
-failed commands, in sections you can fold. **Log** shows the last summary, then
-your decisions, requests and Claude's responses, dated and newest first.
-**Rex View**, on `Cmd+Ctrl+Alt+Shift+O`, lists the files, images and links in
-Claude's last replies, to view, edit or open in the browser, with your own
-patterns for Jira keys or PR numbers.
+**Info** is a dashboard in the style of [Flightdeck](https://github.com/scasella/claude-flightdeck):
+the model, context and limits; every permission check; subagents as lanes
+on a time axis; open questions; what the last turn did; and a session log, in boxes
+you can fold. **Artifacts** lists what all of
+Claude's replies mention, as Documents, PRs, Jira, URLs and Other; click one to
+view it or open it in the browser. Your own patterns turn Jira keys or PR
+numbers into links. The **Search Panel**, on `Cmd+Ctrl+Alt+Shift+O` or at the
+top of Artifacts, lists the same in a float, to filter, view, edit or open.
 
-![Rex View's float listing files, Jira keys, a pull request and links from Claude's replies, with made-up data](docs/rex-view.png)
+![The Search Panel's float listing files, Jira keys, a pull request and links from Claude's replies, with made-up data](docs/rex-view.png)
 
 [Tabs, keys and limits →](cc-sidecar/README.md)
 
@@ -82,7 +84,7 @@ over Claude's tab, and `q` closes it. [Details →](plugins/rex-view/README.md)
 | cc-sidecar and rex-view colours, optional | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
 | cc-sidecar's highlighted diffs, optional | [`delta`](https://github.com/dandavison/delta) (`brew install git-delta`) |
 | cc-sidecar's Usage section, optional | The status line step in [Install](#install), with `jq` |
-| cc-sidecar's Rex View list, optional | [`fzf`](https://github.com/junegunn/fzf) (`brew install fzf`), and `jq` for its settings |
+| cc-sidecar's Search Panel, optional | [`fzf`](https://github.com/junegunn/fzf) (`brew install fzf`), and `jq` for its settings |
 | cc-sidecar's PR scope, optional | [`gh`](https://cli.github.com), signed in (`brew install gh`, `gh auth login`) |
 | rex-view formatted Markdown, optional | [`glow`](https://github.com/charmbracelet/glow) (`brew install glow`) |
 

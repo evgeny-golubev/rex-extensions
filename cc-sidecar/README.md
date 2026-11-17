@@ -5,14 +5,17 @@ Code, and closes it when Claude exits or its pane closes. It stands in for
 Claude Code's own diff panel; turn that one off with `"diffSidebarOpen": false`
 in `~/.claude.json`.
 
-![The Changes tab on a pull request, Info with links and files from Claude's replies, and Log, with made-up data](../docs/cc-sidecar.png)
+![The Changes tab on a pull request, Info, and Artifacts with documents, PRs, Jira issues and links from Claude's replies, with made-up data](../docs/cc-sidecar.png)
 
-The pane has three tabs, redrawn every 2 seconds.
+The pane has three tabs, redrawn every 2 seconds, and every second while a
+clock runs. Their look follows [Flightdeck](https://github.com/scasella/claude-flightdeck),
+a Claude Code mod: each section is a box in its own colour, gauges are cells, and
+an empty section takes no room. Below 36 columns, boxes become plain headings.
 
 ## Changes
 
-The top row shows the branch, its added and removed lines, and `≣`, which
-switches between a list and a folder tree. Below it are up to three scopes:
+The header box shows the branch, its added and removed lines, and `≣`, which
+switches between a list and a folder tree. Inside it are up to three scopes:
 
 | Scope | What it lists | Where it comes from |
 | --- | --- | --- |
@@ -41,49 +44,83 @@ holds. The choice is saved in `settings.json`, for each repository.
 Last Turn only knows Claude's Edit and Write tools, so files changed through
 Bash (`sed`, a formatter) don't show up there. Outside a git repository it's the
 only scope. The transcript format is Claude Code's own and undocumented, so an
-update to it can empty this scope and the Info and Log tabs.
+update to it can empty this scope and the Info and Artifacts tabs.
 
 ## Info
 
-Opens first. Open, Links and files, Tests and Failed commands fold; see
-[Folding](#folding).
+Opens first. Every box folds; see [Folding](#folding).
+
+| Box | What's in it |
+| --- | --- |
+| **Model · main** | Running or idle; the session's title and branch; reasoning effort, permission mode and how many requests Claude made; context against the model's window, and ⟲ with how often it was compacted; your 5-hour and 7-day limits with the time to each reset (↻), and Claude's working time |
+| **ADVISOR** | The advisor tool's consults on a timeline from your first prompt, how long ago the last one was and how long it took. Shown only once Claude consults it |
+| **GATE** | A dotted cell (`⣿`) for each latest permission check: green allowed by a rule or the mode, cyan by the auto-mode classifier, blue by you, red ✗ denied, dim made inside a subagent. Then the totals, and the checks by family: click `file`, `shell` or `other`, or press `f`, `s` or `o`, to list that family's last 5 checks |
+| **AGENTS** | The latest 8 subagents as lanes on one time axis, newest first, each with its time. A running one has a pulsing lavender ● and a ticking clock. Click a lane for its type, context, steps, last 3 tool calls and the start of its answer |
+| **OPEN** | Questions and plans waiting for your answer, questions at the end of Claude's last reply, and unfinished tasks |
+| **Receipt** | The running turn, or the last one: how long, the agents it started, and its edits and errors. Then tests and failed commands: click either for the latest 8. A run counts as a test by its command: `pytest`, `npm test`, `go test`, a script named test or spec |
+| **LOG** | Your prompts, agents starting and finishing, edits, failed commands, denied permission checks and advisor consults, each with its time. It fills the rows under the other boxes, or, when they fill the screen, a screen of its own below them |
+
+The context window and the limits come from the status line step in the
+[main README](../README.md#install); without them they're left out. Commands and
+paths in GATE, the lanes, the receipt and the log have values that look like
+credentials masked as `•••`: the value of a `TOKEN=`, `--password` or
+`Authorization:`, a bearer token, and long key-like strings.
+
+## Artifacts
+
+What all of Claude's replies in this session mention, newest first. A reply is
+Claude's final message after one of your prompts; what it wrote between tool
+calls doesn't count. **Search Panel**, pinned at the top, opens the
+[Search Panel](#search-panel). The tab's title shows how many rows there are, counting a PR once.
 
 | Section | What's in it |
 | --- | --- |
-| **Session** | Title, branch, model, reasoning level, context size, how often it was compacted, and Claude's working time |
-| **Usage** | Your 5-hour and 7-day limits and when they reset. Needs the status line step in the [main README](../README.md#install); hidden without it |
-| **Open** | Questions and plans waiting for your answer, questions at the end of Claude's last reply, and unfinished tasks |
-| **Links and files** | The files, images and links in Claude's last 3 final messages, as [Rex View](#rex-view) lists them. Click one to view it or open it in the browser, as Enter does there; **open panel** at the end opens Rex View's float |
-| **Tests** | The latest test runs and whether they passed. A run counts as a test by its command: `pytest`, `npm test`, `go test`, a script named test or spec |
-| **Failed commands** | The latest failures, with their first error line |
+| **Documents** | Files that exist with `md`, `txt`, `pdf`, `html`, `csv`, `rtf`, `doc`, `docx`, `xlsx`, `pptx` or `svg`, and images |
+| **PRs** | Links to a GitHub pull request (`/pull/12`) or a GitLab merge request (`/merge_requests/12`) |
+| **Jira** | Links to a Jira issue (`/browse/KEY-12`) |
+| **URLs** | Other `http` and `https` links |
+| **Other** | Other files that exist, such as source code, with an optional `:line` |
 
-## Log
+[Link patterns](#link-patterns) turn text such as `SHOP-12` or `#12` into PRs
+and Jira links. A category with nothing in it isn't shown, and each one folds.
+Click a row to open it as Enter does in the Search Panel: a file or image in the
+viewer, in a float, and a link in your browser. Something mentioned again is
+listed once, where it was mentioned last. At most 1,000 rows are listed.
 
-What was said and decided. Summary has its local date and time in its title.
-The other three sections start each entry with theirs, run newest first and show
-3 entries a page. All four fold.
+PRs are listed one row a PR, named by its number, in grey, and its title. A PR mentioned through more
+than one link, such as its page, a comment and its files, has those links under
+it: a comment as `# 123`, and other links by their last part, such as `files` or
+`commit abc1234`. Click the PR to open it, or a link under it to open that.
+Titles come from GitHub through [gh](https://cli.github.com), up to 4 at a time
+while the tab is open, and each is looked up once; without `gh`, or for a GitLab
+merge request, a PR shows its repository and number. The Search Panel lists each
+link, such as `acme/shop#42 # 123`, without titles.
 
-| Section | What's in it |
-| --- | --- |
-| **Summary** | The current state, next step and pending work from the latest compaction |
-| **Decisions** | Your answers, with any notes; plans you approved or rejected; actions you rejected, with what you said |
-| **Requests** | Your prompts, including slash commands and messages sent while Claude worked. Up to 6 rows each |
-| **Responses** | Claude's final text in each turn, which changes while the turn runs. Up to 8 rows each, read from the first 2,000 characters |
+Jira issues show their key, in grey, and their title, as a reply wrote it next
+to the key: a Markdown link's text, words in brackets after it (`SHOP-12 (Cart
+rounding)`), after a colon or dash, or in the next table cell. A later mention
+without one keeps an earlier title. Nothing is looked up, so an issue no reply
+named shows its key and site.
 
-A section with more than one page ends with `← Next 2/10 Previous →`. Previous
-goes to earlier entries and Next to later ones. Click them, or highlight the
-section and press `]` or `[`. The page isn't saved.
+git and gh run in the background, so the pane keeps taking keys and clicks while
+they do. A scope you switch to shows "Loading…" until git is done, and a PR's
+title appears when gh returns it.
 
-## Rex View
+Each reply is read once, as it comes in. All of them are read again when Claude
+changes directory or you change the link patterns.
 
-Press `Cmd+Ctrl+Alt+Shift+O`, or run **Rex View: Open from Claude's Replies**
-from the palette, to list what Claude's last 10 replies mention, newest first. A reply is
-Claude's final message after one of your prompts, as in the Log tab's
-Responses; what it wrote between tool calls doesn't count. It
-reads the focused pane's Claude, or else the first Claude in the tab, and opens
-over the tab in a float:
+## Search Panel
 
-![Rex View's float with files, Jira keys, a pull request and a link, with made-up data](../docs/rex-view.png)
+Press `Cmd+Ctrl+Alt+Shift+O`, run **Rex View: Search Panel** from the palette,
+or click **Search Panel** on the Artifacts tab, to list what all of Claude's
+replies mention, as on the [Artifacts](#artifacts) tab: by category, newest
+first, with each category's icon and colour, and its name after each row. The
+float is styled as the sidecar's boxes: a teal frame labelled with the count,
+the keys at the top, an orange pointer and gold matches. The key reads the focused pane's
+Claude, or else the first Claude in the tab. The list opens over the tab in a
+float:
+
+![The Search Panel's float with files, Jira keys, a pull request and a link, with made-up data](../docs/rex-view.png)
 
 | Row | Enter | `Ctrl+E` |
 | --- | --- | --- |
@@ -133,7 +170,7 @@ basis that the match is added to:
 }
 ```
 
-For a Claude in a directory, Rex View takes that directory's patterns, then its
+For a Claude in a directory, cc-sidecar takes that directory's patterns, then its
 parent's, and so on up to `/`, and uses them all. When two set the same
 pattern, the nearer one wins. With the example, `PROJ-12` opens
 `https://acme-mobile.atlassian.net/browse/PROJ-12` under `acme/mobile`, and
@@ -153,44 +190,38 @@ not `repo#12`. A reply is matched with a line break before and after it, so
 `%W` matches at its start and end too. The `#` rule in the example is locked to
 `acme`, where a bare `#12` means that repository's pull request.
 
-### Replies read
-
-Rex View's float reads the last 10 replies, and the Info tab's Links and files
-section the last 3. To change them, set `"view_replies"` and `"info_replies"`
-in `settings.json`, such as `{"view_replies": 20, "info_replies": 5}`. The float
-reads only the last 16 MB of the transcript, and the section the last 10
-replies.
-
-## Where Info and Log get their data
+## Where Info and Artifacts get their data
 
 Both tabs read Claude Code's own files and need no Claude Code setting, hook or
 prompt: Claude's session file (`~/.claude/sessions/<pid>.json`, or under
 `$CLAUDE_CONFIG_DIR`) names its transcript
 (`projects/<project>/<session>.jsonl`), which is read from where the last read
-stopped. Nothing is sent anywhere, and no AI is involved, so only what Claude
+stopped. Subagents are read from the `subagents` folder beside it, and the
+status line's saved input from `state/statusline/<session>.json`. Nothing is sent anywhere, and no AI is involved, so only what Claude
 Code records as structured data shows: a decision made in plain conversation
 doesn't.
 
 ## Folding
 
-Click a section's heading to fold or unfold it, or highlight it with `n` and `p`
-and press `Enter`. The choice is saved as `{"folded": {"Tests": true}}` in
+Click a box's top line to fold or unfold it, or highlight it with `n` and `p`
+and press `Enter`; a folded box is one line. The choice is saved as `{"folded": {"Gate": true}}` in
 `settings.json`, and applies to all sidecar panes within a couple of seconds.
 
 ## Keys and mouse
 
-Click a tab, a scope, `≣`, a file, a section heading or a pager's side. Keys need
+Click a tab, a scope, `≣`, a file, a box's top line, a gate family, an agent
+lane, tests or failed commands, an Artifacts row or Search Panel. Keys need
 the pane focused:
 
 | Key | What it does |
 | --- | --- |
 | `1` `2` `3`, `Tab`, `←` `→` | Switch tabs |
-| `s` | Next scope |
+| `s` | Next scope on Changes |
+| `f` `s` `o` | On Info, list the last file, shell or other permission checks |
 | `t` | List or tree; the choice is saved in `settings.json` |
-| `j` `k`, `↑` `↓` | Move the selection on Changes, through folders too in the tree; scroll on Info and Log |
-| `n` `p` | Highlight the next or previous section on Info and Log |
-| `[` `]` | Next and Previous page of the highlighted section on Log |
-| `Enter` | On Changes, open the selected file's diff, or the first file's, or fold the selected folder. On Info and Log, fold the highlighted section |
+| `j` `k`, `↑` `↓` | Move the selection on Changes, through folders too in the tree; scroll on Info and Artifacts |
+| `n` `p` | Highlight the next or previous section on Info and Artifacts |
+| `Enter` | On Changes, open the selected file's diff, or the first file's, or fold the selected folder. On Info and Artifacts, fold the highlighted section |
 | `Space` `b`, `Page Down` `Page Up` | Scroll a page |
 | `g` | Back to the top |
 
@@ -222,7 +253,7 @@ pkill -f 'cc-sidecar/watcher\.lua'; rex config reload
 |---|---|
 | Show Sidecar Pane | Opens the pane beside the focused Claude, or another Claude in the tab that has none |
 | Disable / Enable Sidecar Pane Auto-Show | Whether a pane opens by itself when Claude starts. On by default |
-| Rex View: Open from Claude's Replies | The [Rex View](#rex-view) list; also `Cmd+Ctrl+Alt+Shift+O` |
+| Rex View: Search Panel | The [Search Panel](#search-panel); also `Cmd+Ctrl+Alt+Shift+O` |
 | Rex View: Set Editor | The command that [edits files](#editor) |
 | Rex View: Edit Link Patterns | Adds, edits and deletes [link patterns](#link-patterns) |
 
@@ -238,7 +269,7 @@ actions are `cc_sidecar_view`, `cc_sidecar_view_editor` and
 - Claude is recognised by its program name, `claude`, in the foreground or as
   the parent of the foreground command. A pane started as `rex split -- claude`
   is found by a second look a second after its shell starts.
-- The pane takes 20% of the width, and focus stays on the Claude pane.
+- The pane takes 30% of the width, and focus stays on the Claude pane.
 - The pane follows Claude's directory: after `/cd`, the scopes and the pane's
   label switch to the new directory's repository within
   a couple of seconds. They cover the whole repository, not only the folder
@@ -262,7 +293,8 @@ actions are `cc_sidecar_view`, `cc_sidecar_view_editor` and
   the tabs.
 - `diff-view` draws one diff in the floating pane.
 - `mentions.lua` finds the files, images and links in Claude's replies;
-  `view-collect.lua` writes them as Rex View's list, and `view-picker` shows it.
+  `view-collect.lua` writes them as the Search Panel's list, and `view-picker`
+  shows it.
 - `view-settings` asks for the editor and edits the link patterns.
 
 ## Tests
