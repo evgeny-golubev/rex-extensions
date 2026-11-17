@@ -1,6 +1,6 @@
 # Rex View for Claude Code
 
-Version 0.5.0. A Claude Code skill that shows a file in a floating pane over the
+Version 0.5.1. A Claude Code skill that shows a file in a floating pane over the
 tab Claude is running in. Ask Claude to "show me that picture" or "open the
 README in a pane". Claude also opens one unasked when it wants to show you a picture, a
 report it wrote or a place in the code.
@@ -8,7 +8,7 @@ report it wrote or a place in the code.
 | File | Shown as |
 |---|---|
 | png, jpg, gif, webp | The image, scaled to fit and redrawn on resize (Kitty graphics; other formats are converted to PNG with `sips`, and a gif shows its first frame) |
-| Markdown | Formatted by `glow` if it's installed; with a line, or without `glow`, shown like source code |
+| Markdown | Formatted by `glow` if it's installed, with paragraphs and list items filling the float's width, from the top of the float; with a line, or without `glow`, shown like source code |
 | Source code, other text | Line numbers and syntax colours from `bat`, at a given line if there is one |
 | Binary | A short notice |
 

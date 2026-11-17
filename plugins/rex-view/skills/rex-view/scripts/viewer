@@ -10,6 +10,24 @@ notice() {
 	exit 0
 }
 
+# A float opens at a default size and is grown a moment later. less keeps the
+# end of a short file at the bottom when its screen grows, which leaves blank
+# rows above it, so formatting waits until the size has held for 150 ms, at
+# most a second.
+settle() {
+	local size last="" same=0 i
+	for i in $(seq 20); do
+		size=$(stty size </dev/tty 2>/dev/null)
+		if [ "$size" = "$last" ]; then
+			same=$((same + 1))
+			[ "$same" -ge 3 ] && return
+		else
+			same=0 last=$size
+		fi
+		sleep 0.05
+	done
+}
+
 is_binary() {
 	local all text
 	all=$(head -c 8192 "$file" | wc -c)
@@ -90,12 +108,51 @@ is_binary && notice "This is a binary file, so it isn't shown: $file"
 # holding terminal codes can't move the cursor or clear the screen.
 # Formatted lines don't match the file's, so a request for a line skips glow.
 if [ -z "$line" ] && is_markdown && command -v glow >/dev/null 2>&1; then
+	settle
 	width=$(stty size </dev/tty)
 	width=${width#* }
 	[ "${width:-0}" -gt 0 ] 2>/dev/null || width=80
-	[ "$width" -gt 100 ] && width=100
+	# glow keeps a file's own line breaks, so a paragraph wrapped at 80 in the
+	# file stays at 80. Joining each paragraph's lines lets it fill the width;
+	# code, tables, headings, quotes and list items start lines of their own.
+	joined=$(awk '
+		/^[ \t]*(```|~~~)/ { if (buf != "") print buf; buf = ""; print; fence = !fence; next }
+		fence { print; next }
+		{
+			t = $0; sub(/^[ \t]+/, "", t)
+			item = (t ~ /^([-*+][ \t]|[0-9]+[.)][ \t])/)
+			starts = item || (t ~ /^(#|\||>|<|---|===|\*\*\*)/)
+			if (t == "") { if (buf != "") print buf; buf = ""; print; hard = 0; blank = 1; next }
+			if (blank && $0 !~ /^[ \t]/) list = 0
+			if (item) list = 1
+			code = blank && !list && $0 ~ /^(    |\t)/
+			if (code || incode && $0 ~ /^(    |\t)/) { incode = 1; if (buf != "") print buf; buf = ""; print; blank = 0; next }
+			incode = 0
+			if (buf != "" && !starts && !hard) buf = buf " " t
+			else { if (buf != "") print buf; buf = $0 }
+			hard = ($0 ~ /(  |\\)$/) || (t ~ /^(#|\||<)/)
+			blank = 0
+		}
+		END { if (buf != "") print buf }' "$file")
 	# Piped, glow's default style drops all formatting, so one must be named.
-	if formatted=$(glow -s "${GLAMOUR_STYLE:-dark}" -w "$width" -- "$file" 2>/dev/null) && [ -n "$formatted" ]; then
+	if formatted=$(printf '%s\n' "$joined" | glow -s "${GLAMOUR_STYLE:-dark}" -w "$width" - 2>/dev/null) && [ -n "$formatted" ]; then
+		rows=$(stty size </dev/tty)
+		rows=${rows%% *}
+		# less keeps the end of a file that fits at the bottom when the float
+		# grows, which leaves blank rows above it; one that fits is drawn
+		# from the top instead, again on every resize.
+		if [ "$(printf '%s\n' "$formatted" | wc -l)" -lt "${rows:-0}" ]; then
+			draw() { printf '\033[H\033[2J%s\n\033[7mq closes\033[0m' "$formatted"; }
+			printf '\033[?1049h\033[?25l'
+			trap 'printf "\033[?25h\033[?1049l"' EXIT
+			trap draw WINCH
+			draw
+			while :; do
+				IFS= read -rsn1 key
+				case $key in q | Q | $'\e') break ;; esac
+			done
+			exit 0
+		fi
 		printf '%s\n' "$formatted" | less -R -P"q closes"
 		exit 0
 	fi
