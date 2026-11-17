@@ -1,15 +1,11 @@
 -- Remembers every session's tabs, splits and working directories, and brings
 -- them back once after the Rex server restarts (reboot, update, crash). Rex
 -- now brings sessions back itself, with new IDs and without the programs
--- that ran in them, so for those this only resumes Claude Code in the panes
--- that ran it.
+-- that ran in them, so for those this only types the programs back into the
+-- panes that ran them: Claude Code always, others as settings.json says.
 -- init.lua starts it with every config load (`rex do --all watcher.lua`); it
 -- then saves a snapshot a second after each layout, label, directory or
 -- program change. `state=/tmp/x.json` points it at another snapshot file.
---
--- ponytail: of the programs that ran in the panes, only Claude Code comes back
--- (`claude --resume`, without its original flags); ssh, nvim and the rest
--- don't. Add a resume command per program if that is ever missed.
 
 local terminal = "com.superlogical.terminal"
 local home = os.getenv("HOME")
@@ -17,13 +13,48 @@ local path = rex.args.state or (home .. "/.config/rex/state/sessions.json")
 
 --- Marks this script's server connection, so a second copy started by
 --- `rex config reload` sees the first one and quits.
-local client_label = "cc-resume"
+local client_label = "rex-resume"
 
 --- Claude Code writes its process file a few seconds after it starts, so a
 --- save that finds claude without one is repeated, up to this many times.
 local claude_retries = 6
 local claude_waits = {}
 local claude_starting = false
+
+local settings_path = rex.args.settings
+	or (debug.getinfo(1, "S").source:match("^@?(.*/)") or "./") .. "settings.json"
+
+local default_programs = {
+	"nvim", "vim", "vi", "nano", "less", "man", "htop", "btop", "top",
+	"watch", "lazygit", "tig", "k9s", "ssh",
+}
+local modes = { allow_name = true, allow_full = true, any_full = true }
+
+local shells = { zsh = true, bash = true, fish = true, sh = true, dash = true, ksh = true, tcsh = true }
+
+--- settings.json's mode and program list, with defaults for what it leaves out.
+--- Read on every save, so an edit applies without a restart.
+local function settings()
+	local s
+	local f = io.open(settings_path)
+	if f then
+		local text = f:read("*a")
+		f:close()
+		s = rex.json.decode(text)
+	end
+	s = type(s) == "table" and s or {}
+	local mode = modes[s.mode] and s.mode or "allow_full"
+	local allowed = {}
+	for _, name in ipairs(type(s.programs) == "table" and s.programs or default_programs) do
+		allowed[name] = true
+	end
+	return mode, allowed
+end
+
+local function program(r)
+	local argv0 = r and r.foreground and r.foreground.argv0
+	return argv0 and (argv0:match("[^/]*$"):gsub("^%-", ""))
+end
 
 local function check(value, err)
 	if err ~= nil then
@@ -71,9 +102,32 @@ local function claude_session(pid)
 	end
 end
 
+--- The command line that started pid. Only called for programs settings.json
+--- allows, since arguments can hold secrets. ps drops the quoting.
+local function command_line(pid)
+	local r = rex.exec({ "/bin/ps", "-ww", "-o", "args=", "-p", tostring(pid) })
+	local line = r and r.ok and r.stdout and r.stdout:gsub("%s+$", "") or ""
+	return line ~= "" and line or nil
+end
+
+--- The command that brings back a pane's other foreground program, or nil.
+local function program_input(r)
+	local name = program(r)
+	if not name or shells[name] then
+		return nil
+	end
+	local mode, allowed = settings()
+	if mode ~= "any_full" and not allowed[name] then
+		return nil
+	end
+	local line = mode == "allow_name" and name or command_line(r.foreground.pid)
+	return line and (line:gsub("^%-", "") .. "\n")
+end
+
 --- A terminal's `session.create` options: its directory, and the command that
---- brings back the Claude Code session in its foreground, if any. The command
---- is typed into a shell, so quitting Claude leaves the shell, as before.
+--- brings back its foreground program: Claude Code's session, or another
+--- program settings.json allows. The command is typed into a shell, so
+--- quitting the program leaves the shell, as before.
 local function terminal_options(session_id, block_id)
 	local r = rex.block.call(terminal, "process", { session_id = session_id, block_id = block_id })
 	if not r then
@@ -90,8 +144,9 @@ local function terminal_options(session_id, block_id)
 			claude_waits[fg.pid] = waits + 1
 			claude_starting = true
 		end
+		return { cwd = cwd(r) }
 	end
-	return { cwd = cwd(r) }
+	return { cwd = cwd(r), initial_input = program_input(r) }
 end
 
 local function is_helper(label)
@@ -237,19 +292,12 @@ local function open_panes(node, blocks, out)
 	return out
 end
 
-local shells = { zsh = true, bash = true, fish = true, sh = true, dash = true, ksh = true, tcsh = true }
-
-local function program(r)
-	local argv0 = r and r.foreground and r.foreground.argv0
-	return argv0 and argv0:match("[^/]*$"):gsub("^%-", "")
-end
-
 local function quote(text)
 	return "'" .. text:gsub("'", "'\\''") .. "'"
 end
 
---- Types a saved `claude --resume` into an open pane once its shell is up:
---- a pane already running Claude, or another program, is left alone.
+--- Types a saved command into an open pane once its shell is up: a pane
+--- already running a program is left alone.
 local function resume_in(session_id, block_id, saved)
 	local r
 	for _ = 1, 20 do
@@ -269,16 +317,16 @@ local function resume_in(session_id, block_id, saved)
 	end
 	local _, err = rex.block.call(terminal, "write", { session_id = session_id, block_id = block_id, data = input })
 	if err ~= nil then
-		rex.log("warn", "resuming Claude: " .. err)
+		rex.log("warn", "resuming a program: " .. err)
 		return false
 	end
 	return true
 end
 
---- Resumes the Claude sessions of a saved session in the open one Rex brought
---- back. Each saved tab is matched by its label, or else its place; each
---- Claude pane in it by its directory, or else its place.
-local function resume_claudes(open, saved)
+--- Resumes the programs of a saved session in the open one Rex brought back.
+--- Each saved tab is matched by its label, or else its place; each program's
+--- pane in it by its directory, or else its place.
+local function resume_programs(open, saved)
 	local view = check(rex.call("session.attach", { session_id = open.session_id })).view
 	local windows = {}
 	for _, w in ipairs(view.windows) do
@@ -350,7 +398,7 @@ if snapshot and snapshot.instance_id ~= status.instance_id then
 	end
 	for _, s in ipairs(snapshot.sessions) do
 		if open[s.label] then
-			local ok, err = pcall(resume_claudes, open[s.label], s)
+			local ok, err = pcall(resume_programs, open[s.label], s)
 			if not ok then
 				rex.log("warn", "resuming in " .. s.label .. ": " .. tostring(err))
 			end

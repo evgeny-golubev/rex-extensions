@@ -3,13 +3,13 @@
 Make the [Rex](https://www.superlogical.com) terminal a better home for
 [Claude Code](https://claude.com/claude-code) on macOS: see what each Claude
 changed and what you decided with it, watch your agents as pixel crabs, get your
-conversations back after a restart, and let Claude show you files.
+conversations and programs back after a restart, and let Claude show you files.
 
 | | Name | What you get | Runs as |
 | --- | --- | --- | --- |
 | Extension | [cc-sidecar](#cc-sidecar) | A side pane with what each Claude changed, by turn, uncommitted, branch or pull request, plus a dashboard of its context, limits, permission checks, subagents, running shells and a session log, and the documents, PRs, Jira issues, links and files Claude's replies mention | Pane beside Claude |
 | Extension | [cc-crab-pond](#cc-crab-pond) | Claudes, subagents and background jobs as animated crabs | Strip along the tab's bottom |
-| Extension | [cc-resume](#cc-resume) | Claude Code conversations resumed after the Rex server restarts | Background watcher |
+| Extension | [rex-resume](#rex-resume) | Claude Code conversations, and programs like nvim, resumed after the Rex server restarts | Background watcher |
 | Skill | [rex-view](#rex-view) | Claude shows images, Markdown and source code in a floating pane | Plugin, version 0.5.1 |
 
 **Contents:** [Extensions](#extensions) · [Skills](#skills) ·
@@ -57,12 +57,14 @@ sample crabs:
 It needs one setup step: [saving Claude Code's status line input](#extensions-1).
 [How to read the crabs →](cc-crab-pond/README.md)
 
-### cc-resume
+### rex-resume
 
-Gets your Claude conversations back after a reboot, Rex update or crash. Rex
-restores sessions, tabs and splits but not the programs in them, so cc-resume
-types `claude --resume <session>` into each pane that ran Claude. It has nothing
-on screen. [How it works and what it can't restore →](cc-resume/README.md)
+Gets your Claude conversations and other programs back after a reboot, Rex
+update or crash. Rex restores sessions, tabs and splits but not the programs in
+them, so rex-resume types `claude --resume <session>` into each pane that ran
+Claude, and the command of each other program its settings allow, such as
+`nvim src/app.lua`. It has nothing on screen.
+[How it works, its settings and what it can't restore →](rex-resume/README.md)
 
 ## Skills
 
@@ -102,7 +104,7 @@ over Claude's tab, and `q` closes it. [Details →](plugins/rex-view/README.md)
 2. Add the ones you want to `~/.config/rex/init.lua`:
 
    ```lua
-   require("extensions.cc-resume")
+   require("extensions.rex-resume")
    require("extensions.cc-sidecar")
    require("extensions.cc-crab-pond")
    ```
@@ -165,7 +167,7 @@ claude plugin update rex-view@rex-extensions
 
 ```text
 .claude-plugin/marketplace.json   the plugin marketplace
-cc-resume/                        extension
+rex-resume/                       extension
 cc-sidecar/                       extension
 cc-crab-pond/                     extension
 plugins/rex-view/                 skill, as a plugin
@@ -174,13 +176,13 @@ docs/                             pictures
 
 ## Privacy
 
-Everything reads Claude Code's own files and the process list on your machine.
+Everything reads Claude Code's own files and the process list on your machine (rex-resume also reads the command lines of the programs its settings allow).
 Nothing is sent anywhere and no AI is involved.
 
 ## Tests
 
 ```sh
-rex do ~/.config/rex/extensions/cc-resume/test.lua
+rex do ~/.config/rex/extensions/rex-resume/test.lua
 rex do ~/.config/rex/extensions/cc-sidecar/test.lua
 rex do ~/.config/rex/extensions/cc-crab-pond/test.lua
 rex do ~/.config/rex/extensions/plugins/rex-view/test.lua

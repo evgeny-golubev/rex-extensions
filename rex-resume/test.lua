@@ -1,10 +1,11 @@
--- Run: rex do ~/.config/rex/extensions/cc-resume/test.lua
+-- Run: rex do ~/.config/rex/extensions/rex-resume/test.lua
 -- Mocks the Rex API around real files in a temporary directory: it doesn't
 -- touch live sessions or the real snapshot.
 local real, real_getenv = rex, os.getenv
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)")
 local tmp = (assert(real.exec({ "/usr/bin/mktemp", "-d" })).stdout:gsub("%s+$", ""))
 local snapshot = tmp .. "/sessions.json"
+local settings = tmp .. "/settings.json"
 local claude_file = tmp .. "/.claude/sessions/42.json"
 assert(real.exec({ "/bin/mkdir", "-p", tmp .. "/.claude/sessions" }))
 
@@ -39,10 +40,10 @@ local function shell(id, label)
 	}
 end
 
-local clients, views, processes, created, timers, stopped, written
+local clients, views, processes, created, timers, stopped, written, ps_calls
 
 local function reset()
-	clients, created, timers, stopped, written = {}, {}, {}, false, {}
+	clients, created, timers, stopped, written, ps_calls = {}, {}, {}, false, {}, {}
 	views = {
 		["session:1"] = {
 			session_id = "session:1",
@@ -71,6 +72,7 @@ local function reset()
 	os.remove(snapshot)
 	os.remove(snapshot .. ".prev")
 	os.remove(claude_file)
+	os.remove(settings)
 end
 
 local function run()
@@ -95,8 +97,12 @@ local function agent_options()
 	return read_json(snapshot).sessions[1].initial_windows[1].layout.split.after.block.options
 end
 
+local function shell_options()
+	return read_json(snapshot).sessions[1].initial_windows[1].layout.split.before.block.options
+end
+
 rex = {
-	args = { state = snapshot },
+	args = { state = snapshot, settings = settings },
 	call = function(method, params)
 		if method == "client.list" then
 			return { clients = clients }
@@ -127,7 +133,12 @@ rex = {
 			return processes[params.block_id]
 		end,
 	},
-	exec = function()
+	exec = function(argv)
+		if argv[1] == "/bin/ps" then
+			table.insert(ps_calls, argv[#argv])
+			local f = processes["block:1"].foreground
+			return { ok = true, stdout = f.pid == 41 and "nvim src/main.lua\n" or "" }
+		end
 		return { ok = true }
 	end,
 	json = real.json,
@@ -164,11 +175,41 @@ local ok, err = pcall(function()
 	equal(saved.sessions[1].initial_windows[1].window_label, nil, "default window label")
 	local split = saved.sessions[1].initial_windows[1].layout.split
 	equal(split.before.block.options.cwd, "/src/app", "shell cwd")
-	equal(split.before.block.options.initial_input, nil, "shell input")
+	equal(split.before.block.options.initial_input, "nvim src/main.lua\n", "nvim with its arguments")
 	equal(split.after.block.options.cwd, "/src/app", "claude cwd from its session file")
 	equal(split.after.block.options.initial_input, "claude --resume abc-123\n", "claude resume")
 	equal(#created, 0, "restored on the same server")
 	equal(#timers, 0, "retry without need")
+
+	-- allow_name brings a listed program back without reading its arguments.
+	reset()
+	write(settings, '{"mode":"allow_name"}')
+	run()
+	equal(shell_options().initial_input, "nvim\n", "nvim by name")
+	equal(#ps_calls, 0, "arguments read in allow_name")
+
+	-- A program missing from the list stays a shell, its arguments unread;
+	-- Claude resumes even with an empty list.
+	reset()
+	write(settings, '{"mode":"allow_full","programs":[]}')
+	write(claude_file, '{"pid":42,"sessionId":"abc-123","cwd":"/src/app"}')
+	run()
+	equal(shell_options().initial_input, nil, "unlisted program")
+	equal(#ps_calls, 0, "arguments read for an unlisted program")
+	equal(agent_options().initial_input, "claude --resume abc-123\n", "claude with an empty list")
+
+	-- any_full brings back any program with its arguments, but not a shell.
+	reset()
+	write(settings, '{"mode":"any_full","programs":[]}')
+	processes["block:1"].foreground.argv0 = "/opt/bin/mytool"
+	run()
+	equal(ps_calls[1], "41", "arguments of an unlisted program")
+	equal(shell_options().initial_input, "nvim src/main.lua\n", "any program")
+	reset()
+	write(settings, '{"mode":"any_full"}')
+	processes["block:1"].foreground.argv0 = "-zsh"
+	run()
+	equal(shell_options().initial_input, nil, "a shell")
 
 	-- A claude that hasn't written its session file yet is saved again later.
 	reset()
@@ -278,7 +319,7 @@ local ok, err = pcall(function()
 
 	-- A second copy quits and leaves the first one's snapshot alone.
 	reset()
-	clients = { { info = { label = "cc-resume" } } }
+	clients = { { info = { label = "rex-resume" } } }
 	run()
 	equal(stopped, true, "second copy stopped")
 	equal(read_json(snapshot), nil, "second copy's snapshot")
@@ -288,4 +329,4 @@ real.exec({ "/bin/rm", "-rf", tmp })
 if not ok then
 	error(err, 0)
 end
-return "cc-resume: all tests passed"
+return "rex-resume: all tests passed"

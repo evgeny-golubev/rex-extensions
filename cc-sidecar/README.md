@@ -233,7 +233,7 @@ The wheel scrolls. The pane takes clicks and drags for itself, so a plain drag
 doesn't select text in it.
 
 Not a native Rex extension format: a config module launches a separate
-event-driven `rex do` watcher, like cc-resume.
+event-driven `rex do` watcher, like rex-resume.
 
 ## Install
 
@@ -282,7 +282,7 @@ actions are `cc_sidecar_view`, `cc_sidecar_view_editor` and
   run Show Sidecar Pane.
 - When the watcher starts, it replaces leftover sidecar panes with new ones,
   including `Changes:` panes from before this extension was renamed.
-- cc-resume doesn't save sidecar panes; they come back with the resumed Claude.
+- rex-resume doesn't save sidecar panes; they come back with the resumed Claude.
 - Errors go to `~/.config/rex/state/cc-sidecar.log`; the pane shows its own.
 
 ## Files

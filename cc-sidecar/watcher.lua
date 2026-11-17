@@ -17,7 +17,7 @@ local rex_binary = home
 --- `rex config reload` sees the first one and quits.
 local client_label = "cc-sidecar"
 
---- Every sidecar pane's label starts with this; cc-resume skips them.
+--- Every sidecar pane's label starts with this; rex-resume skips them.
 local label_prefix = "Sidecar: "
 --- What panes were labelled before the rename; only ever closed.
 local old_label_prefix = "Changes: "

@@ -190,7 +190,7 @@ key, bind `cc_crab_pond_show` or `cc_crab_pond_auto_show` with `rex.bind`.
 - A crab pane you close stays closed until the tab has no Claude left, or you
   run Show Crabs Pane.
 - When the watcher starts, it replaces leftover crab panes with new ones.
-- cc-resume doesn't save crab panes; they come back with the resumed
+- rex-resume doesn't save crab panes; they come back with the resumed
   Claude.
 - Watcher errors go to `~/.config/rex/state/cc-crab-pond.log`; the pane shows
   its own.

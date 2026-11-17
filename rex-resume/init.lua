@@ -14,5 +14,5 @@ rex.exec.start({
 	"--autostart=false",
 	"do",
 	"--all",
-	home .. "/.config/rex/extensions/cc-resume/watcher.lua",
+	home .. "/.config/rex/extensions/rex-resume/watcher.lua",
 }, { detach = true, stdout = false, stderr = false })
