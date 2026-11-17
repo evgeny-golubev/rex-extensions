@@ -256,6 +256,60 @@ function M.log(state, who, text)
 	end
 end
 
+--- A background task Claude started: a shell named by its command, as Claude
+--- Code's own list names it, credentials masked, or a monitor by its
+--- description, which ends at its timeout unless it's persistent.
+function M.task_started(state, id, name, input, extra)
+	local at = M.epoch(state.at)
+	local monitor = name == "Monitor"
+	local timeout = tonumber(extra.timeoutMs)
+	state.tasks_bg[id] = {
+		id = id,
+		at = at,
+		monitor = monitor,
+		name = monitor and (input.description or "monitor") or M.mask(M.command(input.command or "")),
+		expires = (monitor and at and timeout and not extra.persistent) and (at + timeout / 1000) or nil,
+	}
+end
+
+--- Ends the background tasks a notification says have finished.
+function M.task_notice(state, text)
+	for body in tostring(text):gmatch("<task%-notification>(.-)</task%-notification>") do
+		local id = body:match("<task%-id>%s*(.-)%s*</task%-id>")
+		local status = body:match("<status>%s*(%w+)%s*</status>")
+		if id and status and status ~= "running" then
+			state.tasks_bg[id] = nil
+		end
+	end
+end
+
+--- The background tasks still running at `now`, newest first. With `live`,
+--- the shells M.processes found, a task also needs one that started within 10
+--- seconds of it: an end the transcript never got, as when Claude restarted,
+--- leaves no shell behind.
+function M.running_tasks(state, now, live)
+	local out, used = {}, {}
+	for _, t in pairs(state.tasks_bg) do
+		local alive = not (t.expires and now > t.expires)
+		if alive and live then
+			alive = false
+			for i, p in ipairs(live) do
+				if not used[i] and t.at and math.abs(now - t.at - p.age) <= 10 then
+					used[i], alive = true, true
+					break
+				end
+			end
+		end
+		if alive then
+			out[#out + 1] = t
+		end
+	end
+	table.sort(out, function(a, b)
+		return (a.at or 0) > (b.at or 0)
+	end)
+	return out
+end
+
 --- What one turn did, from the prompt on.
 function M.new_turn(at, seq)
 	return { order = {}, files = {}, at = at, seq = seq, edits = 0, errors = 0, agents = 0 }
@@ -326,6 +380,7 @@ function M.new_state()
 		log = {},
 		monitors = {},
 		monitor_names = {},
+		tasks_bg = {},
 	}
 end
 
@@ -408,6 +463,9 @@ local function tool_result(state, item, record)
 	local extra = type(record.toolUseResult) == "table" and record.toolUseResult or {}
 	local input = tool.input or {}
 
+	if extra.backgroundTaskId or (tool.name == "Monitor" and extra.taskId) then
+		M.task_started(state, extra.backgroundTaskId or extra.taskId, tool.name, input, extra)
+	end
 	if tool.name == "Monitor" and tonumber(extra.timeoutMs) then
 		local at = M.epoch(state.at)
 		if at then
@@ -538,6 +596,9 @@ local function user(state, record)
 	end
 	local c = record.message and record.message.content
 	if type(c) == "string" then
+		if c:find("<task-notification>", 1, true) then
+			M.task_notice(state, c)
+		end
 		if not record.isMeta then
 			add_prompt(state, c)
 		end
@@ -548,6 +609,9 @@ local function user(state, record)
 				tool_result(state, item, record)
 			elseif item.type == "text" and item.text then
 				texts[#texts + 1] = item.text
+				if item.text:find("<task-notification>", 1, true) then
+					M.task_notice(state, item.text)
+				end
 			end
 		end
 		if #texts > 0 and not record.isMeta then
@@ -578,6 +642,9 @@ function M.record(state, r)
 		state.mode = r.permissionMode or state.mode
 	elseif r.type == "ai-title" then
 		state.title = r.aiTitle or state.title
+	elseif r.type == "attachment" and type(r.attachment) == "table" and r.attachment.type == "queued_command"
+		and tostring(r.attachment.prompt or ""):find("<task-notification>", 1, true) then
+		M.task_notice(state, r.attachment.prompt)
 	elseif r.type == "attachment" and type(r.attachment) == "table" and r.attachment.type == "queued_command" then
 		add_prompt(state, tostring(r.attachment.prompt or ""))
 	elseif r.type == "system" and r.subtype == "compact_boundary" then
@@ -1168,6 +1235,12 @@ local function gate_box(out, state, cols, o)
 	end)
 end
 
+--- Whether a subagent runs: it isn't finished, and, as one of a team never
+--- gets the finished mark, its transcript changed in the last 5 minutes.
+function M.agent_running(a, now)
+	return not a.finished and not (a.last and now - a.last > 300)
+end
+
 --- The subagents as swimlanes on one time axis, the latest 8, newest first.
 --- A running one has a pulsing ● and its lane in lavender. A click on a lane
 --- opens its type, context, steps, last tool calls and answer.
@@ -1181,16 +1254,13 @@ local function agents_box(out, state, cols, o)
 	local first = math.max(1, #agents - 7)
 	for i = first, #agents do
 		local a = agents[i]
-		if not a.finished then
-			running = running + 1
-		end
 		if a.start then
 			from = math.min(from, a.start)
-			to = math.max(to, a.finished and (a.last or a.start) or o.now)
+			to = math.max(to, M.agent_running(a, o.now) and o.now or (a.last or a.start))
 		end
 	end
-	for i = 1, first - 1 do
-		if not agents[i].finished then
+	for _, a in ipairs(agents) do
+		if M.agent_running(a, o.now) then
 			running = running + 1
 		end
 	end
@@ -1201,10 +1271,11 @@ local function agents_box(out, state, cols, o)
 		for i = #agents, first, -1 do
 			local a = agents[i]
 			local pulse = math.floor(o.now) % 2 == 0 and (bold .. lavender .. "●") or (lavender .. "●")
-			local mark = a.finished and (mint .. "✓" .. reset) or (pulse .. reset)
-			local lane = a.finished and dim .. mint or lavender
+			local live = M.agent_running(a, o.now)
+			local mark = a.finished and (mint .. "✓" .. reset) or live and (pulse .. reset) or (dim .. "○" .. reset)
+			local lane = live and lavender or a.finished and dim .. mint or dim
 			local label = pad(mark .. " " .. i .. ": " .. (a.description or a.type or "agent"), label_w)
-			local stop = a.finished and (a.last or a.start) or o.now
+			local stop = live and o.now or (a.last or a.start)
 			local took = a.start and M.clock(stop - a.start) or ""
 			local bar = ""
 			if bar_w >= 4 then
@@ -1213,7 +1284,7 @@ local function agents_box(out, state, cols, o)
 				local s = a.start and math.floor((a.start - from) / span * (bar_w - 1)) + 1 or 1
 				local e = a.start and math.max(s, math.floor((stop - from) / span * (bar_w - 1)) + 1) or 0
 				for c = 1, bar_w do
-					cells_on[c] = (c >= s and c <= e) and (lane .. (a.finished and "─" or "━") .. reset) or (dim .. "·" .. reset)
+					cells_on[c] = (c >= s and c <= e) and (lane .. (live and "━" or "─") .. reset) or (dim .. "·" .. reset)
 				end
 				bar = " " .. table.concat(cells_on)
 			end
@@ -1236,7 +1307,8 @@ local function agents_box(out, state, cols, o)
 	end)
 end
 
---- Claude's shells that run right now, newest first; no box with none.
+--- Claude's background tasks that run right now, newest first, as Claude
+--- Code's own list shows them; no box with none. Shells are green and monitors blue.
 local function processes_box(out, state, cols, o)
 	local procs = o.processes or {}
 	if #procs == 0 then
@@ -1245,8 +1317,9 @@ local function processes_box(out, state, cols, o)
 	section(out, cols, "Processes", { colour = teal, title = "PROCESSES · " .. #procs .. " running" }, function(n)
 		for _, p in ipairs(procs) do
 			local took = M.clock(p.age)
-			local mark = (math.floor(o.now) % 2 == 0 and bold or "") .. teal .. "●" .. reset .. " "
-			local tag = "  " .. dim .. p.kind .. reset
+			local colour = p.kind == "monitor" and blue or mint
+			local mark = (math.floor(o.now) % 2 == 0 and bold or "") .. colour .. "●" .. reset .. " "
+			local tag = "  " .. colour .. p.kind .. reset
 			local room = n - M.width(took) - 1 - M.width(tag) - 2
 			out[#out + 1] = pad(mark .. M.clip(p.name, math.max(1, room)) .. tag, n - M.width(took) - 1) .. " " .. took
 		end
@@ -1395,7 +1468,7 @@ function M.info_lines(state, cols, opts)
 	log_box(out, state, cols, o)
 	out.ticking = M.running(state)
 	for _, a in ipairs(o.agents or {}) do
-		out.ticking = out.ticking or not a.finished
+		out.ticking = out.ticking or M.agent_running(a, o.now)
 	end
 	out.ticking = out.ticking or #(o.processes or {}) > 0
 	return out
@@ -2320,7 +2393,16 @@ local function gather()
 		panel.status = read_status(path)
 		read_agents(state)
 		local ps = pid and run({ "/bin/ps", "-axo", "pid=,ppid=,etime=,comm=" })
-		panel.processes = (ps and ps.ok) and M.processes(pid, ps.stdout, state.monitors, os.time()) or {}
+		-- The tasks come from the transcript, as Claude Code lists them, each
+		-- with a live shell of Claude's.
+		local live = (ps and ps.ok) and M.processes(pid, ps.stdout, state.monitors, os.time()) or {}
+		panel.processes = {}
+		if #live > 0 then
+			local now = os.time()
+			for _, t in ipairs(M.running_tasks(state, now, live)) do
+				panel.processes[#panel.processes + 1] = { name = t.name, kind = t.monitor and "monitor" or "shell", age = t.at and (now - t.at) or 0 }
+			end
+		end
 	end
 
 	if panel.tab == "Changes" or not panel.data then
