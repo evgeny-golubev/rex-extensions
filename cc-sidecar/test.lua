@@ -133,7 +133,7 @@ local ok, err = pcall(function()
 	equal(split.anchor_id, "block:1", "anchor")
 	equal(split.direction, "horizontal", "direction")
 	equal(split.side, "after", "side")
-	equal(split.ratio, 0.8, "ratio")
+	equal(split.ratio, 0.7, "ratio")
 	equal(split.focus, false, "focus")
 	equal(split.layout.block.label, "Sidecar: app", "label")
 	equal(split.layout.block.options.cwd, "/src/app", "cwd is the repository root")
@@ -145,7 +145,7 @@ local ok, err = pcall(function()
 	fire()
 	equal(resized[1].before_block_id, "block:1", "resized left")
 	equal(resized[1].after_block_id, "block:sidecar1", "resized right")
-	equal(resized[1].ratio, 0.8, "resized ratio")
+	equal(resized[1].ratio, 0.7, "resized ratio")
 
 	-- The same Claude doesn't get a second pane, and a command it runs in the
 	-- foreground doesn't close it.
@@ -354,79 +354,12 @@ local ok2, err2 = pcall(function()
 	equal(state.compactions, 1, "compactions")
 
 	local info = plain(P.info_lines(state, 60))
-	local context = plain(P.log_lines(state, 60))
-	has(context, "Add tabs to the panel", "prompt")
-	has(context, "/review high", "slash command")
-	has(context, "Also add a hint", "queued prompt")
 	equal(#state.prompts, 3, "prompts, without meta, notices, a prompt recorded twice, or subagents")
-	has(context, "Which tabs?", "question")
-	has(context, "→ Diff and Context", "answer")
-	has(context, "keep Diff first", "answer note")
-	has(context, "Plan approved: Tabbed panel", "plan")
-	has(context, "Rejected Bash: rm -rf build", "rejected action")
-	has(context, "keep build", "what the user said")
 	has(info, "? Ship it now?", "waiting question")
 	has(info, "? Should I also add a third tab?", "question in the last reply")
 	has(info, "○ Draw the tabs", "open task")
 	hasnt(info, "Write the parser", "completed task")
 	has(info, "▸ Update the README", "todo in progress")
-	hasnt(info, "Decisions", "Decisions moved to Log")
-	hasnt(info, "Requests", "Requests moved to Log")
-	hasnt(info, "Current state", "the summary moved to Log")
-	has(context, "Current state", "summary section")
-	local many = P.new_state()
-	for i = 1, 7 do
-		many.prompts[i] = { text = "request " .. i }
-	end
-	for i = 8, 52 do
-		many.prompts[i] = { text = "request " .. i }
-	end
-	local paged = P.log_lines(many, 60)
-	local recent = plain(paged)
-	has(recent, "Requests 52", "requests count")
-	has(recent, "\n\n← Next 1/18 Previous →\n\n", "pager, with a blank row on each side")
-	has(recent, "request 52", "newest request")
-	has(recent, "request 50", "third newest request")
-	hasnt(recent, "request 49", "next page's request")
-	equal(recent:find("request 50", 1, true) < recent:find("1/18", 1, true), true, "pager after the entries")
-	equal(recent:find("request 52", 1, true) < recent:find("request 51", 1, true), true, "newest first")
-	local second = plain(P.log_lines(many, 60, nil, nil, { Requests = 2 }))
-	has(second, "← Next 2/18 Previous →", "second page")
-	has(second, "request 49", "second page's first request")
-	has(second, "request 47", "second page's last request")
-	hasnt(second, "request 50", "first page's request")
-	hasnt(second, "request 46", "third page's request")
-	local last = plain(P.log_lines(many, 60, nil, nil, { Requests = 99 }))
-	has(last, "18/18", "a page past the end shows the last")
-	has(last, "request 1\n", "the oldest request")
-	hasnt(last, "request 2\n", "the page before the last")
-	hasnt(plain(P.log_lines(state, 60)), "/1 ", "no pager on a single page")
-
-	-- The pager's sides are clickable only where there's a page to go to.
-	local function pager_line(lines)
-		for line, action in pairs(lines.actions) do
-			if action.ranges then
-				return line
-			end
-		end
-	end
-	local function click(lines, x)
-		local layout = { tabs = {}, hits = {}, pinned = 0, actions = lines.actions, scroll = 0 }
-		return P.hit(layout, x, pager_line(lines) + 2)
-	end
-	equal(click(paged, 1), nil, "no later page on the first")
-	equal(click(paged, 21).page, 2, "Previous goes to the earlier entries")
-	equal(click(paged, 21).name, "Requests", "the page's section")
-	equal(click(paged, 8), nil, "the page number isn't a button")
-	local middle = P.log_lines(many, 60, nil, nil, { Requests = 3 })
-	equal(click(middle, 1).page, 2, "Next goes to the later entries")
-	equal(click(middle, 6).page, 2, "the end of Next")
-	equal(click(middle, 7), nil, "just past Next")
-	equal(click(P.log_lines(many, 60, nil, nil, { Requests = 18 }), 21), nil, "no earlier page on the last")
-	has(context, "parser done", "summary text")
-	hasnt(context, "old", "summary sections that aren't about where work stands")
-	hasnt(context, "If you need", "Claude Code's note after the summary")
-
 	local this_turn = plain({ P.turn_patch(state, "/src/app/panel.lua", "panel.lua") })
 	has(this_turn, "panel.lua", "edit in the turn")
 	equal(state.turn.files["/src/app/gone.lua"], nil, "failed write")
@@ -435,13 +368,17 @@ local ok2, err2 = pcall(function()
 	P.feed(state, rex.json.encode({ type = "user", message = { content = "No third tab" } }) .. "\n")
 	hasnt(plain(P.info_lines(state, 60)), "third tab?", "answered reply question")
 
-	local activity = plain(P.info_lines(state, 60))
-	hasnt(activity, "Files Claude edited", "no edited files section")
-	has(activity, "✗ rex do test.lua", "failed test")
+	local activity = plain(P.info_lines(state, 60, { show = "tests" }))
+	has(activity, "tests 1 ✓0 ✗1", "test totals in the receipt")
+	has(activity, "✗ rex do test.lua", "failed test, listed")
 	hasnt(activity, "cat test.lua", "a command that only names a test file")
-	has(activity, "exit 1: boom: parser", "failure")
-	has(activity, "2m", "Claude time")
-	has(activity, "41k tokens", "context")
+	has(plain(P.info_lines(state, 60, { show = "failed" })), "exit 1: boom: parser", "failure, listed")
+	hasnt(plain(P.info_lines(state, 60)), "exit 1: boom", "lists closed by default")
+	has(activity, "claude 2m", "Claude time")
+	has(activity, "ctx 41k", "context")
+	has(activity, "Panel tabs · main", "title and branch")
+	has(activity, "✗ 1 denied", "the rejected command, denied at the gate")
+	has(activity, "f: file 0  s: shell 1  o: other 0", "gate families")
 
 	-- Reading a file: only new bytes on the next read, and a reset when
 	-- the file shrinks.
@@ -565,10 +502,12 @@ local ok2, err2 = pcall(function()
 	has(plain({ built.pinned[1] }), "feature/x", "branch")
 	has(plain({ built.pinned[1] }), "+7 −2", "totals")
 	equal(P.width(built.pinned[1]), 40, "header fills the width")
-	equal(built.pinned[2], "", "a blank row under the branch")
-	has(plain({ built.pinned[3] }), "Last Turn", "scope")
-	has(plain(built.lines), "Staged (2)", "staged heading")
-	has(plain(built.lines), "Unstaged (3)", "unstaged heading")
+	has(plain({ built.pinned[1] }), "╭ feature/x", "the header is a box")
+	has(plain({ built.pinned[2] }), "Last Turn", "scopes inside it")
+	has(plain({ built.pinned[3] }), "╰", "its bottom line")
+	has(plain(built.lines), "Staged 2", "staged box")
+	has(plain(built.lines), "Unstaged 3", "unstaged box")
+	equal(P.width(built.lines[1]), 40, "a box fills the width")
 	has(plain(built.lines), "A x.md  docs", "row with its folder")
 	equal(built.rows[1].row.diff, "staged", "first row")
 	equal(built.actions[built.rows[1].line].kind, "open", "row is clickable")
@@ -592,7 +531,7 @@ local ok2, err2 = pcall(function()
 	-- The tree merges the groups and lists folders.
 	v.tree, v.selected = true, nil
 	local tree = P.changes_view(v, 40)
-	has(plain(tree.lines), "Changed (4)", "tree heading")
+	has(plain(tree.lines), "Changed 4", "tree box")
 	has(plain(tree.lines), "▾ docs", "folder")
 	local function files_of(view)
 		local files = {}
@@ -687,24 +626,38 @@ local ok2, err2 = pcall(function()
 	equal(P.hit(layout, 2, 1).tab, "Info", "click a tab")
 	equal(P.hit(layout, 8, 1).tab, "Changes", "click the other tab")
 	equal(P.hit(layout, 2, 2), nil, "click the blank row")
-	equal(P.hit(layout, 40, 3).kind, "tree", "click the tree toggle")
-	equal(P.hit(layout, 2, 4), nil, "click the blank row under the branch")
-	equal(P.hit(layout, 2, 5).scope, "Last Turn", "click a scope")
+	equal(P.hit(layout, 38, 3).kind, "tree", "click the tree toggle")
+	equal(P.hit(layout, 1, 4), nil, "click the header's border")
+	equal(P.hit(layout, 4, 4).scope, "Last Turn", "click a scope")
 	equal(P.hit(layout, 2, 6), nil, "click the blank pinned row")
-	equal(P.hit(layout, 2, 8).row.diff, "staged", "click a row")
+	equal(P.hit(layout, 2, 7), nil, "click a box's top")
+	equal(P.hit(layout, 5, 8).row.diff, "staged", "click a row")
 	layout.scroll = 1
-	equal(P.hit(layout, 2, 7).row.diff, "staged", "click a row when scrolled")
+	equal(P.hit(layout, 5, 7).row.diff, "staged", "click a row when scrolled")
 
 	-- Usage: hidden without the saved input, and a passed reset counts as unused.
-	hasnt(plain(P.info_lines(P.new_state(), 40)), "Usage", "no usage saved")
+	-- The main box: limits and cost from the status line's saved input, and a
+	-- passed reset counts as unused.
+	hasnt(plain(P.info_lines(P.new_state(), 40)), "5h", "no usage saved")
 	local limits = { five_hour = { used_percentage = 58, resets_at = 1300 }, seven_day = { used_percentage = 17, resets_at = 500 } }
-	local usage = plain(P.info_lines(P.new_state(), 40, limits, 1000))
-	has(usage, "Usage", "usage heading")
-	has(usage, "58%", "5-hour percentage")
-	has(usage, "Resets in 5m", "time to the reset")
-	has(usage, "0%", "a window that has reset")
-	equal(usage:find("Session", 1, true) < usage:find("Usage", 1, true), true, "Session before Usage")
-	equal(usage:find("Usage", 1, true) < usage:find("Open", 1, true), true, "Usage before Open")
+	local usage_state = P.new_state()
+	usage_state.model, usage_state.context, usage_state.effort, usage_state.mode, usage_state.requests = "claude-opus-5-5", 250000, "high", "auto", 12
+	local usage = plain(P.info_lines(usage_state, 60, { now = 1000, status = {
+		rate_limits = limits, cost = { total_cost_usd = 3.456 }, context_window = { context_window_size = 1000000 } } }))
+	has(usage, "Opus 5.5 · main", "the model's name")
+	has(usage, "○ idle", "idle")
+	has(usage, "effort ▮▮▮▯▯ high", "effort cells")
+	has(usage, "mode auto", "permission mode")
+	has(usage, "12 req", "requests")
+	has(usage, "ctx ▰▰▱▱▱▱▱▱ 25% 250k/1.0M", "context against the window")
+	hasnt(usage, "$", "no money")
+	has(usage, "5h ▰▰▰▱▱ 58% ↻5m", "5-hour window and its reset")
+	has(usage, "7d ▱▱▱▱▱ 0%", "a window that has reset")
+	equal(P.model_name("claude-haiku-5-5"), "Haiku 5.5", "a model's name")
+	equal(P.span(157), "2m37s", "a span")
+	equal(P.clock(65), "1:05", "a clock")
+	equal(P.tokens(1500), "2k", "tokens")
+	equal(P.epoch("1970-01-01T00:01:05.123Z"), 65, "a timestamp")
 
 	-- A float from an earlier diff is found by its label.
 	local view = { windows = { { window_id = "w", layers = {
@@ -751,88 +704,154 @@ local ok2, err2 = pcall(function()
 	equal(levels.effort, "medium", "a subagent's level is ignored")
 	P.record(levels, { type = "assistant", message = { content = {} } })
 	equal(levels.effort, "medium", "kept when a record has none")
-	has(plain(P.info_lines(levels, 60)), "Reasoning   medium", "reasoning in Activity")
-	hasnt(plain(P.info_lines(P.new_state(), 60)), "Reasoning", "no level known")
+	has(plain(P.info_lines(levels, 60)), "effort ▮▮▯▯▯ medium", "the effort in the main box")
+	hasnt(plain(P.info_lines(P.new_state(), 60)), "effort", "no level known")
 
-	-- Log entries carry their local time, newest first.
-	equal(P.stamp("2026-11-03T15:46:12.590Z"), os.date("%m-%d %H:%M", 1793720772), "UTC to local")
-	equal(P.stamp("2024-02-29T00:00:00Z"), os.date("%m-%d %H:%M", 1709164800), "leap day")
-	equal(P.stamp(nil), "", "no timestamp")
+	-- Responses: a turn's last text, whole.
 	local dated = P.new_state()
-	local function at(t, r)
-		r.timestamp = "2026-11-03T" .. t .. ":00Z"
-		P.record(dated, r)
-	end
 	local function say(text)
 		return { type = "assistant", message = { content = { { type = "text", text = text } } } }
 	end
-	at("10:00", { type = "user", message = { content = "first go" } })
-	at("10:01", say("thinking"))
-	at("10:02", say("first reply"))
-	at("11:00", { type = "user", message = { content = "go" } })
-	at("11:01", say("second reply"))
-	at("12:00", { type = "user", message = { content = "go" } })
-	at("12:01", say("third reply"))
-	at("13:00", { type = "user", message = { content = "queued" } })
-	at("13:00", { type = "user", message = { content = "queued" } })
-	at("14:00", { type = "user", isCompactSummary = true, message = { content = "## Next step\nOlder plan\n" } })
-	at("15:00", { type = "user", isCompactSummary = true, message = { content = "## Next step\nNewer plan\n" } })
+	P.record(dated, { type = "user", message = { content = "first go" } })
+	P.record(dated, say("thinking"))
+	P.record(dated, say("first reply"))
+	P.record(dated, { type = "user", message = { content = "go" } })
+	P.record(dated, say("second reply"))
+	P.record(dated, { type = "user", message = { content = "go" } })
+	P.record(dated, say("third reply"))
+	P.record(dated, { type = "user", message = { content = "queued" } })
+	P.record(dated, { type = "user", message = { content = "queued" } })
+	P.record(dated, { type = "user", isCompactSummary = true, message = { content = "## Next step\nplan\n" } })
 	equal(#dated.responses, 3, "one response a turn")
+	equal(dated.responses[1].text, "first reply", "only a turn's last text")
 	equal(#dated.prompts, 4, "the same words after a reply count, a record repeated at once doesn't")
-	local log = plain(P.log_lines(dated, 60))
-	has(log, "≡ Summary from " .. P.stamp("2026-11-03T15:00:00Z"), "summary heading")
-	has(plain(P.log_lines(P.new_state(), 60)), "≡ Summary none", "no summary yet")
-	has(log, "◈ Decisions none", "decisions heading")
-	has(log, "› Requests 4", "requests heading")
-	has(log, "‹ Responses 3", "responses heading")
-	has(log, "‹ " .. P.stamp("2026-11-03T11:01:00Z") .. ": second reply", "date in front of the entry")
-	has(log, "› " .. P.stamp("2026-11-03T13:00:00Z") .. ": queued", "date in front of a request")
-	hasnt(log, "thinking", "only a turn's last text")
-	has(log, "\nNext step\n  Newer plan", "the latest summary")
-	hasnt(log, "Older plan", "earlier summaries")
-	equal(log:find("third reply", 1, true) < log:find("first reply", 1, true), true, "newest response first")
 	equal(#P.new_state().responses, 0, "no responses yet")
 	P.record(dated, say(string.rep("é", 3000)))
-	equal(P.width(dated.responses[#dated.responses].text), 2000, "long responses cut, on a character")
+	equal(P.width(dated.responses[#dated.responses].text), 3000, "long responses kept whole")
 
-	-- Summaries have Markdown or numbered headings, and may have neither kind.
-	local numbered = P.summary_lines("1. Primary Request and Intent:\n   Old\n8. Current Work:\n   Now\n9. \"a quote\": kept text\n")
-	equal(numbered[1].heading, "Current Work", "numbered heading")
-	equal(numbered[2].text, "   Now", "numbered section's text")
-	equal(numbered[3].text:sub(1, 2), "9.", "a numbered line that isn't a heading")
-	equal(#numbered, 3, "only sections about where work stands")
-	local bare = P.new_state()
-	P.record(bare, { type = "user", timestamp = "2026-11-03T14:00:00Z", isCompactSummary = true, message = { content = "Just prose" } })
-	has(plain(P.log_lines(bare, 60)), "No current state", "a summary with nothing to show")
-
-	-- Foldable headings hide their sections, click to toggle, and stay in place.
+	-- Boxes fold on a click on their top line, and stay in place.
 	local tested = P.new_state()
 	tested.tests[1] = { command = "npm test", ok = true }
-	local open = P.info_lines(tested, 60)
-	has(plain(open), "▾ ▷ Tests 1\n\n", "unfolded heading, with a blank row under it")
-	has(plain(open), "▾ ◇ Open none\n\n▾ ▷ Tests", "no extra blank row under an empty section")
-	has(plain(open), "▾ ✗ Failed commands none", "an empty last section")
-	equal(open[#open]:find("Failed", 1, true) ~= nil, true, "nothing after an empty last section")
-	has(plain(open), "npm test", "unfolded body")
-	has(plain(open), "◆ Session", "session icon")
-	has(plain(P.info_lines(P.new_state(), 40, { five_hour = { used_percentage = 5 } }, 1000)), "▤ Usage\n\nSession (5h)", "blank row under a fixed heading")
-	local closed = P.info_lines(tested, 60, nil, nil, { Tests = true })
-	has(plain(closed), "▸ ▷ Tests 1\n\n▾", "folded heading keeps its count, and one blank row")
-	hasnt(plain(closed), "npm test", "folded body")
-	has(plain(closed), "▾ ✗ Failed commands", "other sections stay open")
-	local tests_line
+	tested.turn = P.new_turn(100, 1)
+	tested.turn.ms, tested.turn.edits, tested.turn.errors, tested.turn.agents = 157000, 4, 1, 1
+	local open = P.info_lines(tested, 60, { now = 400, show = "tests" })
+	has(plain(open), "✓ last turn 2m37s", "the receipt's title")
+	has(plain(open), "1 agent  4 edits  1 error", "what the turn did")
+	has(plain(open), "npm test", "the tests, listed")
+	hasnt(plain(open), "OPEN", "no box with nothing open")
+	hasnt(plain(open), "GATE", "no gate before a check")
+	equal(P.width(open[1]), 60, "a box fills the width")
+	local closed = P.info_lines(tested, 60, { now = 400, folded = { Receipt = true }, show = "tests" })
+	has(plain(closed), "╶ ▸ ✓ last turn 2m37s", "a folded box is one line")
+	hasnt(plain(closed), "npm test", "and hides its body")
+	local receipt_line
 	for line, action in pairs(closed.actions) do
-		if action.name == "Tests" then
-			tests_line = line
+		if action.name == "Receipt" then
+			receipt_line = line
 		end
 	end
-	has(closed[tests_line], "Tests", "the action is on the heading's line")
-	equal(closed.actions[tests_line].kind, "fold", "heading click")
+	equal(closed.actions[receipt_line].kind, "fold", "the top line folds")
 	local layout_fold = { tabs = {}, hits = {}, pinned = 0, actions = closed.actions, scroll = 0 }
-	equal(P.hit(layout_fold, 1, tests_line + 2).name, "Tests", "a click lands on the heading")
-	equal(#closed.sections, 3, "Info's foldable sections")
-	equal(#P.log_lines(tested, 60).sections, 4, "Log's foldable sections")
-	has(P.info_lines(tested, 60, nil, nil, nil, "Tests")[tests_line], "\27[7m", "highlighted heading")
+	equal(P.hit(layout_fold, 1, receipt_line + 2).name, "Receipt", "a click lands on the top line")
+	equal(#closed.sections, 2, "Info's boxes")
+	has(P.info_lines(tested, 60, { now = 400, focus = "Receipt" })[receipt_line], "\27[7m", "highlighted title")
+	local shows = P.info_lines(tested, 60, { now = 400 })
+	local shows_line
+	for line, action in pairs(shows.actions) do
+		if action.ranges then
+			shows_line = line
+		end
+	end
+	local show_layout = { tabs = {}, hits = {}, pinned = 0, actions = shows.actions, scroll = 0 }
+	equal(P.hit(show_layout, 3, shows_line + 2).what, "tests", "a click on the tests opens them")
+	equal(P.hit(show_layout, 1, shows_line + 2), nil, "the border isn't")
+	has(plain(P.info_lines(tested, 30, { now = 400 })), "▾ ✓ last turn", "narrow: a heading, no box")
+	hasnt(plain(P.info_lines(tested, 30, { now = 400 })), "╭", "no frame when narrow")
+	tested.turn.ms = nil
+	local running = plain(P.info_lines(tested, 60, { now = 130 }))
+	has(running, " turn 30s", "a running turn's clock")
+	has(running, "● running", "running, in the main box")
+	equal(P.info_lines(tested, 60, { now = 130 }).ticking, true, "the clock ticks")
+
+	-- The gate: a cell a check, the verdicts, the families and their checks.
+	local gated = P.new_state()
+	P.gate_check(gated.gate, { decision = "accept", source = "config", reasonType = "classifier" }, "Bash", { command = "npm test" })
+	P.gate_check(gated.gate, { decision = "accept", source = "config" }, "Read", { file_path = "/r/a.lua" })
+	P.gate_check(gated.gate, { decision = "accept", source = "user_temporary" }, "WebFetch", { url = "https://a.example" })
+	P.gate_check(gated.gate, { decision = "reject", source = "user_reject" }, "Bash", { command = "curl -H 'Authorization: Bearer abc' x" })
+	P.gate_check(gated.gate, { decision = "accept", source = "config" }, "Read", { file_path = "/r/b.lua" }, true)
+	local gate = plain(P.info_lines(gated, 60, { gate = "shell" }))
+	has(gate, "GATE · permissions", "the gate box")
+	has(gate, "5 checks", "its total")
+	has(gate, "⣿⣿⣿✗⣿", "a dotted cell a check, denied as ✗")
+	has(gate, "■ 2 allowed  ■ 1 classifier  ■ 1 you  ✗ 1 denied", "verdicts")
+	has(gate, "f: file 2  s: shell 2  o: other 1", "families")
+	has(gate, "✗ Bash curl -H 'Authorization: Bearer ••• x", "a family's checks, credentials masked")
+	hasnt(gate, "Read /r/a.lua", "only the family open")
+	equal(P.mask("TOKEN=abc123 run --password hunter2 ok"), "TOKEN=••• run --password ••• ok", "masked values")
+	equal(P.mask("git push origin main"), "git push origin main", "nothing to mask")
+
+	-- Subagents: lanes on one time axis, a click opening one.
+	local agent = P.new_agent("a1")
+	local stamp = function(s) return string.format("2026-11-17T10:00:%02dZ", s) end
+	P.agent_record(agent, { type = "assistant", timestamp = stamp(0), message = { usage = { input_tokens = 12000 }, content = {
+		{ type = "tool_use", id = "x1", name = "Read", input = { file_path = "/r/a.lua" } } } } }, gated.gate)
+	P.agent_record(agent, { type = "user", timestamp = stamp(5), permissionDecision = { decision = "accept", source = "config" },
+		message = { content = { { type = "tool_result", tool_use_id = "x1", content = "ok" } } } }, gated.gate)
+	P.agent_record(agent, { type = "assistant", timestamp = stamp(42), message = { content = { { type = "text", text = "All good." } } } }, gated.gate)
+	agent.description, agent.type, agent.finished = "Review the parser", "Explore", true
+	equal(agent.steps, 2, "an agent's steps")
+	equal(gated.gate.checks[#gated.gate.checks].sub, true, "an agent's check, as a subagent's")
+	local other = P.new_agent("a2")
+	other.description, other.start, other.last = "Map the hooks", P.epoch(stamp(30)), P.epoch(stamp(40))
+	local lanes = P.info_lines(P.new_state(), 60, { now = P.epoch(stamp(50)), agents = { agent, other }, open_agents = { a1 = true } })
+	local shown = plain(lanes)
+	has(shown, "AGENTS · 1 running", "running agents")
+	has(shown, "2 total", "all agents")
+	has(shown, "✓ 1: Review the", "a finished lane")
+	equal(shown:find("2: Map the", 1, true) < shown:find("1: Review the", 1, true), true, "newest first")
+	has(shown, "● 2: Map the", "a running lane's mark")
+	has(shown, "0:42", "its time")
+	has(shown, "0:20", "a running agent's clock")
+	has(shown, "Explore", "an open lane's type")
+	has(shown, "ctx 12k", "its context")
+	has(shown, "› Read /r/a.lua", "its tool calls")
+	has(shown, "All good.", "its answer")
+	local lane_actions = 0
+	for _, a in pairs(lanes.actions) do
+		if a.kind == "agent" then
+			lane_actions = lane_actions + 1
+		end
+	end
+	equal(lane_actions, 2, "a click a lane")
+
+	-- The log: events as they happen, as many as fit.
+	local logged = P.new_state()
+	local at = function(sec, r) r.timestamp = string.format("2026-11-17T10:00:%02dZ", sec); P.record(logged, r) end
+	at(1, { type = "user", message = { content = "Fix the cart" } })
+	at(2, { type = "assistant", message = { content = { { type = "tool_use", id = "g1", name = "Agent", input = { description = "Map the cart" } } } } })
+	at(3, { type = "user", message = { content = { { type = "tool_result", tool_use_id = "g1", content = "done" } } } })
+	at(4, { type = "assistant", message = { content = { { type = "tool_use", id = "w1", name = "Write", input = { file_path = "/w/a.lua" } } } } })
+	at(5, { type = "user", permissionDecision = { decision = "reject", source = "user_reject" }, message = { content = { { type = "tool_result", tool_use_id = "w1", content = "no", is_error = true } } } })
+	equal(#logged.log, 4, "prompt, agent start and end, denial")
+	local log_view = plain(P.info_lines(logged, 60, { rows = 40 }))
+	has(log_view, "LOG", "the log box")
+	has(log_view, "main    › Fix the cart", "a prompt")
+	has(log_view, "agent   started · Map the cart", "an agent's start")
+	has(log_view, "agent   done · Map the cart", "and end")
+	has(log_view, "gate    ✗ Write /w/a.lua", "a denial")
+	local short = plain(P.info_lines(logged, 60, { rows = 1 }))
+	hasnt(short, "Fix the cart", "only the latest when there's no room")
+	has(short, "✗ Write", "at least 3 events")
+
+	-- The advisor's consults.
+	local advised = P.new_state()
+	advised.consults = { { id = "s1", at = 100, done = 127 } }
+	local advice = plain(P.info_lines(advised, 60, { now = 134 }))
+	has(advice, "ADVISOR · on call", "the advisor box")
+	has(advice, "consults 1", "consults")
+	has(advice, "last 7s ago · took 27s", "the last consult")
+	hasnt(plain(P.info_lines(P.new_state(), 60)), "ADVISOR", "no box without consults")
 
 	local folds = dir .. "fold-test/"
 	real.exec({ "mkdir", "-p", folds })
@@ -940,27 +959,124 @@ do
 	equal(V.dir_key("/w/x//"), "/w/x", "trailing slashes")
 	equal(V.dir_key("/"), "/", "the root")
 
-	-- The Info tab's Links and files section.
-	local st = { responses = { { text = "old" }, { text = "cut", full = "see https://a.example/x" }, { text = "newest" } } }
-	equal(table.concat(P.last_responses(st, 2), "|"), "newest|see https://a.example/x", "newest first, whole text")
-	equal(#P.last_responses(st, 9), 3, "fewer than asked")
-	local links = { n = 3, rows = { { kind = "link", label = "a.example/x", target = "https://a.example/x" }, { kind = "text", label = "src/app.lua:3", target = "/r/src/app.lua", line = "3" } } }
-	local info = P.info_lines(P.new_state(), 40, nil, 0, {}, nil, links)
-	local shown = plain(info)
-	has(shown, "Links and files", "section heading")
-	equal(shown:find("Open", 1, true) < shown:find("Links and files", 1, true), true, "after Open")
-	equal(shown:find("Links and files", 1, true) < shown:find("Tests", 1, true), true, "before Tests")
-	has(shown, "src/app.lua:3  text", "a file row")
+	-- The Artifacts tab: categories, newest first, each row once.
+	local function row(kind, target, line)
+		return { kind = kind, label = target, target = target, line = line }
+	end
+	equal(V.category(row("text", "/r/notes.md")), "Documents", "Markdown")
+	equal(V.category(row("image", "/r/a.PNG")), "Documents", "an image")
+	equal(V.category(row("text", "/r/app.lua")), "Other", "source code")
+	equal(V.category(row("link", "https://github.com/o/r/pull/12/files")), "PRs", "a PR")
+	equal(V.category(row("link", "https://gitlab.com/o/r/-/merge_requests/3")), "PRs", "a merge request")
+	equal(V.category(row("link", "https://acme.atlassian.net/browse/SHOP-12")), "Jira", "a Jira issue")
+	equal(V.category(row("link", "https://a.example/x")), "URLs", "another link")
+	local groups, total = V.group({
+		{ row("link", "https://a.example/x"), row("text", "/r/app.lua", "3") },
+		{ row("text", "/r/notes.md"), row("link", "https://a.example/x"), row("link", "https://acme.atlassian.net/browse/SHOP-12") },
+	})
+	local names = {}
+	for _, g in ipairs(groups) do names[#names + 1] = g.name .. "=" .. #g.rows end
+	equal(table.concat(names, " "), "Documents=1 Jira=1 URLs=1 Other=1", "empty categories left out, in order")
+	equal(total, 4, "a row mentioned twice counts once")
+	equal(#V.group({}), 0, "nothing found")
+	local view = P.artifacts_view(groups, 40, {}, nil, nil)
+	local shown = plain(view.lines)
+	has(plain(view.pinned), "Search Panel", "the Search Panel link, pinned")
+	equal(view.hits[1][1].action.kind, "view_panel", "it opens the Search Panel")
+	has(shown, "╭ ▤ Documents", "a category box, with its icon")
+	hasnt(shown, "PRs", "no empty category")
+	has(shown, "/r/app.lua  text", "a file row")
 	local kinds = {}
-	for _, a in pairs(info.actions) do kinds[a.kind] = (kinds[a.kind] or 0) + 1 end
-	equal(kinds.mention, 2, "each row opens")
-	equal(kinds.view_panel, 1, "open panel")
-	has(shown, "open panel", "the open panel row")
-	local folded = plain(P.info_lines(P.new_state(), 40, nil, 0, { ["Links and files"] = true }, nil, links))
-	hasnt(folded, "open panel", "folded")
-	has(plain(P.info_lines(P.new_state(), 40, nil, 0, {}, nil, { n = 3, rows = {} })), "Nothing in Claude's last 3 replies.", "nothing found")
-	local tsv = V.tsv({ { kind = "text", label = "a\tb", target = "/r/a", line = "3" } })
+	for _, a in pairs(view.actions) do kinds[a.kind] = (kinds[a.kind] or 0) + 1 end
+	equal(kinds.mention, 4, "each row opens")
+	equal(kinds.fold, 4, "each heading folds")
+	equal(#view.sections, 4, "a section a category")
+	hasnt(plain(P.artifacts_view(groups, 40, { Documents = true }).lines), "notes.md", "folded")
+	has(plain(P.artifacts_view({}, 40, {}).lines), "Nothing in Claude's replies yet.", "nothing found")
+	has(plain(P.artifacts_view({}, 40, {}, nil, "boom").pinned), "boom", "a notice under the link")
+	local tsv = V.tsv({ { name = "Other", rows = { { kind = "text", label = "a\tb", target = "/r/a", line = "3" } } } })
 	equal(select(2, tsv:gsub("\t", "")), 3, "tabs only between fields")
+	has(tsv, "Other", "the category as the note")
+	-- PRs: links into one PR put together, comments as "# N".
+	local function ref(url)
+		local r = V.pr_ref(url)
+		return r and (r.name .. "|" .. (r.sub or "") .. "|" .. r.target) or "nil"
+	end
+	equal(ref("https://github.com/acme/shop/pull/42"), "acme/shop#42||https://github.com/acme/shop/pull/42", "a PR")
+	equal(ref("https://github.com/acme/shop/pull/42#issuecomment-123"), "acme/shop#42|# 123|https://github.com/acme/shop/pull/42", "a comment")
+	equal(ref("https://github.com/acme/shop/pull/42/files#r456"), "acme/shop#42|files|https://github.com/acme/shop/pull/42", "its files")
+	equal(ref("https://github.com/acme/shop/pull/42/files#discussion_r789"), "acme/shop#42|# 789|https://github.com/acme/shop/pull/42", "a review comment")
+	equal(ref("https://github.com/acme/shop/pull/42#pullrequestreview-5"), "acme/shop#42|# 5|https://github.com/acme/shop/pull/42", "a review")
+	equal(ref("https://github.com/acme/shop/pull/42/commits/abcdef0123"), "acme/shop#42|commit abcdef0|https://github.com/acme/shop/pull/42", "a commit")
+	equal(ref("https://gitlab.com/g/sub/app/-/merge_requests/3#note_9"), "g/sub/app#3|# 9|https://gitlab.com/g/sub/app/-/merge_requests/3", "a merge request note")
+	equal(ref("https://a.example/x"), "nil", "not a PR")
+	local pr_groups, pr_total = V.group({
+		{ row("link", "https://github.com/acme/shop/pull/42#issuecomment-123"), row("link", "https://github.com/acme/api/pull/7") },
+		{ row("link", "https://github.com/acme/shop/pull/42"), row("link", "https://github.com/acme/shop/pull/42/files"),
+			row("link", "https://github.com/acme/web/pull/1#issuecomment-8") },
+	})
+	local prs = pr_groups[1].rows
+	equal(pr_groups[1].name .. "=" .. #prs .. " " .. pr_total, "PRs=3 3", "one row a PR, counted as one")
+	equal(prs[1].name .. " " .. #prs[1].rows .. " " .. tostring(prs[1].direct), "acme/shop#42 2 true", "a PR's links")
+	local pr_view = plain(P.artifacts_view(pr_groups, 60, {}, nil, nil, { ["https://github.com/acme/shop/pull/42"] = "Add rate-limit guard" }).lines)
+	has(pr_view, "#42 Add rate-limit guard", "a PR's number before its title")
+	has(pr_view, "╭ ⇄ PRs", "the PRs box")
+	has(pr_view, "Add rate-limit guard", "a PR by its title")
+	has(pr_view, "  # 123", "a comment under its PR")
+	has(pr_view, "  files", "the files under their PR")
+	has(pr_view, "│ acme/api#7  ", "a PR with no title yet, and one link")
+	has(pr_view, "acme/web#1  # 8", "a PR's only link, on its row")
+	hasnt(pr_view, "guard  acme/shop#42", "no repository and number beside a title")
+	local pr_actions = {}
+	for _, a in pairs(P.artifacts_view(pr_groups, 60, {}).actions) do
+		if a.kind == "mention" then pr_actions[#pr_actions + 1] = a.row.target end
+	end
+	table.sort(pr_actions)
+	equal(table.concat(pr_actions, " "), table.concat({
+		"https://github.com/acme/api/pull/7", "https://github.com/acme/shop/pull/42",
+		"https://github.com/acme/shop/pull/42#issuecomment-123", "https://github.com/acme/shop/pull/42/files",
+		"https://github.com/acme/web/pull/1#issuecomment-8" }, " "), "each row opens its own link")
+	-- Jira titles, as the replies wrote them.
+	equal(V.jira_title("Fixed in SHOP-12 (Cart rounding). Next.", "SHOP-12"), "Cart rounding", "in brackets")
+	equal(V.jira_title("- **SHOP-12**: Cart rounding fix.", "SHOP-12"), "Cart rounding fix", "after a colon")
+	equal(V.jira_title("See [SHOP-12 Cart rounding](https://a.atlassian.net/browse/SHOP-12)", "SHOP-12"), "Cart rounding", "a link's text")
+	equal(V.jira_title("| SHOP-12 | Cart rounding | Done |", "SHOP-12"), "Cart rounding", "a table cell")
+	equal(V.jira_title("SHOP-12 is done", "SHOP-12"), nil, "no title")
+	local jira_rows = V.find({ "Done: SHOP-12 (Cart rounding)" }, "/w", V.rules_for({ ["/w"] = { ["(SHOP%-%d+)"] = "https://a.atlassian.net/browse/" } }, "/w"))
+	equal(jira_rows[1].title, "Cart rounding", "a found key's title")
+	local jira_groups = V.group({ { { kind = "link", label = "SHOP-12", target = "https://a.atlassian.net/browse/SHOP-12" } }, jira_rows })
+	equal(jira_groups[1].rows[1].title, "Cart rounding", "an older reply's title fills a newer mention's")
+	has(plain(P.artifacts_view(jira_groups, 60, {}).lines), "SHOP-12 Cart rounding", "the key, then the title")
+	local pr_tsv = V.tsv(pr_groups)
+	has(pr_tsv, "acme/shop#42 # 123", "a comment in the Search Panel")
+	has(pr_tsv, "⇄\27[0m acme/shop#42", "a category's icon on each row")
+	equal(select(2, pr_tsv:gsub("\n", "")), 6, "the Search Panel: a row a PR and a row a link into it")
+	-- Background tasks: commands run without blocking, inside a task only.
+	equal(P.run({ "/bin/echo", "hi" }).stdout, "hi\n", "a command outside a task blocks")
+	local got, steps = nil, 0
+	equal(P.spawn("echo", function() got = P.run({ "/bin/sh", "-c", "sleep 0.3; echo later" }) end), true, "a task starts")
+	equal(P.spawn("echo", function() end), false, "one task a name")
+	local start, longest = os.clock(), 0
+	repeat
+		local t = os.clock()
+		local ended = P.step_tasks()
+		longest = math.max(longest, os.clock() - t)
+		steps = steps + 1
+		rex.sleep(0.05)
+	until ended
+	equal(longest < 0.05, true, "a step doesn't wait for the command")
+	equal(got and got.stdout, "later\n", "the command's result, once it ends")
+	equal(steps > 2, true, "stepped while the command ran")
+	local slow = "unset"
+	P.spawn("slow", function() slow = P.run({ "/bin/sleep", "5" }, 0.2) end)
+	start = os.clock()
+	while not P.step_tasks() do rex.sleep(0.05) end
+	equal(slow, nil, "a command that runs too long is stopped")
+	equal(os.clock() - start < 1, true, "and doesn't hold the task")
+	local work = 0
+	P.spawn("work", function() for _ = 1, 3 do work = work + 1; coroutine.yield() end end)
+	P.step_tasks()
+	equal(work, 3, "a task that only works runs on within a step")
 	equal(V.kind("/") , "dir", "a real folder")
 	equal(V.kind(dir .. "test.lua"), "file", "a real file")
 	equal(V.kind(dir .. "no-such-file"), nil, "a missing file")

@@ -1,6 +1,6 @@
 -- Runs in a sidecar pane, with three tabs: what changed, by scope (Changes),
--- how the Claude beside it stands (Info), and a dated record of what was said
--- and decided (Log). The watcher
+-- how the Claude beside it stands (Info), and the files and links Claude's
+-- replies mention (Artifacts). The watcher
 -- passes the Claude pane's block ID and its directory (the repository root, in
 -- one) as `claude=` and `cwd=`. The session is read from Claude Code's own
 -- files, so no Claude Code setting is needed. With CC_SIDECAR_TEST set, this
@@ -18,7 +18,7 @@ local rex_binary = home
 	.. "/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
 local viewer = dir .. "../plugins/rex-view/skills/rex-view/scripts/viewer"
 
-M.tabs = { "Info", "Changes", "Log" }
+M.tabs = { "Info", "Changes", "Artifacts" }
 
 --- The scopes of the Changes tab; only Last Turn works without git. The third
 --- is "PR", "Branch", or nil on the default branch.
@@ -151,6 +151,52 @@ function M.command(cmd)
 	return (first_line(cmd):gsub("^cd %S+ && ", ""):gsub("%s+", " "))
 end
 
+local secret_words = { "token", "secret", "password", "passwd", "pwd", "auth", "key", "credential", "cookie" }
+
+local function secret_name(word)
+	local lower = word:lower()
+	for _, w in ipairs(secret_words) do
+		if lower:find(w, 1, true) then
+			return true
+		end
+	end
+end
+
+--- A command or path with what looks like a credential replaced by •••: the
+--- value of a NAME=, --name or name: whose name says token, key, password and
+--- the like, a bearer token, and long runs of key-like characters.
+function M.mask(text)
+	local out, hide = {}, false
+	for space, word in tostring(text or ""):gmatch("(%s*)(%S+)") do
+		local masked = word
+		if hide then
+			masked, hide = "•••", false
+		else
+			local name, sep = word:match("^([%w_%-%.]+)([=:])")
+			if name and secret_name(name) and #word > #name + 1 then
+				masked = name .. sep .. "•••"
+			elseif word:match("^%-%-?[%w_%-]+$") and secret_name(word) or word == "Bearer" or word:lower() == "-u" then
+				hide = true
+			elseif word:match("[%w+/=_%-]" .. string.rep("[%w+/=_%-]", 31)) and not word:find("/", 1, true) then
+				masked = "•••"
+			end
+		end
+		out[#out + 1] = space .. masked
+	end
+	return table.concat(out)
+end
+
+local utc_offset = os.time() - os.time(os.date("!*t"))
+
+--- Seconds since 1970 from a transcript timestamp, or nil.
+function M.epoch(ts)
+	local y, mo, d, h, mi, s = tostring(ts or ""):match("^(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
+	if not y then
+		return nil
+	end
+	return os.time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d), hour = tonumber(h), min = tonumber(mi), sec = tonumber(s) }) + utc_offset
+end
+
 local function short_path(path, root)
 	if root and path:sub(1, #root + 1) == root .. "/" then
 		return path:sub(#root + 2)
@@ -198,24 +244,64 @@ function M.test_command(cmd)
 	end
 end
 
---- A transcript timestamp, which is in UTC, as local month, day and time.
-function M.stamp(iso)
-	local y, mo, d, h, mi, s = tostring(iso):match("^(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
-	if not y then
-		return ""
+-- Transcript ----------------------------------------------------------------
+
+--- Adds an event to the session log, which keeps the latest 300. `who` is
+--- main, agent, gate or advisor.
+function M.log(state, who, text)
+	local log = state.log
+	log[#log + 1] = { at = M.epoch(state.at), who = who, text = first_line(text) }
+	if #log > 300 then
+		table.remove(log, 1)
 	end
-	y, mo, d = tonumber(y), tonumber(mo), tonumber(d)
-	-- Days since 1970 by the civil calendar: os.time would read these as local
-	-- time, and the offset to undo that shifts around a clock change.
-	y = mo <= 2 and y - 1 or y
-	local era = math.floor(y / 400)
-	local year = y - era * 400
-	local day = math.floor((153 * (mo + (mo > 2 and -3 or 9)) + 2) / 5) + d - 1
-	local days = era * 146097 + year * 365 + math.floor(year / 4) - math.floor(year / 100) + day - 719468
-	return os.date("%m-%d %H:%M", days * 86400 + tonumber(h) * 3600 + tonumber(mi) * 60 + tonumber(s))
 end
 
--- Transcript ----------------------------------------------------------------
+--- What one turn did, from the prompt on.
+function M.new_turn(at, seq)
+	return { order = {}, files = {}, at = at, seq = seq, edits = 0, errors = 0, agents = 0 }
+end
+
+--- Permission checks: the latest ones, and totals by verdict and by family.
+function M.new_gate()
+	return { checks = {}, total = 0, verdicts = { allowed = 0, classifier = 0, you = 0, denied = 0 }, families = { file = 0, shell = 0, other = 0 } }
+end
+
+local file_tools = { Read = true, Edit = true, Write = true, MultiEdit = true, NotebookEdit = true, Glob = true, Grep = true }
+local shell_tools = { Bash = true, BashOutput = true, KillShell = true, Monitor = true }
+
+--- A permission decision's verdict: denied, allowed by you, by the auto-mode
+--- classifier, or by a rule or the mode.
+function M.verdict(decision)
+	if decision.decision == "reject" then
+		return "denied"
+	elseif tostring(decision.source or ""):match("^user") then
+		return "you"
+	elseif decision.reasonType == "classifier" then
+		return "classifier"
+	end
+	return "allowed"
+end
+
+--- What a tool call was about, short, with credentials masked.
+function M.tool_target(name, input)
+	input = type(input) == "table" and input or {}
+	local target = input.command and M.command(input.command)
+		or input.file_path or input.notebook_path or input.path or input.pattern or input.url or input.description or ""
+	return M.mask(tostring(target))
+end
+
+--- Adds a permission check to the gate. `sub` is true for a subagent's.
+function M.gate_check(gate, decision, name, input, sub)
+	local family = file_tools[name] and "file" or shell_tools[name] and "shell" or "other"
+	local verdict = M.verdict(decision)
+	gate.total = gate.total + 1
+	gate.verdicts[verdict] = gate.verdicts[verdict] + 1
+	gate.families[family] = gate.families[family] + 1
+	gate.checks[#gate.checks + 1] = { verdict = verdict, family = family, tool = name, target = M.tool_target(name, input), sub = sub }
+	if #gate.checks > 400 then
+		table.remove(gate.checks, 1)
+	end
+end
 
 function M.new_state()
 	return {
@@ -224,7 +310,6 @@ function M.new_state()
 		seq = 0,
 		prompts = {},
 		last_prompt = 0,
-		decisions = {},
 		responses = {},
 		tools = {},
 		waiting = {},
@@ -234,7 +319,11 @@ function M.new_state()
 		tests = {},
 		compactions = 0,
 		claude_ms = 0,
-		turn = { order = {}, files = {} },
+		requests = 0,
+		turn = M.new_turn(),
+		gate = M.new_gate(),
+		consults = {},
+		log = {},
 	}
 end
 
@@ -247,7 +336,7 @@ local function add_prompt(state, text)
 	elseif text == "" or text:sub(1, 1) == "<" or text:match("^%[Request interrupted") then
 		return
 	end
-	state.turn = { order = {}, files = {} }
+	state.turn = M.new_turn(M.epoch(state.at), state.seq)
 	-- A queued prompt is recorded twice, with no reply between the two. The same
 	-- words after a reply are a new request.
 	local latest = state.prompts[#state.prompts]
@@ -255,6 +344,7 @@ local function add_prompt(state, text)
 		return
 	end
 	state.prompts[#state.prompts + 1] = { text = text, seq = state.seq, at = state.at }
+	M.log(state, "main", "› " .. text)
 	state.last_prompt = state.seq
 end
 
@@ -304,26 +394,6 @@ local function turn_edit(state, path, extra)
 	end
 end
 
-local function decide(state, decision)
-	decision.at = state.at
-	state.decisions[#state.decisions + 1] = decision
-end
-
---- What a tool call acted on, for a rejected action.
-local function tool_target(tool)
-	local input = tool.input or {}
-	if input.command then
-		return M.command(input.command)
-	end
-	return input.file_path or input.url or input.description or ""
-end
-
---- What the user typed when rejecting a tool call, if anything.
-local function user_said(text)
-	local said = text:match("the user said:\n(.*)$")
-	return said and said:gsub("%s+$", "") or nil
-end
-
 local function tool_result(state, item, record)
 	local tool = state.tools[item.tool_use_id]
 	if not tool then
@@ -336,39 +406,23 @@ local function tool_result(state, item, record)
 	local extra = type(record.toolUseResult) == "table" and record.toolUseResult or {}
 	local input = tool.input or {}
 
-	if decision and decision.decision == "reject" and decision.source == "user_reject" then
-		if tool.name == "AskUserQuestion" then
-			local q = input.questions and input.questions[1]
-			decide(state, { kind = "dismissed", text = q and q.question or "a question" })
-		elseif tool.name == "ExitPlanMode" then
-			decide(state, { kind = "plan_rejected", text = M.plan_title(input.plan), note = user_said(text) })
-		else
-			decide(state, {
-				kind = "rejected",
-				text = tool.name .. ": " .. tool_target(tool),
-				note = user_said(text),
-			})
+	if type(decision) == "table" then
+		M.gate_check(state.gate, decision, tool.name, input, false)
+		if decision.decision == "reject" then
+			M.log(state, "gate", "✗ " .. tool.name .. " " .. M.tool_target(tool.name, input))
 		end
+	end
+	if failed then
+		state.turn.errors = state.turn.errors + 1
+	end
+	if (tool.name == "Agent" or tool.name == "Task") and not failed then
+		M.log(state, "agent", "done · " .. tostring(input.description or input.subagent_type or "agent"))
+	end
+	if type(decision) == "table" and decision.decision == "reject" and decision.source == "user_reject" then
 		return
 	end
 
-	if tool.name == "AskUserQuestion" and extra.answers then
-		for _, q in ipairs(input.questions or {}) do
-			local note = extra.annotations and extra.annotations[q.question]
-			decide(state, {
-				kind = "answer",
-				text = q.question,
-				answer = extra.answers[q.question] or "(no answer)",
-				note = type(note) == "table" and note.notes or nil,
-			})
-		end
-	elseif tool.name == "ExitPlanMode" then
-		decide(state, {
-			kind = failed and "plan_rejected" or "plan_approved",
-			text = M.plan_title(input.plan),
-			note = failed and user_said(text) or nil,
-		})
-	elseif tool.name == "TaskCreate" and not failed then
+	if tool.name == "TaskCreate" and not failed then
 		local id = (type(extra.task) == "table" and extra.task.id) or text:match("#(%d+)")
 		if id then
 			id = tostring(id)
@@ -381,6 +435,8 @@ local function tool_result(state, item, record)
 		local path = input.file_path or input.notebook_path
 		if path then
 			turn_edit(state, path, extra)
+			state.turn.edits = state.turn.edits + 1
+			M.log(state, "main", tool.name .. " → " .. short_path(path, state.root))
 		end
 	elseif tool.name == "Bash" then
 		local cmd = M.command(input.command)
@@ -391,6 +447,7 @@ local function tool_result(state, item, record)
 		if failed then
 			local err = text:gsub("^Exit code (%d+)\n?", "exit %1: ")
 			state.failures[#state.failures + 1] = { command = cmd, error = first_line(err) }
+			M.log(state, "main", "✗ " .. M.mask(cmd))
 		end
 	end
 end
@@ -400,23 +457,15 @@ function M.plan_title(plan)
 	return (first_line(plan):gsub("^#+%s*", ""))
 end
 
---- How many responses keep their whole text, for the Links and files section.
-local full_responses = 10
-
 --- Claude's latest words in a turn are its response, so each text replaces the
---- one before it until the next prompt. Kept short, but for the last few: a
---- session has many.
+--- one before it until the next prompt.
 local function respond(state, text)
-	local entry = { text = (cut(text, 2000)), full = text, seq = state.seq, at = state.at }
+	local entry = { text = text, seq = state.seq }
 	local latest = state.responses[#state.responses]
 	if latest and latest.seq > state.last_prompt then
 		state.responses[#state.responses] = entry
 	else
 		state.responses[#state.responses + 1] = entry
-		local old = state.responses[#state.responses - full_responses]
-		if old then
-			old.full = nil
-		end
 	end
 end
 
@@ -436,9 +485,23 @@ local function assistant(state, record)
 		if item.type == "text" and item.text and item.text:match("%S") then
 			state.last_text = { text = item.text, seq = state.seq }
 			respond(state, item.text)
+		elseif item.type == "server_tool_use" and tostring(item.name):lower():match("advisor") then
+			state.consults[#state.consults + 1] = { id = item.id, at = M.epoch(state.at) }
+			M.log(state, "advisor", "consulted")
+		elseif item.tool_use_id and item.type ~= "tool_result" then
+			for _, c in ipairs(state.consults) do
+				if c.id == item.tool_use_id and not c.done then
+					c.done = M.epoch(state.at)
+					M.log(state, "advisor", "advice returned")
+				end
+			end
 		elseif item.type == "tool_use" then
 			local input = type(item.input) == "table" and item.input or {}
 			state.tools[item.id] = { name = item.name, input = input }
+			if item.name == "Agent" or item.name == "Task" then
+				state.turn.agents = state.turn.agents + 1
+				M.log(state, "agent", "started · " .. tostring(input.description or input.subagent_type or "agent"))
+			end
 			if item.name == "AskUserQuestion" or item.name == "ExitPlanMode" then
 				state.waiting[item.id] = true
 			elseif item.name == "TodoWrite" then
@@ -456,11 +519,6 @@ end
 
 local function user(state, record)
 	if record.isCompactSummary then
-		local c = record.message and record.message.content
-		local text = type(c) == "string" and c or (type(c) == "table" and c[1] and c[1].text) or nil
-		if text then
-			state.summary = { text = text, at = state.at }
-		end
 		return
 	end
 	local c = record.message and record.message.content
@@ -490,6 +548,7 @@ function M.record(state, r)
 		return
 	end
 	state.at = r.timestamp or state.at
+	state.root = r.cwd or state.root
 	if r.gitBranch and r.gitBranch ~= "" then
 		state.branch = r.gitBranch
 	end
@@ -500,6 +559,8 @@ function M.record(state, r)
 		assistant(state, r)
 	elseif r.type == "user" then
 		user(state, r)
+	elseif r.type == "permission-mode" then
+		state.mode = r.permissionMode or state.mode
 	elseif r.type == "ai-title" then
 		state.title = r.aiTitle or state.title
 	elseif r.type == "attachment" and type(r.attachment) == "table" and r.attachment.type == "queued_command" then
@@ -508,6 +569,9 @@ function M.record(state, r)
 		state.compactions = state.compactions + 1
 	elseif r.type == "system" and r.subtype == "turn_duration" then
 		state.claude_ms = state.claude_ms + (tonumber(r.durationMs) or 0)
+		if state.turn.at and not state.turn.ms then
+			state.turn.ms = tonumber(r.durationMs)
+		end
 	end
 end
 
@@ -523,6 +587,9 @@ function M.feed(state, chunk)
 			break
 		end
 		local typed = text:match('^{"type":"([^"]+)"', pos)
+		if typed == "api-request" and text:sub(pos, math.min(nl, pos + 400)):find('"querySource":"repl_main_thread"', 1, true) then
+			state.requests = state.requests + 1
+		end
 		if not (typed and (typed:match("^api%-request") or typed:match("^file%-history"))) then
 			local line = text:sub(pos, nl - 1):gsub("\\u001b%[[%d;?]*%a", "")
 			local ok, r = pcall(rex.json.decode, line)
@@ -554,6 +621,90 @@ function M.read_new(state, path)
 		end
 		state.offset = state.offset + #chunk
 		M.feed(state, chunk)
+		if coroutine.running() then
+			coroutine.yield()
+		end
+	end
+	f:close()
+end
+
+-- Subagents ----------------------------------------------------------------
+
+function M.new_agent(id)
+	return { id = id, offset = 0, partial = "", steps = 0, tools = {}, calls = {} }
+end
+
+--- Adds one record of a subagent's transcript to it; its permission checks go
+--- to `gate`, as a subagent's.
+function M.agent_record(a, r, gate)
+	local at = M.epoch(r.timestamp)
+	if at then
+		a.start = a.start or at
+		a.last = at
+	end
+	local m = type(r.message) == "table" and r.message or {}
+	local content = type(m.content) == "table" and m.content or {}
+	if r.type == "assistant" then
+		a.steps = a.steps + 1
+		local u = m.usage
+		if type(u) == "table" then
+			local context = (u.input_tokens or 0) + (u.cache_read_input_tokens or 0) + (u.cache_creation_input_tokens or 0)
+			if context > 0 then
+				a.context = context
+			end
+		end
+		for _, item in ipairs(content) do
+			if item.type == "tool_use" then
+				a.calls[item.id] = { name = item.name, input = item.input }
+				local target = M.tool_target(item.name, item.input)
+				a.tools[#a.tools + 1] = tostring(item.name) .. (target ~= "" and (" " .. dim .. target .. reset) or "")
+				if #a.tools > 3 then
+					table.remove(a.tools, 1)
+				end
+			elseif item.type == "text" and item.text and item.text:match("%S") then
+				a.answer = item.text
+			end
+		end
+	elseif r.type == "user" and type(r.permissionDecision) == "table" and gate then
+		for _, item in ipairs(content) do
+			if item.type == "tool_result" then
+				local call = a.calls[item.tool_use_id] or {}
+				M.gate_check(gate, r.permissionDecision, call.name or "tool", call.input, true)
+			end
+		end
+	end
+end
+
+--- Reads what was added to a subagent's transcript since the last call.
+function M.read_agent(a, path, gate)
+	local f = io.open(path, "rb")
+	if not f then
+		return
+	end
+	f:seek("set", a.offset)
+	while true do
+		local chunk = f:read(1048576)
+		if not chunk then
+			break
+		end
+		a.offset = a.offset + #chunk
+		local text = a.partial .. chunk
+		local pos = 1
+		while true do
+			local nl = text:find("\n", pos, true)
+			if not nl then
+				break
+			end
+			local ok, r = pcall(rex.json.decode, text:sub(pos, nl - 1))
+			if ok and type(r) == "table" then
+				M.agent_record(a, r, gate)
+			end
+			pos = nl + 1
+		end
+		a.partial = text:sub(pos)
+		if coroutine.running() then
+			coroutine.yield()
+		end
 	end
 	f:close()
 end
@@ -562,50 +713,186 @@ end
 
 local fold_marks = { [true] = "▸ ", [false] = "▾ " }
 
+local orange, lavender, mint, purple = "\27[38;5;209m", "\27[38;5;147m", "\27[38;5;114m", "\27[38;5;141m"
+local gold, teal, blue, grey = "\27[38;5;221m", "\27[38;5;80m", "\27[38;5;75m", "\27[38;5;245m"
+local aqua = "\27[38;5;87m"
+M.colours = { orange = orange, lavender = lavender, mint = mint, purple = purple, gold = gold, teal = teal, blue = blue, grey = grey }
+
+--- Below this width, sections are plain headings instead of boxes.
+M.box_min = 36
+
 --- A tab's lines, which also carry each foldable heading's click and position.
-local function new_lines(folded, focus, pages)
-	return { folded = folded or {}, focus = focus, pages = pages or {}, actions = {}, sections = {} }
-end
-
-local function heading(out, title, count, style)
-	if #out > 0 then
-		out[#out + 1] = ""
-	end
-	out[#out + 1] = (style or bold) .. title .. reset .. (count and (dim .. " " .. count .. reset) or "")
-end
-
---- Adds what `body` writes, under a blank row; no row if it writes nothing.
-local function under_heading(out, body)
-	local before = #out
-	out[before + 1] = ""
-	body()
-	if #out == before + 1 then
-		out[before + 1] = nil
-	end
-end
-
---- A section with a fold mark on its heading. A folded one doesn't build its
---- lines.
-local function section(out, name, icon, count, body)
-	local folded = out.folded[name] == true
-	heading(out, fold_marks[folded] .. icon .. " " .. name, count, out.focus == name and "\27[7m" or bold)
-	out.actions[#out] = { kind = "fold", name = name }
-	out.sections[#out.sections + 1] = { name = name, line = #out }
-	if not folded then
-		under_heading(out, body)
-	end
-end
-
---- The date in front of a Log entry; nothing for a record without a time.
-local function when(entry)
-	local stamp = M.stamp(entry.at)
-	return stamp ~= "" and (dim .. stamp .. ": " .. reset) or ""
+local function new_lines(folded, focus)
+	return { folded = folded or {}, focus = focus, actions = {}, sections = {} }
 end
 
 local function add(out, lines)
 	for _, l in ipairs(lines) do
 		out[#out + 1] = l
 	end
+end
+
+--- A line clipped or padded to n columns.
+local function pad(s, n)
+	local c = M.clip(s, n)
+	return c .. reset .. string.rep(" ", math.max(0, n - M.width(c)))
+end
+
+--- A box's top line, or its only line when folded: the title on the left and
+--- `right` at the end, joined by the border.
+local function box_top(colour, title, right, cols, folded)
+	local tail = right ~= "" and (" " .. right .. " ") or ""
+	local room = cols - 5 - M.width(tail)
+	if room < 4 then
+		tail, room = "", cols - 5
+	end
+	title = M.clip(title, room) .. reset
+	local fill = cols - 4 - M.width(title) - M.width(tail)
+	local left, close = folded and "╶ " or "╭ ", folded and "╴" or "╮"
+	return colour .. left .. reset .. title .. " " .. colour .. string.rep("─", fill) .. reset .. tail .. colour .. close .. reset
+end
+
+--- Adds a box: a blank row first, the top line, what `body(inner_cols)` adds,
+--- framed, and the bottom line. Clicks stored by line in `actions` keep working,
+--- and their column ranges move with the frame. Narrower than M.box_min, the
+--- box is a heading with its lines under it. Returns the top line's number.
+function M.box(out, actions, cols, colour, title, right, body, folded)
+	right = right or ""
+	if #out > 0 then
+		out[#out + 1] = ""
+	end
+	if cols < M.box_min then
+		out[#out + 1] = title .. reset .. (right ~= "" and (" " .. dim .. right .. reset) or "")
+		local head = #out
+		if not folded then
+			body(cols)
+		end
+		return head
+	end
+	out[#out + 1] = box_top(colour, title, right, cols, folded)
+	local head = #out
+	if folded then
+		return head
+	end
+	local first = #out + 1
+	body(cols - 4)
+	for i = first, #out do
+		out[i] = colour .. "│ " .. reset .. pad(out[i], cols - 4) .. colour .. " │" .. reset
+		local a = actions and actions[i]
+		for _, r in ipairs(a and a.ranges or {}) do
+			r.from, r.to = r.from + 2, r.to + 2
+		end
+	end
+	out[#out + 1] = colour .. "╰" .. string.rep("─", cols - 2) .. "╯" .. reset
+	return head
+end
+
+--- A box that folds: a click on its top line, or Enter on it after n and p,
+--- folds it. opts: colour, title (the name by default), icon, right (shown
+--- dim), or status (shown as it is).
+local function section(out, cols, name, opts, body)
+	local folded = out.folded[name] == true
+	local colour = opts.colour or grey
+	local title = (opts.icon and (opts.icon .. " ") or "") .. (opts.title or name)
+	if folded or cols < M.box_min then
+		title = fold_marks[folded] .. title
+	end
+	title = (out.focus == name and "\27[7m" or bold) .. colour .. title .. reset
+	local right = opts.status or ((opts.right or "") ~= "" and (dim .. opts.right .. reset)) or ""
+	local head = M.box(out, out.actions, cols, colour, title, right, body, folded)
+	out.actions[head] = { kind = "fold", name = name }
+	out.sections[#out.sections + 1] = { name = name, line = head }
+end
+
+--- Joins parts with two spaces into as few lines of n columns as they fit.
+local function flow(out, parts, n)
+	local line = ""
+	for i = 1, table.maxn(parts) do
+		local p = parts[i]
+		if p and p ~= "" then
+			if line ~= "" and M.width(line) + 2 + M.width(p) > n then
+				out[#out + 1] = line
+				line = p
+			else
+				line = line == "" and p or (line .. "  " .. p)
+			end
+		end
+	end
+	if line ~= "" then
+		out[#out + 1] = line
+	end
+end
+
+--- A gauge of n cells, `fraction` of them on.
+local function cells(fraction, n, colour, on, off)
+	local k = math.max(0, math.min(n, math.floor(fraction * n + 0.5)))
+	return colour .. string.rep(on or "▰", k) .. reset .. dim .. string.rep(off or "▱", n - k) .. reset
+end
+
+local function level_colour(percent)
+	return percent >= 90 and red or percent >= 70 and yellow or mint
+end
+
+--- "Opus 5.5" from "claude-opus-5-5".
+function M.model_name(id)
+	local name, major, minor = tostring(id or ""):match("^claude%-(%a+)%-(%d+)%-(%d+)")
+	if name then
+		return name:sub(1, 1):upper() .. name:sub(2) .. " " .. major .. "." .. minor
+	end
+	return id
+end
+
+function M.tokens(n)
+	if n >= 999500 then
+		return string.format("%.1fM", n / 1000000)
+	elseif n >= 1000 then
+		return math.floor(n / 1000 + 0.5) .. "k"
+	end
+	return tostring(math.floor(n))
+end
+
+--- A span as 7s, 2m37s or 1h05m.
+function M.span(seconds)
+	local s = math.max(0, math.floor(seconds))
+	if s < 60 then
+		return s .. "s"
+	elseif s < 3600 then
+		return string.format("%dm%02ds", math.floor(s / 60), s % 60)
+	end
+	return string.format("%dh%02dm", math.floor(s / 3600), math.floor(s % 3600 / 60))
+end
+
+--- A running clock: 0:42, or 1:02:03.
+function M.clock(seconds)
+	local s = math.max(0, math.floor(seconds))
+	if s >= 3600 then
+		return string.format("%d:%02d:%02d", math.floor(s / 3600), math.floor(s % 3600 / 60), s % 60)
+	end
+	return string.format("%d:%02d", math.floor(s / 60), s % 60)
+end
+
+local spinner = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+
+local function spin(now)
+	return spinner[math.floor(now) % #spinner + 1]
+end
+
+local function time_left(seconds)
+	local m = math.max(1, math.ceil(seconds / 60))
+	if m >= 1440 then
+		return string.format("%dd%dh", math.floor(m / 1440), math.floor(m % 1440 / 60))
+	elseif m >= 60 then
+		return string.format("%dh%dm", math.floor(m / 60), m % 60)
+	end
+	return m .. "m"
+end
+
+local function duration(ms)
+	local m = math.floor(ms / 60000)
+	if m >= 60 then
+		return string.format("%dh %02dm", math.floor(m / 60), m % 60)
+	end
+	return m .. "m"
 end
 
 --- The questions at the end of Claude's last reply, while the user hasn't
@@ -625,43 +912,250 @@ function M.reply_questions(state)
 	return out
 end
 
---- Sections of a compaction summary that say where work stands. Claude Code
---- writes their headings either as Markdown or as "8. Current Work:".
-function M.summary_lines(summary)
-	local out, keep = {}, false
-	-- Claude Code adds instructions for Claude after the summary itself.
-	summary = (summary or ""):gsub("\nIf you need specific details from before compaction.*$", "")
-	for line in (summary .. "\n"):gmatch("([^\n]*)\n") do
-		local h = line:match("^#+%s*(.-)%s*$") or line:match("^%d+%.%s+(%u[%a%s]*):%s*$")
-		if h then
-			local l = h:lower()
-			keep = l:find("current") or l:find("next") or l:find("pending") or l:find("open") or l:find("remaining")
-			if keep then
-				out[#out + 1] = { heading = h }
-			end
-		elseif keep and line:match("%S") then
-			out[#out + 1] = { text = line }
-		end
-	end
-	return out
-end
-
 local status_marks = { completed = green .. "✓" .. reset, in_progress = yellow .. "▸" .. reset }
 
-local function open_section(out, state, cols)
-	local open = {}
+--- Whether Claude is working on a prompt.
+function M.running(state)
+	return state.turn.at ~= nil and state.turn.ms == nil
+end
+
+local efforts = { low = 1, medium = 2, high = 3, xhigh = 4, max = 5 }
+
+--- The main box: model, effort, mode and requests; context; limits.
+--- `status` is the status line's saved input. A limit window that has reset
+--- since it was saved counts as unused.
+local function main_box(out, state, cols, o)
+	local status = type(o.status) == "table" and o.status or {}
+	local now = o.now
+	local running = M.running(state)
+	local right = running and (orange .. "● running" .. reset) or (dim .. "○ idle" .. reset)
+	section(out, cols, "Main", { colour = orange, title = (M.model_name(state.model) or "Claude") .. " · main", status = right }, function(n)
+		local first_line = #out
+		local about = {}
+		if state.title then
+			about[#about + 1] = state.title
+		end
+		if state.branch then
+			about[#about + 1] = dim .. state.branch .. reset
+		end
+		if #about > 0 then
+			out[#out + 1] = table.concat(about, dim .. " · " .. reset)
+		end
+		local e = efforts[tostring(state.effort or "")]
+		flow(out, {
+			e and ("effort " .. cells(e / 5, 5, orange, "▮", "▯") .. " " .. bold .. state.effort .. reset),
+			state.mode and ("mode " .. state.mode),
+			state.requests > 0 and (state.requests .. " req"),
+		}, n)
+		local window = type(status.context_window) == "table" and tonumber(status.context_window.context_window_size)
+		local ctx = state.context
+		local parts = {}
+		if ctx and window and window > 0 then
+			local percent = ctx / window * 100
+			parts[#parts + 1] = "ctx " .. cells(percent / 100, 8, level_colour(percent)) .. " " .. bold .. math.floor(percent + 0.5) .. "%" .. reset
+				.. " " .. dim .. M.tokens(ctx) .. "/" .. M.tokens(window) .. reset
+		elseif ctx then
+			parts[#parts + 1] = "ctx " .. M.tokens(ctx)
+		end
+		if state.compactions > 0 then
+			parts[#parts + 1] = "⟲" .. state.compactions
+		end
+		flow(out, parts, n)
+		parts = {}
+		local limits = type(status.rate_limits) == "table" and status.rate_limits or {}
+		for _, w in ipairs({ { "5h", limits.five_hour }, { "7d", limits.seven_day } }) do
+			local limit = w[2]
+			if type(limit) == "table" and limit.used_percentage then
+				local left = limit.resets_at and limit.resets_at - now or nil
+				local used = (left and left <= 0) and 0 or limit.used_percentage
+				parts[#parts + 1] = w[1] .. " " .. cells(used / 100, 5, level_colour(used)) .. " " .. math.floor(used + 0.5) .. "%"
+					.. ((left and left > 0) and (dim .. " ↻" .. time_left(left) .. reset) or "")
+			end
+		end
+		if state.claude_ms > 0 then
+			parts[#parts + 1] = dim .. "claude " .. duration(state.claude_ms) .. reset
+		end
+		flow(out, parts, n)
+		if #out == first_line then
+			out[#out + 1] = dim .. "Nothing from Claude yet." .. reset
+		end
+	end)
+end
+
+--- The advisor's consults on a timeline from the first prompt to now.
+local function advisor_box(out, state, cols, o)
+	local consults = state.consults
+	if #consults == 0 then
+		return
+	end
+	local last = consults[#consults]
+	local open = last.done == nil
+	section(out, cols, "Advisor", { colour = purple, title = "ADVISOR · " .. (open and "consulting" or "on call"), right = "consults " .. #consults }, function(n)
+		local from = (state.prompts[1] and M.epoch(state.prompts[1].at)) or consults[1].at or o.now
+		local span = math.max(1, o.now - from)
+		local line = {}
+		for i = 1, n do
+			line[i] = "─"
+		end
+		for _, c in ipairs(consults) do
+			if c.at then
+				line[math.max(1, math.min(n, math.floor((c.at - from) / span * (n - 1)) + 1))] = "◆"
+			end
+		end
+		out[#out + 1] = purple .. table.concat(line) .. reset
+		local facts = {}
+		if last.at then
+			facts[#facts + 1] = open and ("consulting " .. M.span(o.now - last.at)) or ("last " .. M.span(o.now - (last.done or last.at)) .. " ago")
+		end
+		if last.done and last.at then
+			facts[#facts + 1] = "took " .. M.span(last.done - last.at)
+		end
+		out[#out + 1] = table.concat(facts, dim .. " · " .. reset)
+	end)
+end
+
+local verdict_colours = { allowed = mint, classifier = aqua, you = blue, denied = red }
+local verdict_marks = { allowed = "✓", classifier = "✓", you = "✓", denied = "✗" }
+
+--- The gate: a cell for each latest permission check, the totals, and the
+--- families, each opening its last 5 checks. `o.gate` is the family open.
+local function gate_box(out, state, cols, o)
+	local gate = state.gate
+	if gate.total == 0 then
+		return
+	end
+	section(out, cols, "Gate", { colour = mint, title = "GATE · permissions", right = gate.total .. " checks" }, function(n)
+		local from = math.max(1, #gate.checks - n * 2 + 1)
+		local row = {}
+		for i = from, #gate.checks do
+			local c = gate.checks[i]
+			local cell = c.verdict == "denied" and "✗" or "⣿"
+			row[#row + 1] = (c.sub and dim or "") .. verdict_colours[c.verdict] .. cell .. reset
+			if #row == n then
+				out[#out + 1] = table.concat(row)
+				row = {}
+			end
+		end
+		if #row > 0 then
+			out[#out + 1] = table.concat(row)
+		end
+		local v = gate.verdicts
+		flow(out, {
+			mint .. "■" .. reset .. " " .. v.allowed .. " allowed",
+			aqua .. "■" .. reset .. " " .. v.classifier .. " classifier",
+			v.you > 0 and (blue .. "■" .. reset .. " " .. v.you .. " you") or nil,
+			(v.denied > 0 and red or dim) .. "✗" .. reset .. " " .. v.denied .. " denied",
+		}, n)
+		local parts, ranges, column = {}, {}, 1
+		for _, f in ipairs({ { "f", "file" }, { "s", "shell" }, { "o", "other" } }) do
+			local text = f[1] .. ": " .. f[2] .. " " .. gate.families[f[2]]
+			local shown = o.gate == f[2] and ("\27[7m" .. text .. reset) or text
+			parts[#parts + 1] = shown
+			ranges[#ranges + 1] = { from = column, to = column + M.width(text) - 1, action = { kind = "gate", family = f[2] } }
+			column = column + M.width(text) + 2
+		end
+		out[#out + 1] = table.concat(parts, "  ")
+		out.actions[#out] = { ranges = ranges }
+		if o.gate then
+			local shown = 0
+			for i = #gate.checks, 1, -1 do
+				local c = gate.checks[i]
+				if c.family == o.gate then
+					out[#out + 1] = verdict_colours[c.verdict] .. verdict_marks[c.verdict] .. reset .. " " .. c.tool
+						.. (c.target ~= "" and (" " .. dim .. c.target .. reset) or "")
+					shown = shown + 1
+					if shown == 5 then
+						break
+					end
+				end
+			end
+		end
+	end)
+end
+
+--- The subagents as swimlanes on one time axis, the latest 8, newest first.
+--- A running one has a pulsing ● and its lane in lavender. A click on a lane
+--- opens its type, context, steps, last tool calls and answer.
+local function agents_box(out, state, cols, o)
+	local agents = o.agents or {}
+	if #agents == 0 then
+		return
+	end
+	local running = 0
+	local from, to = math.huge, 0
+	local first = math.max(1, #agents - 7)
+	for i = first, #agents do
+		local a = agents[i]
+		if not a.finished then
+			running = running + 1
+		end
+		if a.start then
+			from = math.min(from, a.start)
+			to = math.max(to, a.finished and (a.last or a.start) or o.now)
+		end
+	end
+	for i = 1, first - 1 do
+		if not agents[i].finished then
+			running = running + 1
+		end
+	end
+	section(out, cols, "Agents", { colour = lavender, title = "AGENTS · " .. running .. " running", right = #agents .. " total" }, function(n)
+		local label_w = math.max(8, math.floor(n * 0.4))
+		local time_w = 7
+		local bar_w = n - label_w - time_w - 2
+		for i = #agents, first, -1 do
+			local a = agents[i]
+			local pulse = math.floor(o.now) % 2 == 0 and (bold .. lavender .. "●") or (lavender .. "●")
+			local mark = a.finished and (mint .. "✓" .. reset) or (pulse .. reset)
+			local lane = a.finished and dim .. mint or lavender
+			local label = pad(mark .. " " .. i .. ": " .. (a.description or a.type or "agent"), label_w)
+			local stop = a.finished and (a.last or a.start) or o.now
+			local took = a.start and M.clock(stop - a.start) or ""
+			local bar = ""
+			if bar_w >= 4 then
+				local cells_on = {}
+				local span = math.max(1, to - from)
+				local s = a.start and math.floor((a.start - from) / span * (bar_w - 1)) + 1 or 1
+				local e = a.start and math.max(s, math.floor((stop - from) / span * (bar_w - 1)) + 1) or 0
+				for c = 1, bar_w do
+					cells_on[c] = (c >= s and c <= e) and (lane .. (a.finished and "─" or "━") .. reset) or (dim .. "·" .. reset)
+				end
+				bar = " " .. table.concat(cells_on)
+			end
+			out[#out + 1] = label .. bar .. " " .. string.rep(" ", time_w - M.width(took)) .. took
+			out.actions[#out] = { kind = "agent", id = a.id }
+			if o.open_agents and o.open_agents[a.id] then
+				flow(out, {
+					dim .. (a.type or "agent") .. reset,
+					a.context and (dim .. "ctx " .. M.tokens(a.context) .. reset),
+					dim .. (a.steps or 0) .. " steps" .. reset,
+				}, n)
+				for t = math.max(1, #(a.tools or {}) - 2), #(a.tools or {}) do
+					out[#out + 1] = "  " .. lavender .. "›" .. reset .. " " .. a.tools[t]
+				end
+				if a.answer then
+					add(out, M.wrap(a.answer, n, "  " .. dim, "  " .. dim, 2))
+				end
+			end
+		end
+	end)
+end
+
+--- Questions waiting for an answer, then open tasks; no box with none.
+local function open_box(out, state, cols)
+	local items = {}
 	for id in pairs(state.waiting) do
 		local tool = state.tools[id]
 		if tool.name == "AskUserQuestion" then
 			for _, q in ipairs(tool.input.questions or {}) do
-				add(open, M.wrap(q.question, cols, yellow .. "? " .. reset, "  "))
+				items[#items + 1] = { "?", q.question }
 			end
 		else
-			add(open, M.wrap("Plan awaiting approval: " .. M.plan_title(tool.input.plan), cols, yellow .. "? " .. reset, "  "))
+			items[#items + 1] = { "?", "Plan awaiting approval: " .. M.plan_title(tool.input.plan) }
 		end
 	end
 	for _, q in ipairs(M.reply_questions(state)) do
-		add(open, M.wrap(q, cols, yellow .. "? " .. reset, "  "))
+		items[#items + 1] = { "?", q }
 	end
 	local tasks = {}
 	for _, id in ipairs(state.task_order) do
@@ -672,241 +1166,186 @@ local function open_section(out, state, cols)
 	end
 	for _, t in ipairs(tasks) do
 		if t.status ~= "completed" and t.status ~= "deleted" then
-			add(open, M.wrap(t.text, cols, (status_marks[t.status] or "○") .. " ", "  "))
+			items[#items + 1] = { status_marks[t.status] or "○", t.text }
 		end
 	end
-	section(out, "Open", "◇", #open == 0 and "none" or nil, function()
-		add(out, open)
-	end)
-end
-
-local function duration(ms)
-	local m = math.floor(ms / 60000)
-	if m >= 60 then
-		return string.format("%dh %02dm", math.floor(m / 60), m % 60)
-	end
-	return m .. "m"
-end
-
-local function session_section(out, state, cols)
-	heading(out, "◆ Session")
-	local facts = {
-		{ "Title", state.title },
-		{ "Branch", state.branch },
-		{ "Model", state.model },
-		{ "Reasoning", state.effort },
-		{ "Context", state.context and (math.floor(state.context / 1000) .. "k tokens") },
-		{ "Compacted", state.compactions > 0 and (state.compactions .. "×") or nil },
-		{ "Claude time", state.claude_ms > 0 and duration(state.claude_ms) or nil },
-	}
-	under_heading(out, function()
-		for _, f in ipairs(facts) do
-			if f[2] then
-				add(out, M.wrap(tostring(f[2]), cols, dim .. string.format("%-12s", f[1]) .. reset, string.rep(" ", 12)))
-			end
-		end
-	end)
-end
-
-local function tests_section(out, state, cols)
-	section(out, "Tests", "▷", #state.tests > 0 and tostring(#state.tests) or "none", function()
-		for i = #state.tests, math.max(1, #state.tests - 7), -1 do
-			local t = state.tests[i]
-			out[#out + 1] = M.clip((t.ok and (green .. "✓ ") or (red .. "✗ ")) .. reset .. t.command, cols)
-		end
-	end)
-end
-
-local function failed_section(out, state, cols)
-	section(out, "Failed commands", "✗", #state.failures > 0 and tostring(#state.failures) or "none", function()
-		for i = #state.failures, math.max(1, #state.failures - 7), -1 do
-			local f = state.failures[i]
-			out[#out + 1] = M.clip(red .. "✗ " .. reset .. f.command, cols)
-			out[#out + 1] = M.clip("  " .. dim .. f.error .. reset, cols)
-		end
-	end)
-end
-
-local function time_left(seconds)
-	local m = math.max(1, math.ceil(seconds / 60))
-	if m >= 1440 then
-		return string.format("%dd %dh", math.floor(m / 1440), math.floor(m % 1440 / 60))
-	elseif m >= 60 then
-		return string.format("%dh %dm", math.floor(m / 60), m % 60)
-	end
-	return m .. "m"
-end
-
---- The 5-hour and 7-day limits, from the status line's saved input. A window
---- that has reset since it was saved counts as unused.
-local function usage_section(out, limits, cols, now)
-	if type(limits) ~= "table" then
+	if #items == 0 then
 		return
 	end
-	local shown = false
-	for _, w in ipairs({ { "Session (5h)", limits.five_hour }, { "Week (7d)", limits.seven_day } }) do
-		local name, limit = w[1], w[2]
-		if type(limit) == "table" and limit.used_percentage then
-			if not shown then
-				heading(out, "▤ Usage")
-				out[#out + 1] = ""
-				shown = true
-			end
-			local left = limit.resets_at and limit.resets_at - now or nil
-			local used = (left and left <= 0) and 0 or limit.used_percentage
-			local percent = math.floor(used + 0.5) .. "%"
-			out[#out + 1] = name .. string.rep(" ", math.max(1, cols - M.width(name) - #percent)) .. percent
-			local filled = math.max(0, math.min(cols, math.floor(cols * used / 100 + 0.5)))
-			local colour = used >= 90 and red or used >= 70 and yellow or green
-			out[#out + 1] = colour .. string.rep("━", filled) .. reset .. dim .. string.rep("─", cols - filled) .. reset
-			if left and left > 0 then
-				out[#out + 1] = dim .. "Resets in " .. time_left(left) .. reset
-			end
+	section(out, cols, "Open", { colour = gold, title = "OPEN", right = tostring(#items) }, function(n)
+		for _, item in ipairs(items) do
+			local mark = item[1] == "?" and (yellow .. "? " .. reset) or (item[1] .. " ")
+			add(out, M.wrap(item[2], n, mark, "  "))
 		end
-	end
+	end)
 end
 
---- Everything on the Info tab, most useful first.
---- The texts of the last n responses, newest first.
-function M.last_responses(state, n)
-	local texts = {}
-	for i = #state.responses, math.max(1, #state.responses - n + 1), -1 do
-		local r = state.responses[i]
-		texts[#texts + 1] = r.full or r.text
-	end
-	return texts
-end
-
---- What Claude's last replies mention, as Rex View lists it, with a click that
---- opens each, and one that opens Rex View's float.
-local function links_section(out, links, cols)
-	if not links then
+--- The running turn, or the last one: how long, the agents it started, edits,
+--- and errors; then tests and failed commands, each opening
+--- its list.
+local function receipt_box(out, state, cols, o)
+	local turn = state.turn
+	if not turn.at and #state.tests == 0 and #state.failures == 0 then
 		return
 	end
-	local rows = links.rows
-	section(out, "Links and files", "↗", #rows > 0 and tostring(#rows) or "none", function()
-		if #rows == 0 then
-			out[#out + 1] = dim .. "Nothing in Claude's last " .. links.n .. (links.n == 1 and " reply." or " replies.") .. reset
-		end
-		for _, r in ipairs(rows) do
-			local note = r.note or r.kind
-			local room = math.max(1, cols - M.width(note) - 2)
-			out[#out + 1] = M.clip(r.label, room) .. "  " .. dim .. note .. reset
-			out.actions[#out] = { kind = "mention", row = r }
-		end
-		out[#out + 1] = ""
-		out[#out + 1] = cyan .. "open panel" .. reset
-		out.actions[#out] = { kind = "view_panel" }
-	end)
-end
-
-function M.info_lines(state, cols, limits, now, folded, focus, links)
-	local out = new_lines(folded, focus)
-	session_section(out, state, cols)
-	usage_section(out, limits, cols, now or os.time())
-	open_section(out, state, cols)
-	links_section(out, links, cols)
-	tests_section(out, state, cols)
-	failed_section(out, state, cols)
-	return out
-end
-
--- Log -----------------------------------------------------------------------
-
-local page_size = 3
-
---- The pager at the end of a section, with the columns each side takes.
---- Entries run newest first, so Next, to the left, is the later entries.
-function M.pager(page, pages, name)
-	local later, position, earlier = "← Next", " " .. page .. "/" .. pages .. " ", "Previous →"
-	local ranges = {}
-	if page > 1 then
-		ranges[#ranges + 1] = { from = 1, to = M.width(later), action = { kind = "page", name = name, page = page - 1 } }
-	end
-	if page < pages then
-		local from = M.width(later) + M.width(position) + 1
-		ranges[#ranges + 1] = { from = from, to = from + M.width(earlier) - 1, action = { kind = "page", name = name, page = page + 1 } }
-	end
-	local function side(text, on)
-		return (on and cyan or dim) .. text .. reset
-	end
-	return side(later, page > 1) .. position .. side(earlier, page < pages), ranges
-end
-
-local function summary_section(out, state, cols)
-	local summary = state.summary
-	local stamp = summary and M.stamp(summary.at) or ""
-	section(out, "Summary", "≡", not summary and "none" or (stamp ~= "" and "from " .. stamp or nil), function()
-		if not summary then
-			return
-		end
-		local parts = M.summary_lines(summary.text)
-		if #parts == 0 then
-			out[#out + 1] = dim .. "No current state in this summary." .. reset
-		end
-		for _, s in ipairs(parts) do
-			if s.heading then
-				out[#out + 1] = dim .. s.heading .. reset
-			else
-				add(out, M.wrap(s.text:gsub("^%s+", ""), cols, "  ", "    "))
-			end
-		end
-	end)
-end
-
-local function decision_lines(out, d, cols)
-	if d.kind == "answer" then
-		add(out, M.wrap(d.text, cols, green .. "✓ " .. reset .. when(d) .. dim, "  " .. dim))
-		out[#out] = out[#out] .. reset
-		add(out, M.wrap(d.answer, cols, "  → ", "    "))
-	elseif d.kind == "plan_approved" then
-		add(out, M.wrap("Plan approved: " .. d.text, cols, green .. "✓ " .. reset .. when(d), "  "))
-	elseif d.kind == "plan_rejected" then
-		add(out, M.wrap("Plan rejected: " .. d.text, cols, red .. "✗ " .. reset .. when(d), "  "))
-	elseif d.kind == "dismissed" then
-		add(out, M.wrap("Question dismissed: " .. d.text, cols, red .. "✗ " .. reset .. when(d), "  "))
+	local running = M.running(state)
+	local title
+	if running then
+		title = orange .. spin(o.now) .. " turn " .. M.span(o.now - turn.at) .. reset
+	elseif turn.ms then
+		title = mint .. "✓" .. reset .. bold .. " last turn " .. M.span(turn.ms / 1000)
 	else
-		add(out, M.wrap("Rejected " .. d.text, cols, red .. "✗ " .. reset .. when(d), "  ", 3))
+		title = "turns"
 	end
-	if d.note and d.note ~= "" then
-		add(out, M.wrap(d.note, cols, "  " .. cyan .. "“", "   ", 4))
-		out[#out] = out[#out] .. "”" .. reset
-	end
+	section(out, cols, "Receipt", { colour = orange, title = title, right = "" }, function(n)
+		if turn.at then
+			local function count(k, one)
+				return k .. " " .. one .. (k == 1 and "" or "s")
+			end
+			flow(out, {
+				count(turn.agents, "agent"),
+				count(turn.edits, "edit"),
+				(turn.errors > 0 and red or "") .. count(turn.errors, "error") .. reset,
+			}, n)
+		end
+		local passed, failed = 0, 0
+		for _, t in ipairs(state.tests) do
+			if t.ok then
+				passed = passed + 1
+			else
+				failed = failed + 1
+			end
+		end
+		local tests = "tests " .. #state.tests .. (#state.tests > 0 and (" " .. green .. "✓" .. passed .. reset .. " " .. (failed > 0 and red or dim) .. "✗" .. failed .. reset) or "")
+		local fails = "failed commands " .. #state.failures
+		local tw = M.width(tests)
+		out[#out + 1] = (o.show == "tests" and ("\27[7m" .. tests .. reset) or tests) .. "  " .. (o.show == "failed" and ("\27[7m" .. fails .. reset) or fails)
+		out.actions[#out] = { ranges = {
+			{ from = 1, to = tw, action = { kind = "show", what = "tests" } },
+			{ from = tw + 3, to = tw + 2 + M.width(fails), action = { kind = "show", what = "failed" } },
+		} }
+		if o.show == "tests" then
+			for i = #state.tests, math.max(1, #state.tests - 7), -1 do
+				local t = state.tests[i]
+				out[#out + 1] = (t.ok and (green .. "✓ ") or (red .. "✗ ")) .. reset .. M.mask(t.command)
+			end
+		elseif o.show == "failed" then
+			for i = #state.failures, math.max(1, #state.failures - 7), -1 do
+				local f = state.failures[i]
+				out[#out + 1] = red .. "✗ " .. reset .. M.mask(f.command)
+				out[#out + 1] = "  " .. dim .. M.mask(f.error) .. reset
+			end
+		end
+	end)
 end
 
---- A section that lists its entries newest first, a page at a time.
-local function log_section(out, name, icon, entries, draw)
-	local pages = math.max(1, math.ceil(#entries / page_size))
-	local page = math.max(1, math.min(pages, out.pages[name] or 1))
-	section(out, name, icon, #entries == 0 and "none" or tostring(#entries), function()
-		local newest = #entries - (page - 1) * page_size
-		for i = newest, math.max(1, newest - page_size + 1), -1 do
-			draw(entries[i])
-		end
-		if pages > 1 then
-			local line, ranges = M.pager(page, pages, name)
-			out[#out + 1] = ""
-			out[#out + 1] = line
-			out.actions[#out] = { ranges = ranges }
+local log_colours = { main = orange, agent = lavender, gate = mint, advisor = purple }
+
+--- The session log, newest at the bottom: as many of the latest events as the
+--- rows under the other boxes hold, or, when those fill the screen, a screen
+--- of them to scroll down to.
+local function log_box(out, state, cols, o)
+	local log = state.log
+	if #log == 0 then
+		return
+	end
+	local frame = cols >= M.box_min and 3 or 2
+	local rows = o.rows or 0
+	local room = rows - #out - frame
+	if room < 3 then
+		room = math.max(3, rows - frame)
+	end
+	section(out, cols, "Log", { colour = grey, title = "LOG", right = tostring(#log) }, function(n)
+		for i = math.max(1, #log - room + 1), #log do
+			local e = log[i]
+			local when = e.at and os.date("%H:%M:%S", e.at) or "--:--:--"
+			out[#out + 1] = dim .. when .. reset .. " " .. pad((log_colours[e.who] or grey) .. e.who, 8) .. e.text
 		end
 	end)
-	out.sections[#out.sections].page, out.sections[#out.sections].pages = page, pages
 end
 
---- Everything on the Log tab.
-function M.log_lines(state, cols, folded, focus, pages)
-	local out = new_lines(folded, focus, pages)
-	summary_section(out, state, cols)
-	log_section(out, "Decisions", "◈", state.decisions, function(d)
-		decision_lines(out, d, cols)
-	end)
-	log_section(out, "Requests", "›", state.prompts, function(p)
-		add(out, M.wrap(p.text, cols, cyan .. "› " .. reset .. when(p), "  ", 6))
-	end)
-	log_section(out, "Responses", "‹", state.responses, function(r)
-		add(out, M.wrap(r.text:gsub("%*%*", ""):gsub("`", ""), cols, cyan .. "‹ " .. reset .. when(r), "  ", 8))
-	end)
+--- Everything on the Info tab. opts: status (the status line's saved input),
+--- now, folded, focus, agents, gate (the family open), open_agents, show
+--- ("tests" or "failed"), rows (the tab's height, which the log fills).
+--- `ticking` is true while a clock runs.
+function M.info_lines(state, cols, opts)
+	local o = opts or {}
+	o.now = o.now or os.time()
+	local out = new_lines(o.folded, o.focus)
+	main_box(out, state, cols, o)
+	advisor_box(out, state, cols, o)
+	gate_box(out, state, cols, o)
+	agents_box(out, state, cols, o)
+	open_box(out, state, cols)
+	receipt_box(out, state, cols, o)
+	log_box(out, state, cols, o)
+	out.ticking = M.running(state)
+	for _, a in ipairs(o.agents or {}) do
+		out.ticking = out.ticking or not a.finished
+	end
 	return out
+end
+
+-- Artifacts -----------------------------------------------------------------
+
+--- The Artifacts tab: the Search Panel link, pinned, then a section for each
+--- category of what Claude's replies mention. `groups` comes from
+--- mentions.group; a click on a row opens it as the Search Panel's Enter does.
+
+
+--- `titles` maps a PR's link to its title, when it's known.
+function M.artifacts_view(groups, cols, folded, focus, notice, titles)
+	titles = titles or {}
+	local out = new_lines(folded, focus)
+	local link = "Search Panel"
+	local built = {
+		lines = out,
+		pinned = { bold .. teal .. link .. reset .. dim .. "  ↗ all of Claude's replies" .. reset, notice and (red .. notice .. reset) or "" },
+		hits = { { { from = 1, to = M.width(link), action = { kind = "view_panel" } } } },
+		rows = {},
+	}
+	if #groups == 0 then
+		out[1] = dim .. "Nothing in Claude's replies yet." .. reset
+	end
+	for _, g in ipairs(groups) do
+		local n = cols
+		local function row(label, note, target)
+			if note == "" then
+				out[#out + 1] = M.clip(label, n)
+			else
+				local room = math.max(1, n - M.width(note) - 2)
+				out[#out + 1] = M.clip(label, room) .. "  " .. dim .. note .. reset
+			end
+			out.actions[#out] = { kind = "mention", row = target }
+		end
+		local style = mentions.styles[g.name] or mentions.styles.Other
+		section(out, cols, g.name, { colour = style.colour, icon = style.icon, right = tostring(#g.rows) }, function(inner)
+			n = inner
+			for _, r in ipairs(g.rows) do
+				if r.kind == "pr" then
+					local title = titles[r.target]
+					title = title and (dim .. (r.name:match("#%d+$") or r.name) .. reset .. " " .. title)
+					local own = { kind = "link", target = r.target }
+					if #r.rows + (r.direct and 1 or 0) <= 1 then
+						local sub = r.rows[1]
+						row(title or r.name, sub and sub.sub or "", sub or own)
+					else
+						row(title or r.name, "", own)
+						for _, sub in ipairs(r.rows) do
+							row("  " .. sub.sub, "", sub)
+						end
+					end
+				elseif r.title then
+					local key = r.target:match("/browse/(%u[%u%d]*%-%d+)") or r.label
+					row(dim .. key .. reset .. " " .. r.title, "", r)
+				else
+					row(r.label, r.note or r.kind, r)
+				end
+			end
+		end)
+	end
+	built.actions, built.sections = out.actions, out.sections
+	return built
 end
 
 -- Changes -------------------------------------------------------------------
@@ -1155,15 +1594,31 @@ function M.changes_view(v, cols)
 		stats = green .. "+" .. data.added .. reset .. " " .. red .. "−" .. data.removed .. reset .. "  "
 	end
 	local tree_mark = "≣"
-	local right = M.width(stats) + M.width(tree_mark)
-	local title = M.clip(v.title or "", math.max(1, cols - right - 1))
-	built.pinned[1] = bold .. title .. reset
-		.. string.rep(" ", math.max(1, cols - M.width(title) - right))
-		.. stats .. (v.tree and (cyan .. tree_mark .. reset) or (dim .. tree_mark .. reset))
-	built.hits[1] = { { from = cols - 1, to = cols, action = { kind = "tree" } } }
-	built.pinned[2] = ""
-	built.pinned[3], built.hits[3] = M.scope_bar(v.scopes, v.scope, cols)
-	built.pinned[4] = v.notice and (red .. v.notice .. reset) or ""
+	local mark = v.tree and (teal .. tree_mark .. reset) or (dim .. tree_mark .. reset)
+	local title = bold .. teal .. (v.title or "") .. reset
+	if cols >= M.box_min then
+		-- The header is a box of its own, pinned: branch, totals and tree mark on
+		-- the top line, the scopes inside.
+		local head, ranges = {}, {}
+		M.box(head, nil, cols, teal, title, stats .. mark, function(n)
+			local bar
+			bar, ranges = M.scope_bar(v.scopes, v.scope, n)
+			head[#head + 1] = bar
+		end)
+		for _, r in ipairs(ranges) do
+			r.from, r.to = r.from + 2, r.to + 2
+		end
+		built.pinned = { head[1], head[2], head[3] }
+		built.hits = { { { from = cols - 3, to = cols - 2, action = { kind = "tree" } } }, ranges }
+	else
+		local right = M.width(stats) + M.width(tree_mark)
+		title = M.clip(title, math.max(1, cols - right - 1))
+		built.pinned[1] = title .. reset .. string.rep(" ", math.max(1, cols - M.width(title) - right)) .. stats .. mark
+		built.hits[1] = { { from = cols - 1, to = cols, action = { kind = "tree" } } }
+		built.pinned[2] = ""
+		built.pinned[3], built.hits[3] = M.scope_bar(v.scopes, v.scope, cols)
+	end
+	built.pinned[#built.pinned + 1] = v.notice and (red .. v.notice .. reset) or ""
 
 	local out = built.lines
 	if data.problem then
@@ -1178,18 +1633,15 @@ function M.changes_view(v, cols)
 		add(out, M.wrap(data.note, cols, dim, dim))
 	end
 	for _, group in ipairs(groups) do
-		local count = group.title .. " (" .. #group.rows .. ")"
-		local vs = data.vs and ("vs " .. data.vs) or ""
-		if #out > 0 then
-			out[#out + 1] = ""
-		end
-		out[#out + 1] = bold .. count .. reset
-			.. (vs ~= "" and (string.rep(" ", math.max(1, cols - M.width(count) - M.width(vs))) .. dim .. vs .. reset) or "")
-		if v.tree then
-			tree_rows(out, built, group.rows, v.selected, cols, v.folded or {})
-		else
-			list_rows(out, built, group, v.selected, group.title)
-		end
+		local count = bold .. teal .. group.title .. reset .. dim .. " " .. #group.rows .. reset
+		local vs = data.vs and (dim .. "vs " .. data.vs .. reset) or ""
+		M.box(out, built.actions, cols, teal, count, vs, function(n)
+			if v.tree then
+				tree_rows(out, built, group.rows, v.selected, n, v.folded or {})
+			else
+				list_rows(out, built, group, v.selected, group.title)
+			end
+		end)
 	end
 	return built
 end
@@ -1354,8 +1806,16 @@ local panel = {
 	folded_dirs = {},
 	--- Tab name -> the highlighted section's name.
 	focus = {},
-	--- Log section name -> the page shown.
-	pages = {},
+	--- The Artifacts tab's categories, from every reply; see refresh_artifacts.
+	artifacts = nil,
+	--- The gate family whose last checks Info shows, if any.
+	gate_open = nil,
+	--- Subagent ID -> true when its lane is open on Info.
+	open_agents = {},
+	--- "tests" or "failed" when the receipt shows that list.
+	show = nil,
+	--- A PR's link -> its title, or false when it couldn't be looked up.
+	titles = {},
 	--- Scope -> the key of the selected row.
 	selected = {},
 	--- The tab's last built view; cleared by anything that changes it.
@@ -1363,8 +1823,71 @@ local panel = {
 	state = M.new_state(),
 }
 
+-- Background work -----------------------------------------------------------
+-- git and gh run as tasks, coroutines the main loop steps between key reads,
+-- so the pane keeps taking keys while they run. A task must never yield inside
+-- pcall: this runtime crashes on it.
+
+local tasks = {}
+
+--- Starts `fn` as a task, unless one named `name` is still running.
+local function spawn(name, fn)
+	if tasks[name] then
+		return false
+	end
+	tasks[name] = coroutine.create(fn)
+	return true
+end
+
+--- Runs a command: in a task, without blocking, polling it each time the task
+--- is stepped and stopping it after `limit` seconds, 5 by default; elsewhere,
+--- as exec does.
+local function run(argv, limit)
+	if not coroutine.running() then
+		return exec(argv)
+	end
+	local ok, h = pcall(rex.exec.start, argv, {})
+	if not ok then
+		return nil
+	end
+	local deadline = os.clock() + (limit or 5)
+	while true do
+		local r = h:wait(0)
+		if r then
+			return r
+		end
+		if os.clock() > deadline then
+			pcall(h.kill, h)
+			return nil
+		end
+		coroutine.yield("wait")
+	end
+end
+
+--- Steps every task: one waiting on a command once, and one working for up to
+--- 20 ms. True when one ended, as the view then needs building again.
+local function step_tasks()
+	local ended = false
+	for name, co in pairs(tasks) do
+		local start = os.clock()
+		repeat
+			local ok, why = coroutine.resume(co)
+			if not ok then
+				panel.notice = tostring(why)
+			end
+		until coroutine.status(co) == "dead" or why == "wait" or os.clock() - start > 0.02
+		if coroutine.status(co) == "dead" then
+			tasks[name] = nil
+			ended = true
+		end
+	end
+	return ended
+end
+
+M.spawn, M.run, M.step_tasks = spawn, run, step_tasks
+
 local function git(...)
-	local r = exec({ "git", "-C", panel.root, ... })
+	local r = run({ "git", "-C", panel.root, ... })
 	return r and r.ok and r.stdout or ""
 end
 
@@ -1402,7 +1925,7 @@ local function follow(cwd)
 		return
 	end
 	panel.cwd = cwd
-	local r = exec({ "git", "-C", cwd, "rev-parse", "--show-toplevel" })
+	local r = run({ "git", "-C", cwd, "rev-parse", "--show-toplevel" })
 	local root = r and r.ok and (r.stdout:gsub("%s+$", "")) or cwd
 	if root ~= panel.root then
 		panel.root = root
@@ -1431,8 +1954,7 @@ local function base_ref()
 end
 
 --- The open PR of the branch, from GitHub through `gh`. It's looked up again on
---- opening Changes, on a new branch or repository, and after 5 minutes; not on
---- every redraw, because the pane takes no keys while it runs.
+--- opening Changes, on a new branch or repository, and after 5 minutes.
 local pr_cache, pr_ttl = nil, 300
 local function pr_lookup()
 	local branch = panel.branch
@@ -1444,10 +1966,37 @@ local function pr_lookup()
 	if hit and hit.key == key and now - hit.at < pr_ttl then
 		return hit.pr
 	end
-	local r = exec({ "/bin/sh", "-c", 'export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"; cd "$1" && exec gh pr view --json number,baseRefName,state', "sh", panel.root })
+	local r = run({ "/bin/sh", "-c", 'export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"; cd "$1" && exec gh pr view --json number,baseRefName,state', "sh", panel.root })
 	local pr = r and r.ok and M.pr_info(r.stdout) or nil
 	pr_cache = { key = key, at = now, pr = pr }
 	return pr
+end
+
+--- Looks up the titles of the PRs in Artifacts, from GitHub through `gh`, at
+--- most 4 at a time. A title is looked up once while the panel runs, and a
+--- failed lookup isn't tried again.
+local function pr_titles(groups)
+	local running = 0
+	for name in pairs(tasks) do
+		if name:sub(1, 6) == "title " then
+			running = running + 1
+		end
+	end
+	for _, g in ipairs(groups) do
+		for _, r in ipairs(g.rows) do
+			if running >= 4 then
+				return
+			end
+			local url = r.target
+			if r.kind == "pr" and panel.titles[url] == nil and spawn("title " .. url, function()
+				local res = run({ "/bin/sh", "-c", 'export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"; exec gh pr view "$1" --json title --jq .title', "sh", url })
+				local title = res and res.ok and res.stdout:gsub("%s+$", "") or ""
+				panel.titles[url] = title ~= "" and title or false
+			end) then
+				running = running + 1
+			end
+		end
+	end
 end
 
 --- The third scope of the Changes tab, with the PR or the ref it compares with.
@@ -1490,19 +2039,21 @@ local function untracked_lines(files, root)
 	return total
 end
 
---- Loads the scope on show; only that one, as the pane takes no keys while git
---- runs.
+--- Loads the scope on show, only that one. A load that a newer one replaced
+--- while git ran keeps what it found to itself.
+local scope_loads = 0
 local function load_scope()
+	scope_loads = scope_loads + 1
+	local load = scope_loads
 	local third, pr, ref = third_scope()
-	panel.third = third
-	panel.scope = M.pick_scope(M.scopes(panel.git, third), panel.scope)
+	local scope = M.pick_scope(M.scopes(panel.git, third), panel.scope)
 	local data
-	if panel.scope == "Last Turn" then
+	if scope == "Last Turn" then
 		data = M.turn_data(panel.state, panel.root)
 		if not panel.state.path then
 			data.problem = "No Claude session found for this pane."
 		end
-	elseif panel.scope == "Uncommitted" then
+	elseif scope == "Uncommitted" then
 		data = M.uncommitted(panel.files)
 		data.added, data.removed = M.numstat(git("diff", "--numstat", "-z", panel.head and "HEAD" or "--cached"))
 		data.added = data.added + untracked_lines(panel.files, panel.root)
@@ -1519,32 +2070,89 @@ local function load_scope()
 			data.added = data.added + untracked_lines(panel.files, panel.root)
 		end
 	end
-	panel.data = data
+	if load == scope_loads then
+		panel.third, panel.scope, panel.data = third, scope, data
+		panel.cache = nil
+	end
+end
+
+--- Loads the scope in the background, with the rows emptied when it's another
+--- scope than the one shown.
+local function reload_scope(switched)
+	if switched then
+		panel.data = { groups = {}, note = "Loading…" }
+	end
+	spawn("scope " .. (scope_loads + 1), load_scope)
 end
 
 --- The status line's saved input for a transcript's session, if it saves it.
-local function read_limits(path)
+local function read_status(path)
 	local config, session = path:match("^(.*)/projects/.*/([^/]+)%.jsonl$")
-	local saved = config and read_json(config .. "/state/statusline/" .. session .. ".json")
-	return saved and saved.rate_limits or nil
+	return config and read_json(config .. "/state/statusline/" .. session .. ".json") or nil
 end
 
---- The Links and files section's rows, worked out again only when the replies,
---- Claude's directory or the settings change.
-local function refresh_links()
-	local n = settings.info_replies(dir)
-	local patterns = settings.link_patterns(dir)
-	local texts = M.last_responses(panel.state, n)
-	local ok, encoded = pcall(rex.json.encode, patterns)
-	local key = { panel.cwd or "", n, ok and encoded or "" }
-	for _, text in ipairs(texts) do
-		key[#key + 1] = #text .. ":" .. text:sub(1, 64)
+--- The session's subagents, from the folder beside its transcript, oldest
+--- first. A finished one is read no more.
+local function read_agents(state)
+	local folder = state.path:gsub("%.jsonl$", "") .. "/subagents/"
+	local r = run({ "/bin/ls", folder })
+	if not (r and r.ok) then
+		return
 	end
-	key = table.concat(key, "\0")
-	if key ~= panel.links_key then
-		panel.links_key = key
-		panel.links = { n = n, rows = mentions.find(texts, panel.cwd, mentions.rules_for(patterns, panel.cwd)) }
-		panel.cache = nil
+	state.agents = state.agents or {}
+	for id in r.stdout:gmatch("agent%-([%w_%-]+)%.jsonl") do
+		local a = state.agents[id]
+		if not a then
+			a = M.new_agent(id)
+			state.agents[id] = a
+		end
+		if not a.finished then
+			local meta = read_json(folder .. "agent-" .. id .. ".meta.json") or {}
+			a.type, a.description = meta.agentType, meta.description
+			M.read_agent(a, folder .. "agent-" .. id .. ".jsonl", state.gate)
+			a.finished = meta.finished == true
+		end
+	end
+	local list = {}
+	for _, a in pairs(state.agents) do
+		list[#list + 1] = a
+	end
+	table.sort(list, function(x, y)
+		return (x.start or 0) < (y.start or 0)
+	end)
+	state.agent_list = list
+end
+
+--- The Artifacts tab's categories. Each reply is read once, as replies don't
+--- change once Claude has moved on; all are read again when the transcript,
+--- Claude's directory or the link patterns change.
+local function refresh_artifacts()
+	local patterns = settings.link_patterns(dir)
+	local ok, encoded = pcall(rex.json.encode, patterns)
+	local key = (panel.cwd or "") .. "\0" .. (ok and encoded or "")
+	local a = panel.artifacts
+	if not (a and a.key == key and a.state == panel.state) then
+		a = { key = key, state = panel.state, per = {}, groups = {}, total = 0, rules = mentions.rules_for(patterns, panel.cwd) }
+		panel.artifacts = a
+		a.changed = true
+	end
+	local responses = panel.state.responses
+	local lists = {}
+	for i = #responses, 1, -1 do
+		local r, done = responses[i], a.per[i]
+		if not (done and done.seq == r.seq) then
+			done = { seq = r.seq, rows = mentions.find({ r.text }, panel.cwd, a.rules) }
+			a.per[i] = done
+			a.changed = true
+			if coroutine.running() and i % 20 == 0 then
+				coroutine.yield()
+			end
+		end
+		lists[#lists + 1] = done.rows
+	end
+	if a.changed or a.count ~= #responses then
+		a.changed, a.count = false, #responses
+		a.groups, a.total = mentions.group(lists)
 	end
 end
 
@@ -1566,9 +2174,8 @@ local function gather()
 	panel.folded = settings.folded(dir)
 	panel.folded_dirs = settings.folded_dirs(dir, panel.root)
 
-	-- One status call: git status runs slowly in big repositories, and the
-	-- pane takes no keys while it runs.
-	local r = exec({ "git", "-C", panel.root, "status", "--porcelain", "-b", "-z", "--untracked-files=all" })
+	-- One status call: git status runs slowly in big repositories.
+	local r = run({ "git", "-C", panel.root, "status", "--porcelain", "-b", "-z", "--untracked-files=all" })
 	panel.git = r and r.ok or false
 	panel.files, panel.branch, panel.head = {}, nil, true
 	if panel.git then
@@ -1577,22 +2184,27 @@ local function gather()
 	end
 
 	if path then
-		if path ~= panel.state.path then
-			panel.state = M.new_state()
-			panel.state.path = path
+		-- A transcript is read into a state of its own, shown once it's read.
+		local state = panel.state
+		if path ~= state.path then
+			state = M.new_state()
+			state.path = path
 		end
-		if M.read_new(panel.state, path) == "reset" then
-			panel.state = M.new_state()
-			panel.state.path = path
-			M.read_new(panel.state, path)
+		if M.read_new(state, path) == "reset" then
+			state = M.new_state()
+			state.path = path
+			M.read_new(state, path)
 		end
-		panel.limits = read_limits(path)
+		panel.state = state
+		panel.status = read_status(path)
+		read_agents(state)
 	end
 
 	if panel.tab == "Changes" or not panel.data then
 		load_scope()
 	end
-	refresh_links()
+	panel.gathered = true
+	refresh_artifacts()
 end
 
 local function build(tab)
@@ -1604,19 +2216,35 @@ local function build(tab)
 			tree = panel.tree,
 			folded = panel.folded_dirs,
 			selected = panel.selected[panel.scope],
-			data = panel.data or { groups = {}, note = "" },
+			data = panel.data or { groups = {}, note = "Loading…" },
 			notice = panel.notice,
 		}, panel.cols - 1)
+	end
+	if not panel.gathered then
+		local lines = { dim .. "Reading the session…" .. reset }
+		return { lines = lines, pinned = {}, hits = {}, actions = {}, sections = {}, rows = {} }
+	end
+	if tab == "Artifacts" and panel.state.path then
+		local a = panel.artifacts or { groups = {} }
+		pr_titles(a.groups)
+		return M.artifacts_view(a.groups, panel.cols - 1, panel.folded, panel.focus.Artifacts, panel.notice, panel.titles)
 	end
 	local lines
 	if not panel.state.path then
 		lines = { dim .. "No Claude session found for this pane." .. reset }
-	elseif tab == "Log" then
-		lines = M.log_lines(panel.state, panel.cols - 1, panel.folded, panel.focus.Log, panel.pages)
 	else
-		lines = M.info_lines(panel.state, panel.cols - 1, panel.limits, nil, panel.folded, panel.focus.Info, panel.links)
+		lines = M.info_lines(panel.state, panel.cols - 1, {
+			status = panel.status,
+			folded = panel.folded,
+			focus = panel.focus.Info,
+			agents = panel.state.agent_list,
+			gate = panel.gate_open,
+			open_agents = panel.open_agents,
+			show = panel.show,
+			rows = M.page(panel.rows, 0),
+		})
 	end
-	return { lines = lines, pinned = {}, hits = {}, actions = lines.actions or {}, sections = lines.sections or {}, rows = {} }
+	return { lines = lines, pinned = {}, hits = {}, actions = lines.actions or {}, sections = lines.sections or {}, rows = {}, ticking = lines.ticking }
 end
 
 --- The tab's view, built again only after something cleared it.
@@ -1645,7 +2273,9 @@ local function draw()
 	s = math.max(0, math.min(s, #c.lines - page))
 	panel.scroll[panel.tab] = s
 	local count = #panel.files > 0 and tostring(#panel.files) or nil
-	local frame, ranges = M.frame(M.tabs, panel.tab, c.lines, s, panel.cols, panel.rows, { pinned = c.pinned, badges = { Changes = count } })
+	local found = panel.artifacts and panel.artifacts.total > 0 and tostring(panel.artifacts.total) or nil
+	local badges = { Changes = count, Artifacts = found }
+	local frame, ranges = M.frame(M.tabs, panel.tab, c.lines, s, panel.cols, panel.rows, { pinned = c.pinned, badges = badges })
 	panel.layout = { tabs = ranges, hits = c.hits, pinned = #c.pinned, actions = c.actions, scroll = s }
 	io.write(frame)
 	if io.stdout.flush then
@@ -1662,7 +2292,7 @@ local function set_tab(tab)
 	panel.cache = nil
 	if tab == "Changes" then
 		pr_cache = nil
-		load_scope()
+		reload_scope(false)
 	end
 end
 
@@ -1680,7 +2310,7 @@ local function set_scope(scope)
 	panel.scroll.Changes = 0
 	panel.notice = nil
 	panel.cache = nil
-	load_scope()
+	reload_scope(true)
 end
 
 local function next_scope()
@@ -1735,16 +2365,6 @@ local function fold_focused()
 		end
 	end
 	next_section(1)
-end
-
---- Turns the highlighted section's page; `[` and `]` match the pager's sides.
-local function page_focused(step)
-	for _, s in ipairs(current().sections or {}) do
-		if s.name == panel.focus[panel.tab] and s.pages then
-			panel.pages[s.name] = math.max(1, math.min(s.pages, s.page + step))
-			panel.cache = nil
-		end
-	end
 end
 
 --- Opens a float over this pane's tab, replacing an earlier diff or Rex View.
@@ -1807,7 +2427,7 @@ local function open_diff(row)
 	return open_float(diff_label .. (row.path:match("[^/]+$") or row.path), command, panel.root)
 end
 
---- What a click on a Links and files row does: Rex View's Enter.
+--- What a click on an Artifacts row does: the Search Panel's Enter.
 local function open_mention(row)
 	if row.kind == "link" then
 		if row.target:match("^https?://") then
@@ -1829,7 +2449,7 @@ local function open_view_panel()
 	if not panel.claude then
 		return "No Claude pane for this sidecar."
 	end
-	return open_float(view_label .. "Claude's replies", { dir .. "view-picker", rex_binary, panel.session_id, panel.claude }, panel.cwd)
+	return open_float(view_label .. "Search Panel", { dir .. "view-picker", rex_binary, panel.session_id, panel.claude }, panel.cwd)
 end
 
 --- Rex focuses whichever pane it picks when a float closes, so the pane takes
@@ -1873,13 +2493,19 @@ local function act(action)
 		toggle_fold(action.name)
 	elseif action.kind == "dir" then
 		toggle_dir(action.key, action.path)
-	elseif action.kind == "page" then
-		panel.pages[action.name] = action.page
-		panel.cache = nil
 	elseif action.kind == "mention" then
 		panel.notice = open_mention(action.row)
 	elseif action.kind == "view_panel" then
 		panel.notice = open_view_panel()
+	elseif action.kind == "gate" then
+		panel.gate_open = panel.gate_open ~= action.family and action.family or nil
+		panel.cache = nil
+	elseif action.kind == "agent" then
+		panel.open_agents[action.id] = not panel.open_agents[action.id] or nil
+		panel.cache = nil
+	elseif action.kind == "show" then
+		panel.show = panel.show ~= action.what and action.what or nil
+		panel.cache = nil
 	end
 end
 
@@ -1992,16 +2618,14 @@ local function key(k)
 		toggle_tree()
 	elseif panel.tab == "Changes" and (k == "\n" or k == "\r") then
 		open_selected()
+	elseif panel.tab == "Info" and (k == "f" or k == "s" or k == "o") then
+		act({ kind = "gate", family = ({ f = "file", s = "shell", o = "other" })[k] })
 	elseif panel.tab ~= "Changes" and k == "n" then
 		next_section(1)
 	elseif panel.tab ~= "Changes" and k == "p" then
 		next_section(-1)
 	elseif panel.tab ~= "Changes" and (k == "\n" or k == "\r") then
 		fold_focused()
-	elseif panel.tab ~= "Changes" and k == "[" then
-		page_focused(-1)
-	elseif panel.tab ~= "Changes" and k == "]" then
-		page_focused(1)
 	end
 end
 
@@ -2010,7 +2634,7 @@ if CC_SIDECAR_TEST then
 end
 
 -- Keys arrive one at a time, and a read gives up after a tenth of a second,
--- so the loop redraws without waiting for a key. Modes 1000 and 1006 report
+-- so the loop steps the tasks and redraws without waiting for a key. Modes 1000 and 1006 report
 -- clicks and the wheel. A trackpad sends dozens of reports a second, so input
 -- is drawn at most every 50 ms and once it stops, and the refresh waits for a
 -- second without keys. os.clock is wall time in this runtime.
@@ -2023,10 +2647,15 @@ while true do
 		watched = now
 		pcall(watch_float)
 	end
-	if now - gathered >= 2 and now - typed >= 1 then
+	if now - gathered >= 2 and now - typed >= 1 and spawn("gather", gather) then
 		gathered = now
-		local ok, err = pcall(gather)
-		panel.notice = (not ok) and tostring(err) or panel.notice
+	end
+	if step_tasks() then
+		panel.cache = nil
+		dirty = true
+	end
+	-- Running clocks tick once a second.
+	if panel.cache and panel.cache.ticking and os.clock() - drawn >= 1 then
 		panel.cache = nil
 		dirty = true
 	end

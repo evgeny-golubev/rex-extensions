@@ -50,7 +50,7 @@ rex.action({
 	end,
 })
 
--- Rex View: a picker for the files, images and links in Claude's last replies,
+-- Rex View: the Search Panel, a picker for the files, images and links in Claude's replies,
 -- in a float over the tab. Its floats are labelled like rex-view's, so each
 -- replaces the one before.
 local claude = dofile(base .. "claude.lua")
@@ -137,8 +137,8 @@ end
 
 rex.action({
 	name = "cc_sidecar_view",
-	title = "Rex View: Open from Claude's Replies",
-	description = "Lists the files, images and links in Claude's last replies, to view, edit or open.",
+	title = "Rex View: Search Panel",
+	description = "Lists the files, images and links in all of Claude's replies, to view, edit or open.",
 	category = "Claude Code",
 	keywords = "rex view open file image link url pr jira editor picker",
 	run = function(ctx)
@@ -147,7 +147,7 @@ rex.action({
 		if not block then
 			error("Rex View: no Claude Code in this tab", 0)
 		end
-		open_float(ctx, window, "Claude's replies", { base .. "view-picker", rex_binary, ctx.session_id, block })
+		open_float(ctx, window, "Search Panel", { base .. "view-picker", rex_binary, ctx.session_id, block })
 	end,
 })
 

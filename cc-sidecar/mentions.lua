@@ -1,10 +1,30 @@
--- What Claude's last replies mention, for the Rex View picker: files that
--- exist, images, links, and text that a link pattern turns into a link.
+-- What Claude's replies mention, for the Artifacts tab and the Search Panel:
+-- files that exist, images, links, and text that a link pattern turns into a
+-- link.
 local M = {}
 
 local home = os.getenv("HOME") or ""
 local max_rows = 100
 local images = { png = true, jpg = true, jpeg = true, gif = true, webp = true }
+local documents = {
+	md = true, markdown = true, txt = true, pdf = true, html = true, htm = true, csv = true, rtf = true,
+	doc = true, docx = true, xlsx = true, pptx = true, svg = true,
+	png = true, jpg = true, jpeg = true, gif = true, webp = true,
+}
+local max_total = 1000
+
+--- The Artifacts tab's categories, in the order it shows them.
+M.categories = { "Documents", "PRs", "Jira", "URLs", "Other" }
+
+--- Each category's icon and colour, shared by the Artifacts tab and the Search
+--- Panel.
+M.styles = {
+	Documents = { icon = "▤", colour = "\27[38;5;221m" },
+	PRs = { icon = "⇄", colour = "\27[38;5;147m" },
+	Jira = { icon = "◆", colour = "\27[38;5;75m" },
+	URLs = { icon = "↗", colour = "\27[38;5;80m" },
+	Other = { icon = "▫", colour = "\27[38;5;245m" },
+}
 
 local function decode(line)
 	local ok, value = pcall(rex.json.decode, line)
@@ -47,8 +67,8 @@ local function texts_of(record)
 end
 
 --- Claude's final message in each of the last n turns, newest first, from
---- transcript lines in file order: its last text before the next prompt, as the
---- Log tab's Responses. Only lines that can hold a prompt or a reply are
+--- transcript lines in file order: its last text before the next prompt, as
+--- panel.lua's responses. Only lines that can hold a prompt or a reply are
 --- decoded, as tool output fills most of a transcript.
 function M.turns(lines, n)
 	local turns, current = {}, nil
@@ -259,6 +279,47 @@ local function matches(text, pattern)
 	return out
 end
 
+local function tidy(title)
+	title = tostring(title or ""):gsub("[`*_]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+	title = title:gsub("^[%-–—:|]+%s*", ""):gsub("[%s%.,;:|]+$", "")
+	if title == "" or #title > 120 then
+		return nil
+	end
+	return title
+end
+
+--- A Jira issue's title as a reply wrote it next to its key: a Markdown link's
+--- text, the words in brackets after the key, after a colon or dash, or in the
+--- next table cell. Nil when the reply gives none.
+function M.jira_title(text, key)
+	local k = key:gsub("%-", "%%-")
+	for label, url in text:gmatch("%[([^%]\n]+)%]%(([^%)%s]+)%)") do
+		if url:find("/browse/" .. key, 1, true) then
+			local t = tidy(label:gsub(k, ""))
+			if t then
+				return t
+			end
+		end
+	end
+	local close = "[%]%*_`]*"
+	local patterns = {
+		k .. close .. "%s*%(([^%)\n]+)%)",
+		"|%s*%[?" .. k .. "[^|\n]*|%s*([^|\n]+)|",
+		k .. close .. "%s*[:–—]%s*([^\n]+)",
+		k .. close .. "%s+%-%s+([^\n]+)",
+	}
+	for _, p in ipairs(patterns) do
+		local found = text:match(p)
+		if found then
+			found = found:match("^(.-)%.%s") or found:match("^(.-)%s*%(https?:") or found
+			local t = tidy(found)
+			if t and not t:match("^https?://") then
+				return t
+			end
+		end
+	end
+end
+
 --- The rows for the picker, from the newest turn to the oldest. `rules` comes
 --- from M.rules_for. `kind` tells files from folders, and is M.kind outside the
 --- tests.
@@ -288,31 +349,155 @@ function M.find(turns, cwd, rules, kind)
 				}, full .. ":" .. (line or ""))
 			end
 		end
+		local function titled(row)
+			local key = row.target:match("/browse/(%u[%u%d]*%-%d+)")
+			row.title = key and M.jira_title(text, key) or nil
+			return row
+		end
 		for _, url in ipairs(urls(text)) do
-			add({ kind = "link", label = url:gsub("^https?://", ""), target = url }, url)
+			add(titled({ kind = "link", label = url:gsub("^https?://", ""), target = url }), url)
 		end
 		for _, rule in ipairs(rules) do
 			for _, m in ipairs(matches(text, rule.pattern)) do
 				local link = rule.basis .. m.value
-				add({ kind = "link", label = m.text, target = link, note = rule.basis:match("^https?://([^/]+)") }, link)
+				add(titled({ kind = "link", label = m.text, target = link, note = rule.basis:match("^https?://([^/]+)") }), link)
 			end
 		end
 	end
 	return rows
 end
 
+--- A row's category, from its link or its file's extension.
+function M.category(row)
+	local target = row.target or ""
+	if row.kind == "link" then
+		if target:find("/pull/%d+") or target:find("/merge_requests/%d+") then
+			return "PRs"
+		elseif target:find("/browse/%u[%u%d]*%-%d+") then
+			return "Jira"
+		end
+		return "URLs"
+	end
+	local ext = (target:match("%.(%w+)$") or ""):lower()
+	return documents[ext] and "Documents" or "Other"
+end
+
+--- A PR link's PR: its key, the PR's own link, a short name like
+--- "acme/shop#42", and what the link points at in it, like "# 123" for a
+--- comment or "files", or nil for the PR itself. Nil for other links.
+function M.pr_ref(url)
+	local base, path, number, rest = url:match("^(https?://[^/]+/(.-)/pull/(%d+))(.*)$")
+	if not base then
+		base, path, number, rest = url:match("^(https?://[^/]+/(.-)/%-/merge_requests/(%d+))(.*)$")
+	end
+	if not base then
+		base, path, number, rest = url:match("^(https?://[^/]+/(.-)/merge_requests/(%d+))(.*)$")
+	end
+	if not base then
+		return nil
+	end
+	local sub
+	local fragment = rest:match("#(.*)$") or ""
+	local comment = fragment:match("^issuecomment%-(%d+)") or fragment:match("^discussion_r(%d+)")
+		or fragment:match("^pullrequestreview%-(%d+)") or fragment:match("^note_(%d+)")
+	if comment then
+		sub = "# " .. comment
+	else
+		local part = rest:gsub("[?#].*$", ""):gsub("^/", ""):gsub("/$", "")
+		local sha = part:match("^commits?/(%x+)")
+		if sha then
+			sub = "commit " .. sha:sub(1, 7)
+		elseif part ~= "" then
+			sub = part
+		end
+	end
+	return { key = base, target = base, name = path .. "#" .. number, sub = sub }
+end
+
+--- A category's rows with PR links put together by PR, newest first. A PR
+--- lists the rows that point into it, and is `direct` when its own link was
+--- mentioned too.
+local function by_pr(rows)
+	local prs, index = {}, {}
+	for _, r in ipairs(rows) do
+		local ref = M.pr_ref(r.target)
+		if ref then
+			local pr = index[ref.key]
+			if not pr then
+				pr = { kind = "pr", target = ref.target, label = ref.name, name = ref.name, rows = {} }
+				index[ref.key] = pr
+				prs[#prs + 1] = pr
+			end
+			if ref.sub then
+				r.sub = ref.sub
+				pr.rows[#pr.rows + 1] = r
+			else
+				pr.direct = true
+			end
+		else
+			prs[#prs + 1] = r
+		end
+	end
+	return prs
+end
+
+--- Rows from several replies, newest reply first, as the categories that have
+--- any, each newest first, and how many rows there are in all. A row a newer
+--- reply also mentions is listed once.
+function M.group(lists)
+	local by, seen, total = {}, {}, 0
+	for _, rows in ipairs(lists) do
+		for _, r in ipairs(rows) do
+			local key = r.target .. "\0" .. (r.line or "")
+			if seen[key] and not seen[key].title then
+				seen[key].title = r.title
+			end
+			if not seen[key] and total < max_total then
+				seen[key] = r
+				total = total + 1
+				local name = M.category(r)
+				by[name] = by[name] or {}
+				by[name][#by[name] + 1] = r
+			end
+		end
+	end
+	local groups, shown = {}, 0
+	for _, name in ipairs(M.categories) do
+		if by[name] then
+			local rows = name == "PRs" and by_pr(by[name]) or by[name]
+			groups[#groups + 1] = { name = name, rows = rows }
+			shown = shown + #rows
+		end
+	end
+	return groups, shown
+end
+
 local function clean(s)
 	return (tostring(s or ""):gsub("[%c]", " "))
 end
 
---- The picker's list: what's shown, then the target, line and kind, split by
---- tabs.
-function M.tsv(rows)
+--- The Search Panel's list, by category: what's shown, then the target, line
+--- and kind, split by tabs.
+function M.tsv(groups)
 	local out = {}
-	for _, r in ipairs(rows) do
-		local note = r.note or r.kind
-		local shown = clean(r.label) .. "  \27[2m" .. clean(note) .. "\27[0m"
-		out[#out + 1] = table.concat({ shown, clean(r.target), clean(r.line), r.kind }, "\t")
+	for _, g in ipairs(groups) do
+		local style = M.styles[g.name] or M.styles.Other
+		local function row(r, label)
+			local shown = style.colour .. style.icon .. "\27[0m " .. clean(label)
+				.. (r.title and ("  " .. clean(r.title)) or "")
+				.. "  \27[2m" .. g.name .. (r.note and (" · " .. clean(r.note)) or "") .. "\27[0m"
+			out[#out + 1] = table.concat({ shown, clean(r.target), clean(r.line), r.kind }, "\t")
+		end
+		for _, r in ipairs(g.rows) do
+			if r.kind == "pr" then
+				row({ kind = "link", target = r.target }, r.name)
+				for _, sub in ipairs(r.rows) do
+					row(sub, r.name .. " " .. sub.sub)
+				end
+			else
+				row(r, r.label)
+			end
+		end
 	end
 	return table.concat(out, "\n") .. (#out > 0 and "\n" or "")
 end

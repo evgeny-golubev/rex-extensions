@@ -1,13 +1,10 @@
--- Writes the Rex View picker's list for a Claude pane:
+-- Writes the Search Panel's list for a Claude pane, from all of Claude's replies:
 --   rex do view-collect.lua session=... claude=<block> out=<file>
 -- A first line starting with "!" is a message to show instead of a list.
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)") or "./"
 local settings = dofile(dir .. "settings.lua")
 local claude = dofile(dir .. "claude.lua")
 local mentions = dofile(dir .. "mentions.lua")
-
--- Enough for a few long turns; tool output fills most of a transcript.
-local tail_bytes = 16 * 1048576
 
 local function write(text)
 	local f = assert(io.open(rex.args.out, "wb"))
@@ -26,11 +23,15 @@ if not path then
 	return
 end
 
-local n = settings.view_replies(dir)
-local turns = mentions.turns(mentions.tail_lines(path, tail_bytes), n)
-local rows = mentions.find(turns, cwd, mentions.rules_for(settings.link_patterns(dir), cwd))
-if #rows == 0 then
-	write("!Nothing to open in Claude's last " .. n .. (n == 1 and " reply" or " replies") .. ".\n")
+local turns = mentions.turns(mentions.tail_lines(path, math.huge), math.huge)
+local rules = mentions.rules_for(settings.link_patterns(dir), cwd)
+local lists = {}
+for i, text in ipairs(turns) do
+	lists[i] = mentions.find({ text }, cwd, rules)
+end
+local groups = mentions.group(lists)
+if #groups == 0 then
+	write("!Nothing to open in Claude's replies yet.\n")
 	return
 end
-write(mentions.tsv(rows))
+write(mentions.tsv(groups))

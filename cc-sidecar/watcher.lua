@@ -23,7 +23,7 @@ local label_prefix = "Sidecar: "
 local old_label_prefix = "Changes: "
 
 --- The share of the split the Claude pane keeps.
-local claude_ratio = 0.8
+local claude_ratio = 0.7
 
 --- Claude pane block ID -> { session_id, sidecar = block ID or nil }. An
 --- entry stays while Claude runs even without a sidecar pane (the user

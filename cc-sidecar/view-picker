@@ -1,6 +1,6 @@
 #!/bin/bash
 # The Rex View picker, in a float: view-picker <rex> <session> <claude block>
-# Lists what Claude's last replies mention. Enter views a file or image in the
+# The Search Panel: what all of Claude's replies mention. Enter views a file or image in the
 # rex-view viewer, or opens a link in the browser; Ctrl-E edits a text file in
 # the editor, here in the float; Ctrl-Y copies.
 export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
@@ -29,9 +29,16 @@ case $first in
 esac
 
 if command -v fzf >/dev/null 2>&1; then
-	out=$(fzf --ansi --no-sort --reverse --delimiter='	' --with-nth=1 --prompt='open> ' \
-		--expect=ctrl-e,ctrl-y \
-		--header='enter: view or open · ctrl-e: edit · ctrl-y: copy · esc: close' <"$list")
+	# Styled as the sidecar's boxes: teal frame and keys, orange pointer, gold
+	# matches.
+	k=$'\e[38;5;80m' r=$'\e[0m'
+	keys="${k}enter${r} view or open  ${k}ctrl-e${r} edit  ${k}ctrl-y${r} copy  ${k}esc${r} close"
+	out=$(fzf --ansi --no-sort --reverse --delimiter='	' --with-nth=1 \
+		--border=rounded --border-label=" Search Panel · $(wc -l <"$list" | tr -d ' ') " --border-label-pos=3 --padding=0,1 \
+		--prompt='› ' --pointer='▌' --gutter=' ' --info=inline-right --separator='─' \
+		--header="$keys" --header-first \
+		--color='border:80,label:80:bold,prompt:80,pointer:209,hl:221,hl+:221:bold,bg+:236,fg+:-1:bold,info:245,separator:238,gutter:-1' \
+		--expect=ctrl-e,ctrl-y <"$list")
 	key=$(printf '%s\n' "$out" | sed -n 1p)
 	pick=$(printf '%s\n' "$out" | sed -n 2p)
 else
