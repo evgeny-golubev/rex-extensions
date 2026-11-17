@@ -5,7 +5,7 @@ Code, and closes it when Claude exits or its pane closes. It stands in for
 Claude Code's own diff panel; turn that one off with `"diffSidebarOpen": false`
 in `~/.claude.json`.
 
-![The Changes tab on a pull request, Info, and Artifacts with documents, PRs, Jira issues and links from Claude's replies, with made-up data](../docs/cc-sidecar.png)
+![The Changes tab on a pull request, the Info dashboard with permission checks, agents and background tasks, and Artifacts with documents, PRs, Jira issues and links from Claude's replies, with made-up data](../docs/cc-sidecar.png)
 
 The pane has three tabs, redrawn every 2 seconds, and every second while a
 clock runs. Their look follows [Flightdeck](https://github.com/scasella/claude-flightdeck),
@@ -199,10 +199,11 @@ Both tabs read Claude Code's own files and need no Claude Code setting, hook or
 prompt: Claude's session file (`~/.claude/sessions/<pid>.json`, or under
 `$CLAUDE_CONFIG_DIR`) names its transcript
 (`projects/<project>/<session>.jsonl`), which is read from where the last read
-stopped. Subagents are read from the `subagents` folder beside it, and the
-status line's saved input from `state/statusline/<session>.json`. Nothing is sent anywhere, and no AI is involved, so only what Claude
-Code records as structured data shows: a decision made in plain conversation
-doesn't.
+stopped. Subagents are read from the `subagents` folder beside it, the status
+line's saved input from `state/statusline/<session>.json`, and Claude's live
+shells from `ps`, by executable name only. PR titles come from `gh`; nothing
+else is sent anywhere, and no AI is involved, so only what Claude Code records
+as structured data shows: a decision made in plain conversation doesn't.
 
 ## Folding
 
@@ -292,8 +293,8 @@ actions are `cc_sidecar_view`, `cc_sidecar_view_editor` and
 - `settings.lua` reads and writes `settings.json`, and passes Show requests to
   the watcher through `show-request.json`.
 - `watcher.lua` opens and closes the panes.
-- `panel.lua` runs in each pane: reads git and the transcript, and draws
-  the tabs.
+- `panel.lua` runs in each pane: reads git, `gh`, `ps` and the transcript in
+  background tasks, so keys work while they run, and draws the tabs.
 - `diff-view` draws one diff in the floating pane.
 - `mentions.lua` finds the files, images and links in Claude's replies;
   `view-collect.lua` writes them as the Search Panel's list, and `view-picker`

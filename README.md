@@ -27,7 +27,7 @@ Answers "what did this Claude change, and what's still waiting on me?" A pane on
 the right, 30% of the tab, opens and closes with Claude and replaces Claude
 Code's own diff panel.
 
-![cc-sidecar's Changes tab on a pull request, Info, and Artifacts with documents, PRs, Jira issues and links from Claude's replies, with made-up data](docs/cc-sidecar.png)
+![cc-sidecar's Changes tab on a pull request, the Info dashboard with permission checks, agents and background tasks, and Artifacts with documents, PRs, Jira issues and links from Claude's replies, with made-up data](docs/cc-sidecar.png)
 
 **Changes** lists changed files for the last turn, the uncommitted work, or the
 branch or its open pull request, as a list or a tree; click one to read its diff in a floating pane.
@@ -83,9 +83,9 @@ over Claude's tab, and `q` closes it. [Details →](plugins/rex-view/README.md)
 | cc-crab-pond | A terminal font with Unicode 16 octant characters (Rex draws them itself), and `jq` for the status line (`brew install jq`) |
 | cc-sidecar and rex-view colours, optional | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
 | cc-sidecar's highlighted diffs, optional | [`delta`](https://github.com/dandavison/delta) (`brew install git-delta`) |
-| cc-sidecar's Usage section, optional | The status line step in [Install](#install), with `jq` |
+| cc-sidecar's context window and limits, optional | The status line step in [Install](#install), with `jq` |
 | cc-sidecar's Search Panel, optional | [`fzf`](https://github.com/junegunn/fzf) (`brew install fzf`), and `jq` for its settings |
-| cc-sidecar's PR scope, optional | [`gh`](https://cli.github.com), signed in (`brew install gh`, `gh auth login`) |
+| cc-sidecar's PR scope and PR titles, optional | [`gh`](https://cli.github.com), signed in (`brew install gh`, `gh auth login`) |
 | rex-view formatted Markdown, optional | [`glow`](https://github.com/charmbracelet/glow) (`brew install glow`) |
 
 ## Install
@@ -116,9 +116,10 @@ over Claude's tab, and `q` closes it. [Details →](plugins/rex-view/README.md)
 4. For cc-sidecar, turn off Claude Code's own diff panel by setting
    `"diffSidebarOpen": false` in `~/.claude.json`.
 
-5. For cc-crab-pond and cc-sidecar's Usage section, have Claude Code's status
+5. For cc-crab-pond and cc-sidecar's main box, have Claude Code's status
    line command save its input, which gives the crabs their names, models,
-   outfits and subagents, and the sidecar your usage limits. Add these lines
+   outfits and subagents, and the sidecar the context window and your usage
+   limits. Add these lines
    after your status line script reads stdin into `$input`:
 
    ```bash
