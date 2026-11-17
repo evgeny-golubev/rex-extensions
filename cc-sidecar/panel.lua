@@ -324,6 +324,8 @@ function M.new_state()
 		gate = M.new_gate(),
 		consults = {},
 		log = {},
+		monitors = {},
+		monitor_names = {},
 	}
 end
 
@@ -406,6 +408,16 @@ local function tool_result(state, item, record)
 	local extra = type(record.toolUseResult) == "table" and record.toolUseResult or {}
 	local input = tool.input or {}
 
+	if tool.name == "Monitor" and tonumber(extra.timeoutMs) then
+		local at = M.epoch(state.at)
+		if at then
+			local list = state.monitors
+			list[#list + 1] = { description = state.monitor_names[item.tool_use_id] or "monitor", at = at, expires = at + extra.timeoutMs / 1000 }
+			if #list > 100 then
+				table.remove(list, 1)
+			end
+		end
+	end
 	if type(decision) == "table" then
 		M.gate_check(state.gate, decision, tool.name, input, false)
 		if decision.decision == "reject" then
@@ -498,6 +510,9 @@ local function assistant(state, record)
 		elseif item.type == "tool_use" then
 			local input = type(item.input) == "table" and item.input or {}
 			state.tools[item.id] = { name = item.name, input = input }
+			if item.name == "Monitor" then
+				state.monitor_names[item.id] = input.description or "monitor"
+			end
 			if item.name == "Agent" or item.name == "Task" then
 				state.turn.agents = state.turn.agents + 1
 				M.log(state, "agent", "started · " .. tostring(input.description or input.subagent_type or "agent"))
@@ -626,6 +641,86 @@ function M.read_new(state, path)
 		end
 	end
 	f:close()
+end
+
+-- Processes ---------------------------------------------------------------
+
+local carriers = { zsh = true, bash = true, sh = true, sleep = true, env = true, timeout = true, caffeinate = true, tail = true }
+-- Claude also starts caffeinate itself, which isn't one of its commands.
+local shells = { zsh = true, bash = true, sh = true, fish = true }
+
+--- Seconds from ps's etime: [[dd-]hh:]mm:ss.
+function M.etime(text)
+	local d, rest = tostring(text or ""):match("^(%d+)%-(.+)$")
+	rest = rest or tostring(text or "")
+	local seconds = 0
+	for n in rest:gmatch("%d+") do
+		seconds = seconds * 60 + tonumber(n)
+	end
+	return seconds + (tonumber(d) or 0) * 86400
+end
+
+--- The shells Claude runs right now, from `ps -axo pid=,ppid=,etime=,comm=`,
+--- newest first, as cc-crab-pond finds them. A process has only its program's
+--- name, never its arguments, which can hold secrets. A shell is a monitor
+--- Claude started when one was recorded within 10 seconds of its start and
+--- hasn't timed out; otherwise it's named by its program, "monitor" when it
+--- runs tail, "waiting" when it only sleeps, or "shell".
+function M.processes(claude_pid, ps, monitors, now)
+	local children = {}
+	for line in tostring(ps or ""):gmatch("[^\n]+") do
+		local pid, ppid, etime, comm = line:match("^%s*(%d+)%s+(%d+)%s+(%S+)%s+(.+)$")
+		if pid then
+			local p = { pid = tonumber(pid), age = M.etime(etime), name = (comm:match("[^/]+$") or comm):gsub("^%-", "") }
+			children[tonumber(ppid)] = children[tonumber(ppid)] or {}
+			table.insert(children[tonumber(ppid)], p)
+		end
+	end
+	local out, used = {}, {}
+	for _, shell in ipairs(children[claude_pid] or {}) do
+		if shells[shell.name] then
+			local program, tails, sleeps, queue = nil, false, false, { shell.pid }
+			while #queue > 0 do
+				for _, child in ipairs(children[table.remove(queue, 1)] or {}) do
+					if child.name == "tail" then
+						tails = true
+					elseif child.name == "sleep" then
+						sleeps = true
+					elseif not program and not carriers[child.name] then
+						program = child.name
+					end
+					queue[#queue + 1] = child.pid
+				end
+			end
+			local best, closest
+			for _, m in ipairs(monitors or {}) do
+				if not used[m] and now <= m.expires then
+					local apart = math.abs(now - m.at - shell.age)
+					if apart <= 10 and (not closest or apart < closest) then
+						best, closest = m, apart
+					end
+				end
+			end
+			local p = { pid = shell.pid, age = shell.age }
+			if best then
+				used[best] = true
+				p.name, p.kind = best.description, "monitor"
+			elseif tails then
+				p.name, p.kind = "monitor", "watching output"
+			elseif program then
+				p.name, p.kind = program, "shell"
+			elseif sleeps then
+				p.name, p.kind = "waiting", "shell"
+			else
+				p.name, p.kind = "shell", "shell"
+			end
+			out[#out + 1] = p
+		end
+	end
+	table.sort(out, function(a, b)
+		return a.age < b.age
+	end)
+	return out
 end
 
 -- Subagents ----------------------------------------------------------------
@@ -1141,6 +1236,23 @@ local function agents_box(out, state, cols, o)
 	end)
 end
 
+--- Claude's shells that run right now, newest first; no box with none.
+local function processes_box(out, state, cols, o)
+	local procs = o.processes or {}
+	if #procs == 0 then
+		return
+	end
+	section(out, cols, "Processes", { colour = teal, title = "PROCESSES · " .. #procs .. " running" }, function(n)
+		for _, p in ipairs(procs) do
+			local took = M.clock(p.age)
+			local mark = (math.floor(o.now) % 2 == 0 and bold or "") .. teal .. "●" .. reset .. " "
+			local tag = "  " .. dim .. p.kind .. reset
+			local room = n - M.width(took) - 1 - M.width(tag) - 2
+			out[#out + 1] = pad(mark .. M.clip(p.name, math.max(1, room)) .. tag, n - M.width(took) - 1) .. " " .. took
+		end
+	end)
+end
+
 --- Questions waiting for an answer, then open tasks; no box with none.
 local function open_box(out, state, cols)
 	local items = {}
@@ -1266,7 +1378,8 @@ end
 
 --- Everything on the Info tab. opts: status (the status line's saved input),
 --- now, folded, focus, agents, gate (the family open), open_agents, show
---- ("tests" or "failed"), rows (the tab's height, which the log fills).
+--- ("tests" or "failed"), rows (the tab's height, which the log fills),
+--- processes (from M.processes).
 --- `ticking` is true while a clock runs.
 function M.info_lines(state, cols, opts)
 	local o = opts or {}
@@ -1276,6 +1389,7 @@ function M.info_lines(state, cols, opts)
 	advisor_box(out, state, cols, o)
 	gate_box(out, state, cols, o)
 	agents_box(out, state, cols, o)
+	processes_box(out, state, cols, o)
 	open_box(out, state, cols)
 	receipt_box(out, state, cols, o)
 	log_box(out, state, cols, o)
@@ -1283,6 +1397,7 @@ function M.info_lines(state, cols, opts)
 	for _, a in ipairs(o.agents or {}) do
 		out.ticking = out.ticking or not a.finished
 	end
+	out.ticking = out.ticking or #(o.processes or {}) > 0
 	return out
 end
 
@@ -1321,7 +1436,12 @@ function M.artifacts_view(groups, cols, folded, focus, notice, titles)
 		local style = mentions.styles[g.name] or mentions.styles.Other
 		section(out, cols, g.name, { colour = style.colour, icon = style.icon, right = tostring(#g.rows) }, function(inner)
 			n = inner
-			for _, r in ipairs(g.rows) do
+			for i, r in ipairs(g.rows) do
+				if i > 10 then
+					out[#out + 1] = dim .. "+" .. (#g.rows - 10) .. " more · Search Panel" .. reset
+					out.actions[#out] = { kind = "view_panel" }
+					break
+				end
 				if r.kind == "pr" then
 					local title = titles[r.target]
 					title = title and (dim .. (r.name:match("#%d+$") or r.name) .. reset .. " " .. title)
@@ -2169,6 +2289,7 @@ local function gather()
 	if pid then
 		path, cwd = M.transcript(pid)
 	end
+	panel.claude_pid = pid
 	follow(cwd)
 
 	panel.folded = settings.folded(dir)
@@ -2198,6 +2319,8 @@ local function gather()
 		panel.state = state
 		panel.status = read_status(path)
 		read_agents(state)
+		local ps = pid and run({ "/bin/ps", "-axo", "pid=,ppid=,etime=,comm=" })
+		panel.processes = (ps and ps.ok) and M.processes(pid, ps.stdout, state.monitors, os.time()) or {}
 	end
 
 	if panel.tab == "Changes" or not panel.data then
@@ -2242,6 +2365,7 @@ local function build(tab)
 			open_agents = panel.open_agents,
 			show = panel.show,
 			rows = M.page(panel.rows, 0),
+			processes = panel.processes,
 		})
 	end
 	return { lines = lines, pinned = {}, hits = {}, actions = lines.actions or {}, sections = lines.sections or {}, rows = {}, ticking = lines.ticking }

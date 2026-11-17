@@ -825,6 +825,39 @@ local ok2, err2 = pcall(function()
 	end
 	equal(lane_actions, 2, "a click a lane")
 
+	-- Processes: Claude's shells, named by the call that started them.
+	local ps = table.concat({
+		"  100     1 01:00:00 /bin/zsh",
+		"  200   100    10:00 /Applications/Claude",
+		"  300   200    02:05 /bin/zsh",
+		"  301   300    02:05 npm",
+		"  310   200    00:30 /bin/zsh",
+		"  311   310    00:30 tail",
+		"  320   200    00:05 /bin/zsh",
+		"  330   200    02:00 caffeinate",
+		"  321   320    00:05 sleep",
+		"  400     1    05:00 /bin/zsh",
+	}, "\n")
+	equal(P.etime("1-02:03:04"), 93784, "ps elapsed time")
+	local monitors = { { description = "Watch the build", at = 1000 - 31, expires = 2000 }, { description = "Expired watch", at = 1000 - 125, expires = 900 } }
+	local procs = P.processes(200, ps, monitors, 1000)
+	equal(#procs, 3, "only Claude's shells")
+	equal(procs[1].name, "waiting", "a shell that only sleeps")
+	equal(procs[2].name .. " " .. procs[2].kind, "Watch the build monitor", "a monitor, by when it started")
+	equal(procs[3].name .. " " .. procs[3].kind, "npm shell", "a program; an expired monitor doesn't name it")
+	local watched = P.new_state()
+	P.record(watched, { type = "assistant", timestamp = "1970-01-01T00:10:00Z", message = { content = { { type = "tool_use", id = "m1", name = "Monitor", input = { description = "Watch the build" } } } } })
+	P.record(watched, { type = "user", timestamp = "1970-01-01T00:10:01Z", toolUseResult = { timeoutMs = 60000 }, message = { content = { { type = "tool_result", tool_use_id = "m1", content = "started" } } } })
+	equal(#watched.monitors, 1, "a monitor from the transcript")
+	equal(watched.monitors[1].description .. " " .. watched.monitors[1].at .. " " .. watched.monitors[1].expires, "Watch the build 601 661", "its description, start and timeout")
+	local proc_view = P.info_lines(P.new_state(), 60, { now = 1000, processes = procs })
+	has(plain(proc_view), "PROCESSES · 3 running", "the processes box")
+	has(plain(proc_view), "● npm  shell", "a shell by its program")
+	has(plain(proc_view), "● Watch the build  monitor", "a monitor by its description")
+	has(plain(proc_view), "2:05", "how long it has run")
+	equal(proc_view.ticking, true, "clocks tick while processes run")
+	hasnt(plain(P.info_lines(P.new_state(), 60, { processes = {} })), "PROCESSES", "no box without processes")
+
 	-- The log: events as they happen, as many as fit.
 	local logged = P.new_state()
 	local at = function(sec, r) r.timestamp = string.format("2026-11-17T10:00:%02dZ", sec); P.record(logged, r) end
@@ -1036,6 +1069,24 @@ do
 		"https://github.com/acme/api/pull/7", "https://github.com/acme/shop/pull/42",
 		"https://github.com/acme/shop/pull/42#issuecomment-123", "https://github.com/acme/shop/pull/42/files",
 		"https://github.com/acme/web/pull/1#issuecomment-8" }, " "), "each row opens its own link")
+	-- Each category shows its newest 10, then a link to the rest.
+	local many = {}
+	for i = 1, 13 do
+		many[i] = { kind = "link", label = "https://a.example/" .. i, target = "https://a.example/" .. i }
+	end
+	local capped = P.artifacts_view(V.group({ many }), 60, {})
+	has(plain(capped.lines), "a.example/10", "the 10th row")
+	hasnt(plain(capped.lines), "a.example/11", "not the 11th")
+	has(plain(capped.lines), "+3 more · Search Panel", "how many more")
+	local more_kind
+	for _, a in pairs(capped.actions) do
+		if a.kind == "view_panel" then
+			more_kind = a.kind
+		end
+	end
+	equal(more_kind, "view_panel", "the rest open in the Search Panel")
+	has(plain(capped.lines), "13", "the count stays the total")
+
 	-- Jira titles, as the replies wrote them.
 	equal(V.jira_title("Fixed in SHOP-12 (Cart rounding). Next.", "SHOP-12"), "Cart rounding", "in brackets")
 	equal(V.jira_title("- **SHOP-12**: Cart rounding fix.", "SHOP-12"), "Cart rounding fix", "after a colon")
