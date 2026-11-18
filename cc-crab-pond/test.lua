@@ -255,6 +255,11 @@ ok, err = pcall(function()
 	equal(P.program_kind("/Applications/ChatGPT.app/Contents/Resources/codex"), "agent", "agent")
 	equal(P.program_kind("weird"), "other", "other")
 	equal(P.program_kind("(zsh)"), "shell", "exiting shell")
+	equal(P.program_accent(select(2, P.program_kind("/usr/local/go/bin/go"))), "#00ADD8", "go's hat is gopher blue")
+	equal(P.program_accent("make"), nil, "make has no brand colour")
+	local go = P.pane_crab({ foreground = { argv0 = "go", cwd = "/src/app" } })
+	equal(go.color, P.colors.build, "go's body stays build yellow")
+	equal(go.accent, "#00ADD8", "go's crab carries its accent")
 
 	-- Claude dresses by model and effort.
 	equal(P.claude_outfit("claude-fable-5-1", "high"), "wizard", "fable")
@@ -321,6 +326,22 @@ ok, err = pcall(function()
 	end
 	out = P.render(c)
 	equal(out:find("38;2;1;1;1;48;2;2;2;2m", 1, true) ~= nil, true, "two colours")
+
+	-- A builder's hard hat wears its program's brand colour, or yellow.
+	local function has(canvas, rgb)
+		for _, px in pairs(canvas.px) do
+			if px == rgb then
+				return true
+			end
+		end
+		return false
+	end
+	local hat = P.canvas(P.crab_cols, 3)
+	P.draw_crab(hat, 0, 0, { outfit = "builder", state = "busy", color = P.colors.build, accent = "#00ADD8" }, 0)
+	equal(has(hat, "0;173;216"), true, "gopher blue hat")
+	hat = P.canvas(P.crab_cols, 3)
+	P.draw_crab(hat, 0, 0, { outfit = "builder", state = "busy", color = P.colors.build }, 0)
+	equal(has(hat, "242;209;58"), true, "default yellow hat")
 
 	-- Claude's background shells become crabs named by their programs.
 	local ps = {

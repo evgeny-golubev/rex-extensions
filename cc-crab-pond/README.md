@@ -70,6 +70,10 @@ session names.
 | Green | Anything else | None | |
 | Gray | Shell | Nightcap | zsh, bash, fish |
 
+A build crab's hard hat takes its program's brand colour, such as gopher blue
+for `go`, Python blue for `python` or npm red for `npm`. Its body stays yellow.
+The full list is in `pond.lua` (`program_accents`).
+
 **A crab's state shows in how it moves:**
 
 | You see | It means |

@@ -6,7 +6,8 @@
 -- A crab is 14 x 12 pixels. Rows 0-3 hold its hat, rows 4-9 its body and
 -- arms, rows 10-11 its legs, and columns 12-13 what it holds. In a picture
 -- '.' is empty and every other character is a colour from its legend ("body"
--- is the crab's own). An outfit part with `frames` swaps pictures as the crab
+-- is the crab's own, and "accent" is the crab's accent, or else the part's
+-- own `accent`). An outfit part with `frames` swaps pictures as the crab
 -- animates, and one with `fixed` stays put while the body bobs. When a pane
 -- is too short, a crab gives up its pixel rows in `drop_order`.
 
@@ -151,7 +152,7 @@ M.outfits.builder = {
 	{ x = 0, y = 2, rows = {
 		"...YYYYYY...",
 		".YYYYYYYYYY.",
-	}, legend = { Y = "#F2D13A" } },
+	}, legend = { Y = "accent" }, accent = "#F2D13A" },
 	{ x = 12, y = 2, frames = {
 		{ "WW", ".W", ".W", ".W" },
 		{ "..", "WW", ".W", ".W" },
