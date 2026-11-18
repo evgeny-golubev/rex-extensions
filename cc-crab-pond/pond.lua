@@ -34,9 +34,21 @@ M.colors = {
 	bad = "#E5484D",
 }
 
---- Programs that keep their kind's outfit but wear their own brand colour.
-local program_colors = {
-	go = "#00ADD8", -- Go's gopher blue, from go.dev/brand
+--- Brand colours for an outfit's accent, such as the builder's hard hat. The
+--- body keeps its kind's colour.
+local program_accents = {
+	go = "#00ADD8", -- Go gopher blue
+	cargo = "#F74C00", rustc = "#F74C00", -- Ferris orange
+	python = "#3776AB", python3 = "#3776AB", pip = "#3776AB",
+	node = "#5FA04E",
+	npm = "#CB3837", npx = "#CB3837",
+	pnpm = "#F69220",
+	yarn = "#2C8EBF",
+	bun = "#FBF0DF", bunx = "#FBF0DF",
+	tsc = "#3178C6",
+	ruby = "#CC342D", rake = "#CC342D", bundle = "#CC342D",
+	swift = "#F05138",
+	dotnet = "#512BD4",
 }
 
 local outfit_of_kind = {
@@ -173,9 +185,9 @@ function M.program_kind(argv0)
 	return kind_of_program[name] or "other", name
 end
 
---- A program's crab colour: its brand colour, or else its kind's colour.
-function M.program_color(kind, name)
-	return program_colors[name] or M.colors[kind]
+--- A program's brand colour for its outfit's accent, or nil.
+function M.program_accent(name)
+	return program_accents[name]
 end
 
 --- A Claude session's outfit, from its model and effort.
@@ -297,7 +309,7 @@ function M.pane_crab(process, ages)
 	local fg = process.foreground or {}
 	local kind, name = M.program_kind(fg.argv0 or fg.name)
 	local folder = basename(fg.cwd or "")
-	local crab = { kind = kind, outfit = outfit_of_kind[kind], color = M.program_color(kind, name), state = "busy" }
+	local crab = { kind = kind, outfit = outfit_of_kind[kind], color = M.colors[kind], accent = M.program_accent(name), state = "busy" }
 	if kind == "shell" then
 		crab.name, crab.state, crab.detail = folder ~= "" and folder or name, "sleep", "zzz"
 		local code = exit_code(process)
@@ -466,7 +478,7 @@ function M.task_crabs(claude_pid, processes, monitors, now)
 				crab = { kind = "monitor", outfit = "lookout", color = M.colors.monitor, state = "busy", name = "monitor", detail = "watching output" }
 			elseif program then
 				local k, name = M.program_kind(program)
-				crab = { kind = k, outfit = outfit_of_kind[k], color = M.program_color(k, name), state = "busy", name = name, detail = "Claude's shell" }
+				crab = { kind = k, outfit = outfit_of_kind[k], color = M.colors[k], accent = M.program_accent(name), state = "busy", name = name, detail = "Claude's shell" }
 			elseif sleeps then
 				crab = { kind = "shell", outfit = "sleeper", color = M.colors.shell, state = "sleep", name = "waiting", detail = "Claude's shell" }
 			else
@@ -603,7 +615,11 @@ function M.draw_crab(c, col, oy, crab, frame, map)
 		for dy, line in ipairs(rows) do
 			for dx = 1, #line do
 				local hex = part.legend[line:sub(dx, dx)]
-				hex = hex == "body" and body or hex
+				if hex == "body" then
+					hex = body
+				elseif hex == "accent" then
+					hex = crab.accent or part.accent
+				end
 				if hex then
 					put(part.x + dx - 1, part.y + dy - 1, shade(hex, factor), part.fixed and 0 or bob)
 				end

@@ -63,13 +63,16 @@ session names.
 | Sky blue | Claude's monitor | Magnifying glass | Named by the description Claude gave it. Without the status line step, only one running `tail` is recognised, shown as `monitor` |
 | Blue | Editor | Sunglasses and a screen | nvim, vim, helix, emacs, nano, zed |
 | Red | Git | Flag | git, gh, lazygit, tig, jj |
-| Yellow | Build or test | Hard hat and wrench | cargo, make, npm, bun, node, python, pytest, xcodebuild |
-| Gopher blue | Go | Hard hat and wrench | go |
+| Yellow | Build or test | Hard hat and wrench | go, cargo, make, npm, bun, node, python, pytest, xcodebuild |
 | Violet | Server | Server rack | docker, kubectl, psql, redis, nginx, terraform |
 | Purple | Remote | Diving mask | ssh, mosh, scp, rsync, tailscale |
 | Teal | Agent CLI | Robot antenna | codex, gemini, aider, opencode, goose |
 | Green | Anything else | None | |
 | Gray | Shell | Nightcap | zsh, bash, fish |
+
+A build crab's hard hat takes its program's brand colour, such as gopher blue
+for `go`, Python blue for `python` or npm red for `npm`. Its body stays yellow.
+The full list is in `pond.lua` (`program_accents`).
 
 **A crab's state shows in how it moves:**
 
