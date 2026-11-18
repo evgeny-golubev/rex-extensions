@@ -276,6 +276,7 @@ ok, err = pcall(function()
 	-- Claude is found in the foreground or under its command.
 	equal(P.claude_pid({ foreground = { argv0 = "claude", pid = 7 } }), 7, "claude in front")
 	equal(P.claude_pid({ foreground = { argv0 = "git", pid = 8 }, ancestors = { { argv0 = "claude", pid = 7 } } }), 7, "claude behind")
+	equal(P.claude_pid({ foreground = { argv0 = "/usr/local/bin/CLAUDE", pid = 7 } }), 7, "claude in capitals")
 	equal(P.claude_pid({ foreground = { argv0 = "zsh", pid = 8 } }), nil, "no claude")
 
 	-- A shell sleeps, or burns after a failed command.

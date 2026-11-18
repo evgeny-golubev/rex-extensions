@@ -39,7 +39,7 @@ local function check(value, err)
 end
 
 local function is_claude(p)
-	return p ~= nil and p.argv0 ~= nil and p.argv0:match("[^/]*$") == "claude"
+	return p ~= nil and p.argv0 ~= nil and p.argv0:match("[^/]*$"):lower() == "claude"
 end
 
 --- Whether Claude runs in the pane: in the foreground, or under a command it

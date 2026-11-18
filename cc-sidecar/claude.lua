@@ -16,7 +16,7 @@ local function read_json(path)
 end
 
 local function is_claude(p)
-	return p ~= nil and p.argv0 ~= nil and p.argv0:match("[^/]*$") == "claude"
+	return p ~= nil and p.argv0 ~= nil and p.argv0:match("[^/]*$"):lower() == "claude"
 end
 
 --- Claude's process ID from a terminal block's `process` call: the foreground

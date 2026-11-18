@@ -180,10 +180,11 @@ local ok, err = pcall(function()
 	user_closes("block:1")
 	equal(closed[5], "block:sidecar4", "pane closed with its Claude pane")
 
-	-- A pane whose login shell execs Claude is found by the recheck, once.
+	-- A pane whose login shell execs Claude is found by the recheck, once,
+	-- however its name is cased.
 	fire()
 	equal(#timers, 0, "rechecks before")
-	processes["block:3"] = { foreground = { argv0 = "claude", cwd = "/src/app" } }
+	processes["block:3"] = { foreground = { argv0 = "Claude", cwd = "/src/app" } }
 	foreground("block:3", "/bin/zsh", "/src/app")
 	equal(#splits, 4, "pane before the recheck")
 	fire()

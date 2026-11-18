@@ -223,6 +223,13 @@ local ok, err = pcall(function()
 	equal(agent_options().initial_input, "claude --resume abc-123\n", "resume after retry")
 	equal(#timers, 0, "retries after success")
 
+	-- Claude started as `Claude` is still waited for, not saved as a program.
+	reset()
+	processes["block:2"].foreground.argv0 = "Claude"
+	run()
+	equal(#timers, 1, "retries for Claude")
+	equal(agent_options().initial_input, nil, "Claude saved as a program")
+
 	-- The retries stop for a claude that never writes one.
 	reset()
 	run()

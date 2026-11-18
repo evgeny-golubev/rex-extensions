@@ -53,7 +53,7 @@ end
 
 local function program(r)
 	local argv0 = r and r.foreground and r.foreground.argv0
-	return argv0 and (argv0:match("[^/]*$"):gsub("^%-", ""))
+	return argv0 and (argv0:match("[^/]*$"):gsub("^%-", ""):lower())
 end
 
 local function check(value, err)
@@ -138,7 +138,7 @@ local function terminal_options(session_id, block_id)
 	if claude then
 		return { cwd = claude.cwd, initial_input = "claude --resume " .. claude.sessionId .. "\n" }
 	end
-	if fg and fg.argv0 and fg.argv0:match("claude$") then
+	if fg and fg.argv0 and program(r) == "claude" then
 		local waits = claude_waits[fg.pid] or 0
 		if waits < claude_retries then
 			claude_waits[fg.pid] = waits + 1

@@ -165,7 +165,7 @@ end
 --- The kind of crab for a program, and its plain name.
 function M.program_kind(argv0)
 	local name = basename(argv0):gsub("^%-", "")
-	return kind_of_program[name] or "other", name
+	return kind_of_program[name:lower()] or "other", name
 end
 
 --- A Claude session's outfit, from its model and effort.
@@ -254,7 +254,7 @@ function M.subagent_outfit(agent_type, task)
 end
 
 local function is_claude(p)
-	return p ~= nil and p.argv0 ~= nil and basename(p.argv0) == "claude"
+	return p ~= nil and p.argv0 ~= nil and basename(p.argv0):lower() == "claude"
 end
 
 --- The process ID of the Claude in a pane, if one runs there.
