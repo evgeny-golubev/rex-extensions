@@ -255,6 +255,8 @@ ok, err = pcall(function()
 	equal(P.program_kind("/Applications/ChatGPT.app/Contents/Resources/codex"), "agent", "agent")
 	equal(P.program_kind("weird"), "other", "other")
 	equal(P.program_kind("(zsh)"), "shell", "exiting shell")
+	equal(P.program_color(P.program_kind("/usr/local/go/bin/go")), "#00ADD8", "go wears gopher blue")
+	equal(P.program_color(P.program_kind("cargo")), P.colors.build, "other builds stay yellow")
 
 	-- Claude dresses by model and effort.
 	equal(P.claude_outfit("claude-fable-5-1", "high"), "wizard", "fable")

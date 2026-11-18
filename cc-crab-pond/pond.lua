@@ -34,6 +34,11 @@ M.colors = {
 	bad = "#E5484D",
 }
 
+--- Programs that keep their kind's outfit but wear their own brand colour.
+local program_colors = {
+	go = "#00ADD8", -- Go's gopher blue, from go.dev/brand
+}
+
 local outfit_of_kind = {
 	agent = "robot",
 	editor = "coder",
@@ -168,6 +173,11 @@ function M.program_kind(argv0)
 	return kind_of_program[name] or "other", name
 end
 
+--- A program's crab colour: its brand colour, or else its kind's colour.
+function M.program_color(kind, name)
+	return program_colors[name] or M.colors[kind]
+end
+
 --- A Claude session's outfit, from its model and effort.
 function M.claude_outfit(model, effort)
 	model, effort = (model or ""):lower(), (effort or ""):lower()
@@ -287,7 +297,7 @@ function M.pane_crab(process, ages)
 	local fg = process.foreground or {}
 	local kind, name = M.program_kind(fg.argv0 or fg.name)
 	local folder = basename(fg.cwd or "")
-	local crab = { kind = kind, outfit = outfit_of_kind[kind], color = M.colors[kind], state = "busy" }
+	local crab = { kind = kind, outfit = outfit_of_kind[kind], color = M.program_color(kind, name), state = "busy" }
 	if kind == "shell" then
 		crab.name, crab.state, crab.detail = folder ~= "" and folder or name, "sleep", "zzz"
 		local code = exit_code(process)
@@ -456,7 +466,7 @@ function M.task_crabs(claude_pid, processes, monitors, now)
 				crab = { kind = "monitor", outfit = "lookout", color = M.colors.monitor, state = "busy", name = "monitor", detail = "watching output" }
 			elseif program then
 				local k, name = M.program_kind(program)
-				crab = { kind = k, outfit = outfit_of_kind[k], color = M.colors[k], state = "busy", name = name, detail = "Claude's shell" }
+				crab = { kind = k, outfit = outfit_of_kind[k], color = M.program_color(k, name), state = "busy", name = name, detail = "Claude's shell" }
 			elseif sleeps then
 				crab = { kind = "shell", outfit = "sleeper", color = M.colors.shell, state = "sleep", name = "waiting", detail = "Claude's shell" }
 			else
