@@ -12,7 +12,7 @@ local terminal = "com.superlogical.terminal"
 local home = os.getenv("HOME") or ""
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)") or "./"
 local settings = dofile(dir .. "settings.lua")
-local claude = dofile(dir .. "claude.lua")
+local agents = dofile(dir .. "../agents/init.lua")
 local mentions = dofile(dir .. "mentions.lua")
 local rex_binary = home
 	.. "/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
@@ -272,17 +272,6 @@ function M.task_started(state, id, name, input, extra)
 	}
 end
 
---- Ends the background tasks a notification says have finished.
-function M.task_notice(state, text)
-	for body in tostring(text):gmatch("<task%-notification>(.-)</task%-notification>") do
-		local id = body:match("<task%-id>%s*(.-)%s*</task%-id>")
-		local status = body:match("<status>%s*(%w+)%s*</status>")
-		if id and status and status ~= "running" then
-			state.tasks_bg[id] = nil
-		end
-	end
-end
-
 --- The background tasks still running at `now`, newest first. With `live`,
 --- the shells M.processes found, a task also needs one that started within 10
 --- seconds of it: an end the transcript never got, as when Claude restarted,
@@ -357,8 +346,11 @@ function M.gate_check(gate, decision, name, input, sub)
 	end
 end
 
-function M.new_state()
+--- A transcript's state; `parser` is the adapter ID of its agent, Claude's
+--- by default.
+function M.new_state(parser)
 	return {
+		parser = parser,
 		offset = 0,
 		partial = "",
 		seq = 0,
@@ -384,13 +376,11 @@ function M.new_state()
 	}
 end
 
-local function add_prompt(state, text)
-	text = text:gsub("^%s+", ""):gsub("%s+$", "")
-	local command = text:match("<command%-name>(.-)</command%-name>")
-	if command then
-		local args = text:match("<command%-args>(.-)</command%-args>") or ""
-		text = (command .. " " .. args):gsub("%s+$", "")
-	elseif text == "" or text:sub(1, 1) == "<" or text:match("^%[Request interrupted") then
+--- Adds a prompt the person wrote, which starts a new turn. Parsers pass
+--- only such text, without what the agent adds itself.
+function M.add_prompt(state, text)
+	text = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if text == "" then
 		return
 	end
 	state.turn = M.new_turn(M.epoch(state.at), state.seq)
@@ -405,40 +395,17 @@ local function add_prompt(state, text)
 	state.last_prompt = state.seq
 end
 
-local function result_text(item)
-	local c = item.content
-	if type(c) == "table" then
-		local parts = {}
-		for _, p in ipairs(c) do
-			if type(p) == "table" and p.text then
-				parts[#parts + 1] = p.text
-			end
-		end
-		c = table.concat(parts, "\n")
-	end
-	return tostring(c or "")
-end
-
---- Adds an edit to the current turn, with the hunks Claude Code recorded. A new
---- file records its content instead.
-local function turn_edit(state, path, extra)
+--- Adds an edit's hunks, in the shape of Claude Code's structuredPatch, to
+--- the current turn, and returns the turn's record of the file.
+function M.add_hunks(state, path, hunks, created)
 	local turn = state.turn
 	local f = turn.files[path]
 	if not f then
-		f = { hunks = {}, added = 0, removed = 0, created = extra.type == "create" }
+		f = { hunks = {}, added = 0, removed = 0, created = created == true }
 		turn.files[path] = f
 		turn.order[#turn.order + 1] = path
 	end
-	local hunks = type(extra.structuredPatch) == "table" and extra.structuredPatch or {}
-	if #hunks == 0 and extra.type == "create" and type(extra.content) == "string" then
-		local lines = {}
-		local content = extra.content:gsub("\n$", "") .. "\n"
-		for line in content:gmatch("([^\n]*)\n") do
-			lines[#lines + 1] = "+" .. line
-		end
-		hunks = { { oldStart = 0, oldLines = 0, newStart = 1, newLines = #lines, lines = lines } }
-	end
-	for _, hunk in ipairs(hunks) do
+	for _, hunk in ipairs(hunks or {}) do
 		f.hunks[#f.hunks + 1] = hunk
 		for _, line in ipairs(type(hunk.lines) == "table" and hunk.lines or {}) do
 			local sign = tostring(line):sub(1, 1)
@@ -449,76 +416,20 @@ local function turn_edit(state, path, extra)
 			end
 		end
 	end
+	return f
 end
 
-local function tool_result(state, item, record)
-	local tool = state.tools[item.tool_use_id]
-	if not tool then
-		return
-	end
-	state.waiting[item.tool_use_id] = nil
-	local text = result_text(item)
-	local failed = item.is_error == true
-	local decision = record.permissionDecision
-	local extra = type(record.toolUseResult) == "table" and record.toolUseResult or {}
-	local input = tool.input or {}
-
-	if extra.backgroundTaskId or (tool.name == "Monitor" and extra.taskId) then
-		M.task_started(state, extra.backgroundTaskId or extra.taskId, tool.name, input, extra)
-	end
-	if tool.name == "Monitor" and tonumber(extra.timeoutMs) then
-		local at = M.epoch(state.at)
-		if at then
-			local list = state.monitors
-			list[#list + 1] = { description = state.monitor_names[item.tool_use_id] or "monitor", at = at, expires = at + extra.timeoutMs / 1000 }
-			if #list > 100 then
-				table.remove(list, 1)
-			end
-		end
-	end
-	if type(decision) == "table" then
-		M.gate_check(state.gate, decision, tool.name, input, false)
-		if decision.decision == "reject" then
-			M.log(state, "gate", "✗ " .. tool.name .. " " .. M.tool_target(tool.name, input))
-		end
+--- A shell command finished: a test run is recorded, and a failure with the
+--- first line of its error.
+function M.command_ran(state, command, failed, err)
+	local cmd = M.command(command)
+	local test = M.test_command(command)
+	if test then
+		state.tests[#state.tests + 1] = { command = test, ok = not failed }
 	end
 	if failed then
-		state.turn.errors = state.turn.errors + 1
-	end
-	if (tool.name == "Agent" or tool.name == "Task") and not failed then
-		M.log(state, "agent", "done · " .. tostring(input.description or input.subagent_type or "agent"))
-	end
-	if type(decision) == "table" and decision.decision == "reject" and decision.source == "user_reject" then
-		return
-	end
-
-	if tool.name == "TaskCreate" and not failed then
-		local id = (type(extra.task) == "table" and extra.task.id) or text:match("#(%d+)")
-		if id then
-			id = tostring(id)
-			if not state.tasks[id] then
-				state.task_order[#state.task_order + 1] = id
-			end
-			state.tasks[id] = { text = input.subject or input.description or "task", status = "pending" }
-		end
-	elseif (tool.name == "Edit" or tool.name == "Write" or tool.name == "NotebookEdit") and not failed then
-		local path = input.file_path or input.notebook_path
-		if path then
-			turn_edit(state, path, extra)
-			state.turn.edits = state.turn.edits + 1
-			M.log(state, "main", tool.name .. " → " .. short_path(path, state.root))
-		end
-	elseif tool.name == "Bash" then
-		local cmd = M.command(input.command)
-		local test = M.test_command(input.command)
-		if test then
-			state.tests[#state.tests + 1] = { command = test, ok = not failed }
-		end
-		if failed then
-			local err = text:gsub("^Exit code (%d+)\n?", "exit %1: ")
-			state.failures[#state.failures + 1] = { command = cmd, error = first_line(err) }
-			M.log(state, "main", "✗ " .. M.mask(cmd))
-		end
+		state.failures[#state.failures + 1] = { command = cmd, error = first_line(err) }
+		M.log(state, "main", "✗ " .. M.mask(cmd))
 	end
 end
 
@@ -527,9 +438,10 @@ function M.plan_title(plan)
 	return (first_line(plan):gsub("^#+%s*", ""))
 end
 
---- Claude's latest words in a turn are its response, so each text replaces the
---- one before it until the next prompt.
-local function respond(state, text)
+--- The agent's latest words in a turn are its response, so each text
+--- replaces the one before it until the next prompt.
+function M.reply(state, text)
+	state.last_text = { text = text, seq = state.seq }
 	local entry = { text = text, seq = state.seq }
 	local latest = state.responses[#state.responses]
 	if latest and latest.seq > state.last_prompt then
@@ -539,128 +451,41 @@ local function respond(state, text)
 	end
 end
 
-local function assistant(state, record)
-	local message = record.message or {}
-	if message.model and message.model ~= "<synthetic>" then
-		state.model = message.model
-	end
-	local u = message.usage
-	if type(u) == "table" then
-		local context = (u.input_tokens or 0) + (u.cache_read_input_tokens or 0) + (u.cache_creation_input_tokens or 0)
-		if context > 0 then
-			state.context = context
-		end
-	end
-	for _, item in ipairs(type(message.content) == "table" and message.content or {}) do
-		if item.type == "text" and item.text and item.text:match("%S") then
-			state.last_text = { text = item.text, seq = state.seq }
-			respond(state, item.text)
-		elseif item.type == "server_tool_use" and tostring(item.name):lower():match("advisor") then
-			state.consults[#state.consults + 1] = { id = item.id, at = M.epoch(state.at) }
-			M.log(state, "advisor", "consulted")
-		elseif item.tool_use_id and item.type ~= "tool_result" then
-			for _, c in ipairs(state.consults) do
-				if c.id == item.tool_use_id and not c.done then
-					c.done = M.epoch(state.at)
-					M.log(state, "advisor", "advice returned")
-				end
-			end
-		elseif item.type == "tool_use" then
-			local input = type(item.input) == "table" and item.input or {}
-			state.tools[item.id] = { name = item.name, input = input }
-			if item.name == "Monitor" then
-				state.monitor_names[item.id] = input.description or "monitor"
-			end
-			if item.name == "Agent" or item.name == "Task" then
-				state.turn.agents = state.turn.agents + 1
-				M.log(state, "agent", "started · " .. tostring(input.description or input.subagent_type or "agent"))
-			end
-			if item.name == "AskUserQuestion" or item.name == "ExitPlanMode" then
-				state.waiting[item.id] = true
-			elseif item.name == "TodoWrite" then
-				state.todos = input.todos
-			elseif item.name == "TaskUpdate" and input.taskId then
-				local task = state.tasks[tostring(input.taskId)]
-				if task then
-					task.status = input.status or task.status
-					task.text = input.subject or task.text
-				end
-			end
-		end
+--- Adds a tool call to a subagent's latest three.
+function M.agent_tool(a, name, target)
+	target = tostring(target or "")
+	a.tools[#a.tools + 1] = tostring(name) .. (target ~= "" and (" " .. dim .. target .. reset) or "")
+	if #a.tools > 3 then
+		table.remove(a.tools, 1)
 	end
 end
 
-local function user(state, record)
-	if record.isCompactSummary then
-		return
-	end
-	local c = record.message and record.message.content
-	if type(c) == "string" then
-		if c:find("<task-notification>", 1, true) then
-			M.task_notice(state, c)
-		end
-		if not record.isMeta then
-			add_prompt(state, c)
-		end
-	elseif type(c) == "table" then
-		local texts = {}
-		for _, item in ipairs(c) do
-			if item.type == "tool_result" then
-				tool_result(state, item, record)
-			elseif item.type == "text" and item.text then
-				texts[#texts + 1] = item.text
-				if item.text:find("<task-notification>", 1, true) then
-					M.task_notice(state, item.text)
-				end
-			end
-		end
-		if #texts > 0 and not record.isMeta then
-			add_prompt(state, table.concat(texts, "\n"))
-		end
-	end
+M.mentions = mentions
+M.agents = agents
+M.first_line, M.short_path = first_line, short_path
+
+--- A reader for each agent's transcripts, by adapter ID; see parsers/.
+local parsers = {}
+for _, id in ipairs({ "claude", "codex" }) do
+	parsers[id] = dofile(dir .. "parsers/" .. id .. ".lua")(M)
+end
+M.parsers = parsers
+M.task_notice = parsers.claude.task_notice
+
+--- The parser of a state or subagent: its agent's, or Claude's.
+local function parser_of(t)
+	return parsers[t.parser] or parsers.claude
 end
 
 --- Adds one transcript record to the state.
 function M.record(state, r)
-	state.seq = state.seq + 1
-	if r.isSidechain then
-		return
-	end
-	state.at = r.timestamp or state.at
-	state.root = r.cwd or state.root
-	if r.gitBranch and r.gitBranch ~= "" then
-		state.branch = r.gitBranch
-	end
-	if r.type == "assistant" then
-		state.effort = r.perTurnEffort or r.effort or state.effort
-	end
-	if r.type == "assistant" then
-		assistant(state, r)
-	elseif r.type == "user" then
-		user(state, r)
-	elseif r.type == "permission-mode" then
-		state.mode = r.permissionMode or state.mode
-	elseif r.type == "ai-title" then
-		state.title = r.aiTitle or state.title
-	elseif r.type == "attachment" and type(r.attachment) == "table" and r.attachment.type == "queued_command"
-		and tostring(r.attachment.prompt or ""):find("<task-notification>", 1, true) then
-		M.task_notice(state, r.attachment.prompt)
-	elseif r.type == "attachment" and type(r.attachment) == "table" and r.attachment.type == "queued_command" then
-		add_prompt(state, tostring(r.attachment.prompt or ""))
-	elseif r.type == "system" and r.subtype == "compact_boundary" then
-		state.compactions = state.compactions + 1
-	elseif r.type == "system" and r.subtype == "turn_duration" then
-		state.claude_ms = state.claude_ms + (tonumber(r.durationMs) or 0)
-		if state.turn.at and not state.turn.ms then
-			state.turn.ms = tonumber(r.durationMs)
-		end
-	end
+	parser_of(state).record(state, r)
 end
 
---- Adds the complete lines of a chunk of transcript to the state. API
---- request and file history records are large and repeat what other records
---- hold, so they are skipped without being decoded.
+--- Adds the complete lines of a chunk of transcript to the state. The parser
+--- skips large records it doesn't need without decoding them.
 function M.feed(state, chunk)
+	local parser = parser_of(state)
 	local text = state.partial .. chunk
 	local pos = 1
 	while true do
@@ -668,15 +493,11 @@ function M.feed(state, chunk)
 		if not nl then
 			break
 		end
-		local typed = text:match('^{"type":"([^"]+)"', pos)
-		if typed == "api-request" and text:sub(pos, math.min(nl, pos + 400)):find('"querySource":"repl_main_thread"', 1, true) then
-			state.requests = state.requests + 1
-		end
-		if not (typed and (typed:match("^api%-request") or typed:match("^file%-history"))) then
+		if not parser.skip(state, text:sub(pos, math.min(nl, pos + 400))) then
 			local line = text:sub(pos, nl - 1):gsub("\\u001b%[[%d;?]*%a", "")
 			local ok, r = pcall(rex.json.decode, line)
 			if ok and type(r) == "table" then
-				M.record(state, r)
+				parser.record(state, r)
 			end
 		end
 		pos = nl + 1
@@ -792,49 +613,14 @@ end
 
 -- Subagents ----------------------------------------------------------------
 
-function M.new_agent(id)
-	return { id = id, offset = 0, partial = "", steps = 0, tools = {}, calls = {} }
+function M.new_agent(id, parser)
+	return { id = id, parser = parser, offset = 0, partial = "", steps = 0, tools = {}, calls = {} }
 end
 
 --- Adds one record of a subagent's transcript to it; its permission checks go
 --- to `gate`, as a subagent's.
 function M.agent_record(a, r, gate)
-	local at = M.epoch(r.timestamp)
-	if at then
-		a.start = a.start or at
-		a.last = at
-	end
-	local m = type(r.message) == "table" and r.message or {}
-	local content = type(m.content) == "table" and m.content or {}
-	if r.type == "assistant" then
-		a.steps = a.steps + 1
-		local u = m.usage
-		if type(u) == "table" then
-			local context = (u.input_tokens or 0) + (u.cache_read_input_tokens or 0) + (u.cache_creation_input_tokens or 0)
-			if context > 0 then
-				a.context = context
-			end
-		end
-		for _, item in ipairs(content) do
-			if item.type == "tool_use" then
-				a.calls[item.id] = { name = item.name, input = item.input }
-				local target = M.tool_target(item.name, item.input)
-				a.tools[#a.tools + 1] = tostring(item.name) .. (target ~= "" and (" " .. dim .. target .. reset) or "")
-				if #a.tools > 3 then
-					table.remove(a.tools, 1)
-				end
-			elseif item.type == "text" and item.text and item.text:match("%S") then
-				a.answer = item.text
-			end
-		end
-	elseif r.type == "user" and type(r.permissionDecision) == "table" and gate then
-		for _, item in ipairs(content) do
-			if item.type == "tool_result" then
-				local call = a.calls[item.tool_use_id] or {}
-				M.gate_check(gate, r.permissionDecision, call.name or "tool", call.input, true)
-			end
-		end
-	end
+	parser_of(a).agent_record(a, r, gate)
 end
 
 --- Reads what was added to a subagent's transcript since the last call.
@@ -1084,18 +870,27 @@ end
 local efforts = { low = 1, medium = 2, high = 3, xhigh = 4, max = 5 }
 
 --- The main box: model, effort, mode and requests; context; limits.
---- `status` is the status line's saved input. A limit window that has reset
---- since it was saved counts as unused.
+--- `status` is the session's, as agents/init.lua describes, or Claude Code's
+--- saved status line input; without one, what the transcript recorded. A
+--- limit window that has reset since it was saved counts as unused.
 local function main_box(out, state, cols, o)
-	local status = type(o.status) == "table" and o.status or {}
+	local status = type(o.status) == "table" and o.status or nil
+	if status and status.limits == nil then
+		status = agents.claude.status(status)
+	end
+	-- The session's own status first; the transcript fills what it lacks.
+	local recorded = state.status or {}
+	status = status or recorded
+	local limits = (status.limits and #status.limits > 0) and status.limits or recorded.limits or {}
+	local who = o.agent_name or "Claude"
 	local now = o.now
 	local running = M.running(state)
 	local right = running and (orange .. "● running" .. reset) or (dim .. "○ idle" .. reset)
-	section(out, cols, "Main", { colour = orange, title = (M.model_name(state.model) or "Claude") .. " · main", status = right }, function(n)
+	section(out, cols, "Main", { colour = orange, title = (M.model_name(state.model) or who) .. " · main", status = right }, function(n)
 		local first_line = #out
 		local about = {}
-		if state.title then
-			about[#about + 1] = state.title
+		if state.title or o.session_name then
+			about[#about + 1] = state.title or o.session_name
 		end
 		if state.branch then
 			about[#about + 1] = dim .. state.branch .. reset
@@ -1109,7 +904,7 @@ local function main_box(out, state, cols, o)
 			state.mode and ("mode " .. state.mode),
 			state.requests > 0 and (state.requests .. " req"),
 		}, n)
-		local window = type(status.context_window) == "table" and tonumber(status.context_window.context_window_size)
+		local window = tonumber(status.window) or tonumber(recorded.window)
 		local ctx = state.context
 		local parts = {}
 		if ctx and window and window > 0 then
@@ -1124,22 +919,20 @@ local function main_box(out, state, cols, o)
 		end
 		flow(out, parts, n)
 		parts = {}
-		local limits = type(status.rate_limits) == "table" and status.rate_limits or {}
-		for _, w in ipairs({ { "5h", limits.five_hour }, { "7d", limits.seven_day } }) do
-			local limit = w[2]
-			if type(limit) == "table" and limit.used_percentage then
+		for _, limit in ipairs(limits) do
+			if tonumber(limit.used) then
 				local left = limit.resets_at and limit.resets_at - now or nil
-				local used = (left and left <= 0) and 0 or limit.used_percentage
-				parts[#parts + 1] = w[1] .. " " .. cells(used / 100, 5, level_colour(used)) .. " " .. math.floor(used + 0.5) .. "%"
+				local used = (left and left <= 0) and 0 or limit.used
+				parts[#parts + 1] = limit.label .. " " .. cells(used / 100, 5, level_colour(used)) .. " " .. math.floor(used + 0.5) .. "%"
 					.. ((left and left > 0) and (dim .. " ↻" .. time_left(left) .. reset) or "")
 			end
 		end
 		if state.claude_ms > 0 then
-			parts[#parts + 1] = dim .. "claude " .. duration(state.claude_ms) .. reset
+			parts[#parts + 1] = dim .. who:lower() .. " " .. duration(state.claude_ms) .. reset
 		end
 		flow(out, parts, n)
 		if #out == first_line then
-			out[#out + 1] = dim .. "Nothing from Claude yet." .. reset
+			out[#out + 1] = dim .. "Nothing from " .. who .. " yet." .. reset
 		end
 	end)
 end
@@ -1482,18 +1275,19 @@ end
 
 
 --- `titles` maps a PR's link to its title, when it's known.
-function M.artifacts_view(groups, cols, folded, focus, notice, titles)
+function M.artifacts_view(groups, cols, folded, focus, notice, titles, who)
 	titles = titles or {}
+	who = who or "Claude"
 	local out = new_lines(folded, focus)
 	local link = "Search Panel"
 	local built = {
 		lines = out,
-		pinned = { bold .. teal .. link .. reset .. dim .. "  ↗ all of Claude's replies" .. reset, notice and (red .. notice .. reset) or "" },
+		pinned = { bold .. teal .. link .. reset .. dim .. "  ↗ all of " .. who .. "'s replies" .. reset, notice and (red .. notice .. reset) or "" },
 		hits = { { { from = 1, to = M.width(link), action = { kind = "view_panel" } } } },
 		rows = {},
 	}
 	if #groups == 0 then
-		out[1] = dim .. "Nothing in Claude's replies yet." .. reset
+		out[1] = dim .. "Nothing in " .. who .. "'s replies yet." .. reset
 	end
 	for _, g in ipairs(groups) do
 		local n = cols
@@ -1618,7 +1412,7 @@ function M.turn_data(state, root)
 	local rows, added, removed = {}, 0, 0
 	for _, path in ipairs(state.turn.order) do
 		local f = state.turn.files[path]
-		rows[#rows + 1] = { path = short_path(path, root), mark = f.created and "A" or "M", diff = "patch", absolute = path }
+		rows[#rows + 1] = { path = short_path(path, root), mark = f.created and "A" or f.deleted and "D" or "M", diff = "patch", absolute = path }
 		added, removed = added + f.added, removed + f.removed
 	end
 	return {
@@ -1963,20 +1757,14 @@ local function exec(argv)
 	return ok and r or nil
 end
 
-local function read_json(path)
-	local f = io.open(path, "rb")
-	if not f then
-		return nil
-	end
-	local text = f:read("*a")
-	f:close()
-	local ok, value = pcall(rex.json.decode, text)
-	return ok and value or nil
+--- The process ID of the agent in a pane's `process` call, whichever agent it is.
+function M.agent_pid(process)
+	local _, _, pid = agents.in_process(process)
+	return pid
 end
-
-M.claude_pid = claude.pid
-M.project_dir = claude.project_dir
-M.transcript = claude.transcript
+M.claude_pid = M.agent_pid
+M.project_dir = agents.claude.project_dir
+M.transcript = agents.claude.transcript
 
 local panel = {
 	session_id = os.getenv("REX_SESSION"),
@@ -2015,6 +1803,11 @@ local panel = {
 	cache = nil,
 	state = M.new_state(),
 }
+
+--- The name of the agent beside the panel.
+local function agent_name()
+	return panel.agent and panel.agent.name or "Claude"
+end
 
 -- Background work -----------------------------------------------------------
 -- git and gh run as tasks, coroutines the main loop steps between key reads,
@@ -2078,6 +1871,11 @@ local function step_tasks()
 end
 
 M.spawn, M.run, M.step_tasks = spawn, run, step_tasks
+
+-- The adapters' lookups (ps, sqlite3, ls) don't block key reads either.
+agents.util.exec = function(argv)
+	return run(argv)
+end
 
 local function git(...)
 	local r = run({ "git", "-C", panel.root, ... })
@@ -2244,7 +2042,7 @@ local function load_scope()
 	if scope == "Last Turn" then
 		data = M.turn_data(panel.state, panel.root)
 		if not panel.state.path then
-			data.problem = "No Claude session found for this pane."
+			data.problem = "No " .. agent_name() .. " session found for this pane."
 		end
 	elseif scope == "Uncommitted" then
 		data = M.uncommitted(panel.files)
@@ -2278,32 +2076,33 @@ local function reload_scope(switched)
 	spawn("scope " .. (scope_loads + 1), load_scope)
 end
 
---- The status line's saved input for a transcript's session, if it saves it.
-local function read_status(path)
-	local config, session = path:match("^(.*)/projects/.*/([^/]+)%.jsonl$")
-	return config and read_json(config .. "/state/statusline/" .. session .. ".json") or nil
-end
-
---- The session's subagents, from the folder beside its transcript, oldest
---- first. A finished one is read no more.
-local function read_agents(state)
-	local folder = state.path:gsub("%.jsonl$", "") .. "/subagents/"
-	local r = run({ "/bin/ls", folder })
-	if not (r and r.ok) then
-		return
-	end
+--- The session's subagents, as its agent lists them, oldest first. A
+--- finished one is read no more.
+local function read_agents(state, sess)
 	state.agents = state.agents or {}
-	for id in r.stdout:gmatch("agent%-([%w_%-]+)%.jsonl") do
-		local a = state.agents[id]
+	local done = {}
+	for id, a in pairs(state.agents) do
+		done[id] = a.finished or nil
+	end
+	local status = state.subagent_status or {}
+	for _, sub in ipairs(sess.agent.subagents(sess, os.time(), done)) do
+		local a = state.agents[sub.id]
 		if not a then
-			a = M.new_agent(id)
-			state.agents[id] = a
+			a = M.new_agent(sub.id, sess.agent.id)
+			state.agents[sub.id] = a
+		end
+		-- Claude marks a finished subagent; a Codex parent's rollout says when
+		-- its subagent finished, or got more work.
+		local finished = sub.finished == true or status[sub.id] == "completed" or status[sub.id] == "interrupted"
+		if a.finished and not finished then
+			a.finished = false
 		end
 		if not a.finished then
-			local meta = read_json(folder .. "agent-" .. id .. ".meta.json") or {}
-			a.type, a.description = meta.agentType, meta.description
-			M.read_agent(a, folder .. "agent-" .. id .. ".jsonl", state.gate)
-			a.finished = meta.finished == true
+			a.type, a.description = sub.type, sub.description
+			if sub.transcript then
+				M.read_agent(a, sub.transcript, state.gate)
+			end
+			a.finished = finished
 		end
 	end
 	local list = {}
@@ -2357,11 +2156,11 @@ local function gather()
 
 	local process = panel.claude
 		and rex.block.call(terminal, "process", { session_id = panel.session_id, block_id = panel.claude })
-	local pid = M.claude_pid(process)
-	local path, cwd
-	if pid then
-		path, cwd = M.transcript(pid)
-	end
+	local adapter, sess = agents.session(process, panel.session_id, panel.claude)
+	panel.agent = adapter or panel.agent
+	panel.sess = sess
+	local pid = sess and sess.pid or M.agent_pid(process)
+	local path, cwd = sess and sess.transcript, sess and sess.cwd
 	panel.claude_pid = pid
 	follow(cwd)
 
@@ -2381,17 +2180,17 @@ local function gather()
 		-- A transcript is read into a state of its own, shown once it's read.
 		local state = panel.state
 		if path ~= state.path then
-			state = M.new_state()
+			state = M.new_state(adapter.id)
 			state.path = path
 		end
 		if M.read_new(state, path) == "reset" then
-			state = M.new_state()
+			state = M.new_state(adapter.id)
 			state.path = path
 			M.read_new(state, path)
 		end
 		panel.state = state
-		panel.status = read_status(path)
-		read_agents(state)
+		panel.status = sess.status
+		read_agents(state, sess)
 		local ps = pid and run({ "/bin/ps", "-axo", "pid=,ppid=,etime=,comm=" })
 		-- The tasks come from the transcript, as Claude Code lists them, each
 		-- with a live shell of Claude's.
@@ -2432,14 +2231,16 @@ local function build(tab)
 	if tab == "Artifacts" and panel.state.path then
 		local a = panel.artifacts or { groups = {} }
 		pr_titles(a.groups)
-		return M.artifacts_view(a.groups, panel.cols - 1, panel.folded, panel.focus.Artifacts, panel.notice, panel.titles)
+		return M.artifacts_view(a.groups, panel.cols - 1, panel.folded, panel.focus.Artifacts, panel.notice, panel.titles, agent_name())
 	end
 	local lines
 	if not panel.state.path then
-		lines = { dim .. "No Claude session found for this pane." .. reset }
+		lines = { dim .. "No " .. agent_name() .. " session found for this pane." .. reset }
 	else
 		lines = M.info_lines(panel.state, panel.cols - 1, {
 			status = panel.status,
+			agent_name = agent_name(),
+			session_name = panel.sess and panel.sess.name,
 			folded = panel.folded,
 			focus = panel.focus.Info,
 			agents = panel.state.agent_list,
@@ -2653,7 +2454,7 @@ end
 
 local function open_view_panel()
 	if not panel.claude then
-		return "No Claude pane for this sidecar."
+		return "No agent pane for this sidecar."
 	end
 	return open_float(view_label .. "Search Panel", { dir .. "view-picker", rex_binary, panel.session_id, panel.claude }, panel.cwd)
 end

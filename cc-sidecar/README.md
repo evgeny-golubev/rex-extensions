@@ -1,9 +1,11 @@
 # CC Sidecar for Rex
 
 Opens a `Sidecar: <folder>` pane to the right of every pane that runs Claude
-Code, and closes it when Claude exits or its pane closes. It stands in for
-Claude Code's own diff panel; turn that one off with `"diffSidebarOpen": false`
-in `~/.claude.json`.
+Code or Codex, and closes it when the agent exits or its pane closes. It stands
+in for Claude Code's own diff panel; turn that one off with
+`"diffSidebarOpen": false` in `~/.claude.json`. This page says Claude; a Codex
+pane works the same, except for what [Codex doesn't
+record](../agents/README.md#codex).
 
 ![The Changes tab on a pull request, the Info dashboard with permission checks, agents and background tasks, and Artifacts with documents, PRs, Jira issues and links from Claude's replies, with made-up data](../docs/cc-sidecar.png)
 
@@ -205,6 +207,11 @@ shells from `ps`, by executable name only. PR titles come from `gh`; nothing
 else is sent anywhere, and no AI is involved, so only what Claude Code records
 as structured data shows: a decision made in plain conversation doesn't.
 
+For a Codex, the session is its thread in `~/.codex/state_<n>.sqlite`, found
+as [agents/README.md](../agents/README.md#codex) describes, and the transcript
+is the thread's rollout. Subagents are the threads it spawned, and the usage
+limits come from the rollout that changed last.
+
 ## Folding
 
 Click a box's top line to fold or unfold it, or highlight it with `n` and `p`
@@ -270,8 +277,8 @@ actions are `cc_sidecar_view`, `cc_sidecar_view_editor` and
 
 ## Behavior
 
-- Claude is recognised by its program name, `claude`, in the foreground or as
-  the parent of the foreground command. A pane started as `rex split -- claude`
+- Claude is recognised by its program name, `claude`, and Codex by `codex`, in
+  the foreground or as the parent of the foreground command. A pane started as `rex split -- claude`
   is found by a second look a second after its shell starts.
 - The pane takes 30% of the width, and focus stays on the Claude pane.
 - The pane follows Claude's directory: after `/cd`, the scopes and the pane's
@@ -289,7 +296,9 @@ actions are `cc_sidecar_view`, `cc_sidecar_view_editor` and
 
 - `init.lua` starts the watcher, defines the palette actions and binds Rex
   View's key.
-- `claude.lua` finds a pane's Claude and its transcript.
+- `../agents/` finds a pane's agent, its session and its subagents.
+- `parsers/claude.lua` and `parsers/codex.lua` read each agent's transcript
+  into the state the tabs draw.
 - `settings.lua` reads and writes `settings.json`, and passes Show requests to
   the watcher through `show-request.json`.
 - `watcher.lua` opens and closes the panes.

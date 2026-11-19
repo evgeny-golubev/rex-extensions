@@ -53,7 +53,7 @@ rex.action({
 -- Rex View: the Search Panel, a picker for the files, images and links in Claude's replies,
 -- in a float over the tab. Its floats are labelled like rex-view's, so each
 -- replaces the one before.
-local claude = dofile(base .. "claude.lua")
+local agents = dofile(base .. "../agents/init.lua")
 local terminal = "com.superlogical.terminal"
 local view_prefix = "View: "
 
@@ -77,7 +77,7 @@ local function session_view(ctx)
 	return r.view or r
 end
 
---- The focused pane if it runs Claude, or else the first one in the tab that does.
+--- The focused pane if it runs an agent, or else the first one in the tab that does.
 local function tab_claude(ctx, window)
 	local blocks = { ctx.block_id }
 	for _, l in ipairs(window.layers or {}) do
@@ -89,7 +89,7 @@ local function tab_claude(ctx, window)
 	end
 	for _, id in ipairs(blocks) do
 		local process = id and rex.block.call(terminal, "process", { session_id = ctx.session_id, block_id = id })
-		if claude.pid(process) then
+		if agents.in_process(process) then
 			return id
 		end
 	end
@@ -170,8 +170,8 @@ rex.action({
 		local window = current_window(ctx)
 		local block = tab_claude(ctx, window)
 		local process = block and rex.block.call(terminal, "process", { session_id = ctx.session_id, block_id = block })
-		local pid = claude.pid(process)
-		local cwd = pid and select(2, claude.transcript(pid)) or "/"
+		local _, sess = agents.session(process, ctx.session_id, block)
+		local cwd = sess and sess.cwd or (process and process.foreground and process.foreground.cwd) or "/"
 		open_float(ctx, window, "link patterns", { base .. "view-settings", "patterns", cwd })
 	end,
 })
