@@ -12,45 +12,14 @@ local terminal = "com.superlogical.terminal"
 local home = os.getenv("HOME") or ""
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)") or "./"
 local settings = dofile(dir .. "settings.lua")
+--- The folder of settings.json: a throwaway one in the tests.
+local settings_dir = CC_SIDECAR_TEST_BASE or dir
 local claude = dofile(dir .. "claude.lua")
-local mentions = dofile(dir .. "mentions.lua")
 local rex_binary = home
 	.. "/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
-local viewer = dir .. "../plugins/rex-view/skills/rex-view/scripts/viewer"
 
-M.tabs = { "Info", "Changes", "Artifacts" }
+M.tabs = { "Info" }
 
---- The scopes of the Changes tab; only Last Turn works without git. The third
---- is "PR", "Branch", or nil on the default branch.
-function M.scopes(git, third)
-	if not git then
-		return { "Last Turn" }
-	end
-	return { "Last Turn", "Uncommitted", third }
-end
-
---- The scope shown when the scopes change: Branch and PR stand in for each other.
-function M.pick_scope(scopes, scope)
-	for _, s in ipairs(scopes) do
-		if s == scope then
-			return scope
-		end
-	end
-	if (scope == "Branch" or scope == "PR") and scopes[3] then
-		return scopes[3]
-	end
-	return scopes[1]
-end
-
---- An open PR from `gh pr view --json number,baseRefName,state`, or nil. The base
---- becomes a git argument, so one that reads as an option is refused.
-function M.pr_info(out)
-	local ok, pr = pcall(rex.json.decode, out or "")
-	if ok and type(pr) == "table" and pr.state == "OPEN" and type(pr.number) == "number"
-		and type(pr.baseRefName) == "string" and pr.baseRefName:match("^[^-%s]%S*$") then
-		return { number = math.floor(pr.number), base = pr.baseRefName }
-	end
-end
 
 local reset, bold, dim = "\27[0m", "\27[1m", "\27[2m"
 local red, green, yellow, cyan = "\27[31m", "\27[32m", "\27[33m", "\27[36m"
@@ -896,7 +865,10 @@ local fold_marks = { [true] = "▸ ", [false] = "▾ " }
 local orange, lavender, mint, purple = "\27[38;5;209m", "\27[38;5;147m", "\27[38;5;114m", "\27[38;5;141m"
 local gold, teal, blue, grey = "\27[38;5;221m", "\27[38;5;80m", "\27[38;5;75m", "\27[38;5;245m"
 local aqua = "\27[38;5;87m"
-M.colours = { orange = orange, lavender = lavender, mint = mint, purple = purple, gold = gold, teal = teal, blue = blue, grey = grey }
+M.colours = {
+	orange = orange, lavender = lavender, mint = mint, purple = purple, gold = gold, teal = teal, blue = blue, grey = grey, aqua = aqua,
+	reset = reset, bold = bold, dim = dim, red = red, green = green, yellow = yellow, cyan = cyan,
+}
 
 --- Below this width, sections are plain headings instead of boxes.
 M.box_min = 36
@@ -1492,144 +1464,7 @@ function M.info_lines(state, cols, opts)
 	return out
 end
 
--- Artifacts -----------------------------------------------------------------
-
---- The Artifacts tab: the Search Panel link, pinned, then a section for each
---- category of what Claude's replies mention. `groups` comes from
---- mentions.group; a click on a row opens it as the Search Panel's Enter does.
-
-
---- `titles` maps a PR's link to its title, when it's known.
-function M.artifacts_view(groups, cols, folded, focus, notice, titles)
-	titles = titles or {}
-	local out = new_lines(folded, focus)
-	local link = "Search Panel"
-	local built = {
-		lines = out,
-		pinned = { bold .. teal .. link .. reset .. dim .. "  ↗ all of Claude's replies" .. reset, notice and (red .. notice .. reset) or "" },
-		hits = { { { from = 1, to = M.width(link), action = { kind = "view_panel" } } } },
-		rows = {},
-	}
-	if #groups == 0 then
-		out[1] = dim .. "Nothing in Claude's replies yet." .. reset
-	end
-	for _, g in ipairs(groups) do
-		local n = cols
-		local function row(label, note, target)
-			if note == "" then
-				out[#out + 1] = M.clip(label, n)
-			else
-				local room = math.max(1, n - M.width(note) - 2)
-				out[#out + 1] = M.clip(label, room) .. "  " .. dim .. note .. reset
-			end
-			out.actions[#out] = { kind = "mention", row = target }
-		end
-		local style = mentions.styles[g.name] or mentions.styles.Other
-		section(out, cols, g.name, { colour = style.colour, icon = style.icon, right = tostring(#g.rows) }, function(inner)
-			n = inner
-			for i, r in ipairs(g.rows) do
-				if i > 10 then
-					out[#out + 1] = dim .. "+" .. (#g.rows - 10) .. " more · Search Panel" .. reset
-					out.actions[#out] = { kind = "view_panel" }
-					break
-				end
-				if r.kind == "pr" then
-					local title = titles[r.target]
-					title = title and (dim .. (r.name:match("#%d+$") or r.name) .. reset .. " " .. title)
-					local own = { kind = "link", target = r.target }
-					if #r.rows + (r.direct and 1 or 0) <= 1 then
-						local sub = r.rows[1]
-						row(title or r.name, sub and sub.sub or "", sub or own)
-					else
-						row(title or r.name, "", own)
-						for _, sub in ipairs(r.rows) do
-							row("  " .. sub.sub, "", sub)
-						end
-					end
-				elseif r.title then
-					local key = r.target:match("/browse/(%u[%u%d]*%-%d+)") or r.label
-					row(dim .. key .. reset .. " " .. r.title, "", r)
-				else
-					row(r.label, r.note or r.kind, r)
-				end
-			end
-		end)
-	end
-	built.actions, built.sections = out.actions, out.sections
-	return built
-end
-
--- Changes -------------------------------------------------------------------
-
---- `git diff --numstat -z`, as added and removed line totals. A rename's two
---- paths are fields of their own, without the tabs a count has.
-function M.numstat(out)
-	local added, removed = 0, 0
-	for field in out:gmatch("[^%z]+") do
-		local a, r = field:match("^(%S+)\t(%S+)\t")
-		added = added + (tonumber(a) or 0)
-		removed = removed + (tonumber(r) or 0)
-	end
-	return added, removed
-end
-
---- A scope's rows from `git status`: grouped as Staged and Unstaged, and merged
---- into one list for the tree, where a file is listed once.
-function M.uncommitted(files)
-	local staged, unstaged, merged = {}, {}, {}
-	for _, f in ipairs(files) do
-		if f.x == "?" then
-			local row = { path = f.path, mark = "A", diff = "untracked" }
-			unstaged[#unstaged + 1] = row
-			merged[#merged + 1] = row
-		else
-			if f.x ~= " " then
-				staged[#staged + 1] = { path = f.path, mark = f.x, diff = "staged" }
-			end
-			if f.y ~= " " then
-				unstaged[#unstaged + 1] = { path = f.path, mark = f.y, diff = "unstaged" }
-			end
-			merged[#merged + 1] = { path = f.path, mark = f.y ~= " " and f.y or f.x, diff = "head" }
-		end
-	end
-	local groups = {}
-	if #staged > 0 then
-		groups[#groups + 1] = { title = "Staged", rows = staged }
-	end
-	if #unstaged > 0 then
-		groups[#groups + 1] = { title = "Unstaged", rows = unstaged }
-	end
-	return { groups = groups, merged = merged, note = "No uncommitted changes." }
-end
-
---- The Branch scope from `git diff --name-status -z`. Untracked files aren't in
---- that diff, so they're added from the status.
-function M.branch_rows(out, files)
-	local fields = {}
-	for field in out:gmatch("[^%z]+") do
-		fields[#fields + 1] = field
-	end
-	local rows = {}
-	local i = 1
-	while i < #fields do
-		local mark = fields[i]:sub(1, 1)
-		-- A rename or copy names the path it came from, then the new one.
-		if mark == "R" or mark == "C" then
-			i = i + 1
-		end
-		rows[#rows + 1] = { path = fields[i + 1], mark = mark, diff = "base" }
-		i = i + 2
-	end
-	for _, f in ipairs(files) do
-		if f.x == "?" then
-			rows[#rows + 1] = { path = f.path, mark = "A", diff = "untracked" }
-		end
-	end
-	table.sort(rows, function(a, b)
-		return a.path < b.path
-	end)
-	return rows
-end
+-- Last Turn ------------------------------------------------------------------
 
 --- The Last Turn scope, from the hunks in the transcript.
 function M.turn_data(state, root)
@@ -1659,204 +1494,6 @@ function M.turn_patch(state, path, shown)
 	end
 	return table.concat(out, "\n") .. "\n"
 end
-
---- The `git` arguments that show a row's diff.
-function M.diff_args(row, base, head)
-	local path = row.path
-	if row.diff == "staged" or (row.diff == "head" and not head) then
-		return { "diff", "--cached", "--", path }
-	elseif row.diff == "unstaged" then
-		return { "diff", "--", path }
-	elseif row.diff == "head" then
-		return { "diff", "HEAD", "--", path }
-	elseif row.diff == "base" then
-		return { "diff", base, "--", path }
-	end
-	return { "diff", "--no-index", "--", "/dev/null", path }
-end
-
-local scope_short = { ["Last Turn"] = "Turn", Uncommitted = "Local" }
-
---- The scope row, with short names when the full ones don't fit, and the columns
---- each scope takes.
-function M.scope_bar(scopes, active, cols)
-	local function build(short)
-		local parts, ranges, column = {}, {}, 1
-		for _, scope in ipairs(scopes) do
-			local label = " " .. (short and scope_short[scope] or scope) .. " "
-			parts[#parts + 1] = scope == active and ("\27[7m" .. label .. reset) or (dim .. label .. reset)
-			ranges[#ranges + 1] = { from = column, to = column + M.width(label) - 1, action = { kind = "scope", scope = scope } }
-			column = column + M.width(label) + 1
-		end
-		return table.concat(parts, " "), ranges, column - 2
-	end
-	local bar, ranges, used = build(false)
-	if used > cols then
-		bar, ranges = build(true)
-	end
-	return bar, ranges
-end
-
-local mark_colours = { A = green, D = red, R = cyan, C = cyan, U = red }
-
-local function coloured_mark(mark)
-	return (mark_colours[mark] or yellow) .. bold .. mark .. reset
-end
-
-local function list_rows(out, built, group, selected, key_prefix)
-	for _, row in ipairs(group.rows) do
-		local key = key_prefix .. "\0" .. row.path
-		local name = row.path:match("[^/]+$") or row.path
-		local folder = row.path:match("^(.*)/[^/]*$")
-		local chosen = key == selected
-		out[#out + 1] = (chosen and (cyan .. "› " .. reset) or "  ")
-			.. coloured_mark(row.mark) .. " " .. name
-			.. (folder and (dim .. "  " .. folder .. reset) or "")
-		built.actions[#out] = { kind = "open", key = key, row = row }
-		built.rows[#built.rows + 1] = { key = key, row = row, line = #out }
-	end
-end
-
---- Rows as a folder tree. A folder is a row of its own that folds, and hides
---- what's under it.
-local function tree_rows(out, built, rows, selected, cols, folded)
-	local sorted = {}
-	for _, row in ipairs(rows) do
-		sorted[#sorted + 1] = row
-	end
-	local function folders_of(row)
-		local parts, paths, path = {}, {}, nil
-		for part in row.path:gmatch("[^/]+") do
-			parts[#parts + 1] = part
-			path = path and (path .. "/" .. part) or part
-			paths[#paths + 1] = path
-		end
-		return parts, paths
-	end
-	-- Folders before files at each level, each by name.
-	table.sort(sorted, function(a, b)
-		local left, right = folders_of(a), folders_of(b)
-		for i = 1, math.min(#left, #right) do
-			if left[i] ~= right[i] then
-				local left_dir, right_dir = i < #left, i < #right
-				if left_dir ~= right_dir then
-					return left_dir
-				end
-				return left[i] < right[i]
-			end
-		end
-		return #left < #right
-	end)
-	local counts = {}
-	for _, row in ipairs(sorted) do
-		local _, paths = folders_of(row)
-		for depth = 1, #paths - 1 do
-			counts[paths[depth]] = (counts[paths[depth]] or 0) + 1
-		end
-	end
-	local function mark_for(key)
-		return key == selected and (cyan .. "› " .. reset) or "  "
-	end
-	local open = {}
-	for _, row in ipairs(sorted) do
-		local parts, paths = folders_of(row)
-		local hidden = false
-		for depth = 1, #parts - 1 do
-			local path = paths[depth]
-			if open[depth] ~= parts[depth] then
-				open[depth] = parts[depth]
-				for deeper = depth + 1, #open do
-					open[deeper] = nil
-				end
-				if not hidden then
-					local closed = folded[path] == true
-					local key = "\0dir\0" .. path
-					out[#out + 1] = mark_for(key) .. string.rep("  ", depth - 1) .. dim
-						.. fold_marks[closed] .. parts[depth] .. (closed and (" (" .. counts[path] .. ")") or "") .. reset
-					built.actions[#out] = { kind = "dir", key = key, path = path }
-					built.rows[#built.rows + 1] = { key = key, dir = path, line = #out }
-				end
-			end
-			hidden = hidden or folded[path] == true
-		end
-		for deeper = #parts, #open do
-			open[deeper] = nil
-		end
-		if not hidden then
-			local key = "\0" .. row.path
-			local indent = mark_for(key) .. string.rep("  ", #parts - 1)
-			local room = math.max(1, cols - M.width(indent) - 2)
-			local name = M.clip(parts[#parts] or row.path, room)
-			out[#out + 1] = indent .. name .. string.rep(" ", room - M.width(name) + 1) .. coloured_mark(row.mark)
-			built.actions[#out] = { kind = "open", key = key, row = row }
-			built.rows[#built.rows + 1] = { key = key, row = row, line = #out }
-		end
-	end
-end
-
---- The Changes tab. `pinned` stays in place above the rows, and `hits` holds
---- the columns of its clickable parts, by pinned line. `actions` is by row line.
-function M.changes_view(v, cols)
-	local data = v.data
-	local built = { lines = {}, pinned = {}, hits = {}, actions = {}, rows = {} }
-
-	local stats = ""
-	if (data.added or 0) > 0 or (data.removed or 0) > 0 then
-		stats = green .. "+" .. data.added .. reset .. " " .. red .. "−" .. data.removed .. reset .. "  "
-	end
-	local tree_mark = "≣"
-	local mark = v.tree and (teal .. tree_mark .. reset) or (dim .. tree_mark .. reset)
-	local title = bold .. teal .. (v.title or "") .. reset
-	if cols >= M.box_min then
-		-- The header is a box of its own, pinned: branch, totals and tree mark on
-		-- the top line, the scopes inside.
-		local head, ranges = {}, {}
-		M.box(head, nil, cols, teal, title, stats .. mark, function(n)
-			local bar
-			bar, ranges = M.scope_bar(v.scopes, v.scope, n)
-			head[#head + 1] = bar
-		end)
-		for _, r in ipairs(ranges) do
-			r.from, r.to = r.from + 2, r.to + 2
-		end
-		built.pinned = { head[1], head[2], head[3] }
-		built.hits = { { { from = cols - 3, to = cols - 2, action = { kind = "tree" } } }, ranges }
-	else
-		local right = M.width(stats) + M.width(tree_mark)
-		title = M.clip(title, math.max(1, cols - right - 1))
-		built.pinned[1] = title .. reset .. string.rep(" ", math.max(1, cols - M.width(title) - right)) .. stats .. mark
-		built.hits[1] = { { from = cols - 1, to = cols, action = { kind = "tree" } } }
-		built.pinned[2] = ""
-		built.pinned[3], built.hits[3] = M.scope_bar(v.scopes, v.scope, cols)
-	end
-	built.pinned[#built.pinned + 1] = v.notice and (red .. v.notice .. reset) or ""
-
-	local out = built.lines
-	if data.problem then
-		add(out, M.wrap(data.problem, cols, dim, dim))
-		return built
-	end
-	local groups = data.groups
-	if v.tree and data.merged and #data.merged > 0 then
-		groups = { { title = "Changed", rows = data.merged } }
-	end
-	if #groups == 0 then
-		add(out, M.wrap(data.note, cols, dim, dim))
-	end
-	for _, group in ipairs(groups) do
-		local count = bold .. teal .. group.title .. reset .. dim .. " " .. #group.rows .. reset
-		local vs = data.vs and (dim .. "vs " .. data.vs .. reset) or ""
-		M.box(out, built.actions, cols, teal, count, vs, function(n)
-			if v.tree then
-				tree_rows(out, built, group.rows, v.selected, n, v.folded or {})
-			else
-				list_rows(out, built, group, v.selected, group.title)
-			end
-		end)
-	end
-	return built
-end
-
 
 
 --- The tab bar, with where the shown lines are when they don't all fit, and the
@@ -2006,29 +1643,16 @@ local panel = {
 	scroll = {},
 	cols = 80,
 	rows = 24,
-	git = false,
-	files = {},
-	head = true,
-	scope = "Uncommitted",
-	tree = settings.tree(dir),
 	--- Section name -> true when folded, shared by all panes through settings.
-	folded = settings.folded(dir),
-	--- Folder path -> true when folded in this repository's tree.
-	folded_dirs = {},
+	folded = settings.folded(settings_dir),
 	--- Tab name -> the highlighted section's name.
 	focus = {},
-	--- The Artifacts tab's categories, from every reply; see refresh_artifacts.
-	artifacts = nil,
 	--- The gate family whose last checks Info shows, if any.
 	gate_open = nil,
 	--- Subagent ID -> true when its lane is open on Info.
 	open_agents = {},
 	--- "tests" or "failed" when the receipt shows that list.
 	show = nil,
-	--- A PR's link -> its title, or false when it couldn't be looked up.
-	titles = {},
-	--- Scope -> the key of the selected row.
-	selected = {},
 	--- The tab's last built view; cleared by anything that changes it.
 	cache = nil,
 	state = M.new_state(),
@@ -2097,38 +1721,6 @@ end
 
 M.spawn, M.run, M.step_tasks = spawn, run, step_tasks
 
-local function git(...)
-	local r = run({ "git", "-C", panel.root, ... })
-	return r and r.ok and r.stdout or ""
-end
-
---- `git status --porcelain -b -z`: the branch, whether it has a commit yet, and
---- the changed files.
-function M.status(out)
-	local result = { files = {}, head = true }
-	local fields = {}
-	for field in out:gmatch("[^%z]+") do
-		fields[#fields + 1] = field
-	end
-	local i = 1
-	while i <= #fields do
-		local f = fields[i]
-		local branch = f:match("^## (.*)")
-		if branch then
-			result.head = not branch:match("^No commits yet")
-			result.branch = branch:match("^No commits yet on (.*)$") or branch:match("^(.-)%.%.%.") or branch
-		else
-			local x, y, path = f:sub(1, 1), f:sub(2, 2), f:sub(4)
-			-- A rename or copy is followed by the path it came from.
-			if x == "R" or x == "C" then
-				i = i + 1
-			end
-			result.files[#result.files + 1] = { x = x, y = y, path = path }
-		end
-		i = i + 1
-	end
-	return result
-end
 
 --- Moves the pane to the repository of the directory Claude works in.
 local function follow(cwd)
@@ -2140,8 +1732,6 @@ local function follow(cwd)
 	local root = r and r.ok and (r.stdout:gsub("%s+$", "")) or cwd
 	if root ~= panel.root then
 		panel.root = root
-		panel.scroll.Changes = 0
-			panel.selected = {}
 		rex.call("session.set_block_label", {
 			session_id = panel.session_id,
 			block_id = panel.block_id,
@@ -2150,151 +1740,6 @@ local function follow(cwd)
 	end
 end
 
---- The ref the Branch scope compares with: where origin/HEAD points, or else
---- main or master.
-local function base_ref()
-	local remote = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):gsub("%s+$", "")
-	if remote ~= "" then
-		return remote
-	end
-	for _, name in ipairs({ "main", "master" }) do
-		if git("rev-parse", "--verify", "--quiet", name) ~= "" then
-			return name
-		end
-	end
-end
-
---- The open PR of the branch, from GitHub through `gh`. It's looked up again on
---- opening Changes, on a new branch or repository, and after 5 minutes.
-local pr_cache, pr_ttl = nil, 300
-local function pr_lookup()
-	local branch = panel.branch
-	if not branch or branch:match("^HEAD") then
-		return nil
-	end
-	local key, now = panel.root .. "\0" .. branch, os.time()
-	local hit = pr_cache
-	if hit and hit.key == key and now - hit.at < pr_ttl then
-		return hit.pr
-	end
-	local r = run({ "/bin/sh", "-c", 'export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"; cd "$1" && exec gh pr view --json number,baseRefName,state', "sh", panel.root })
-	local pr = r and r.ok and M.pr_info(r.stdout) or nil
-	pr_cache = { key = key, at = now, pr = pr }
-	return pr
-end
-
---- Looks up the titles of the PRs in Artifacts, from GitHub through `gh`, at
---- most 4 at a time. A title is looked up once while the panel runs, and a
---- failed lookup isn't tried again.
-local function pr_titles(groups)
-	local running = 0
-	for name in pairs(tasks) do
-		if name:sub(1, 6) == "title " then
-			running = running + 1
-		end
-	end
-	for _, g in ipairs(groups) do
-		for _, r in ipairs(g.rows) do
-			if running >= 4 then
-				return
-			end
-			local url = r.target
-			if r.kind == "pr" and panel.titles[url] == nil and spawn("title " .. url, function()
-				local res = run({ "/bin/sh", "-c", 'export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"; exec gh pr view "$1" --json title --jq .title', "sh", url })
-				local title = res and res.ok and res.stdout:gsub("%s+$", "") or ""
-				panel.titles[url] = title ~= "" and title or false
-			end) then
-				running = running + 1
-			end
-		end
-	end
-end
-
---- The third scope of the Changes tab, with the PR or the ref it compares with.
-local function third_scope()
-	if not panel.git then
-		return nil
-	end
-	local pr = pr_lookup()
-	if pr then
-		local remote = "origin/" .. pr.base
-		return "PR", pr, git("rev-parse", "--verify", "--quiet", remote) ~= "" and remote or pr.base
-	end
-	local ref = base_ref()
-	if ref and panel.branch == (ref:gsub("^origin/", "")) then
-		return nil
-	end
-	return "Branch", nil, ref
-end
-
---- Lines in the untracked files, for the totals. git counts them only one call
---- per file, so this reads them, and leaves out big ones and long lists.
-local function untracked_lines(files, root)
-	local total, read = 0, 0
-	for _, file in ipairs(files) do
-		if file.x == "?" and read < 50 then
-			read = read + 1
-			local f = io.open(root .. "/" .. file.path, "rb")
-			if f then
-				local size = f:seek("end")
-				if size and size <= 1048576 then
-					f:seek("set", 0)
-					local text = f:read("*a") or ""
-					local _, n = text:gsub("\n", "")
-					total = total + n
-				end
-				f:close()
-			end
-		end
-	end
-	return total
-end
-
---- Loads the scope on show, only that one. A load that a newer one replaced
---- while git ran keeps what it found to itself.
-local scope_loads = 0
-local function load_scope()
-	scope_loads = scope_loads + 1
-	local load = scope_loads
-	local third, pr, ref = third_scope()
-	local scope = M.pick_scope(M.scopes(panel.git, third), panel.scope)
-	local data
-	if scope == "Last Turn" then
-		data = M.turn_data(panel.state, panel.root)
-		if not panel.state.path then
-			data.problem = "No Claude session found for this pane."
-		end
-	elseif scope == "Uncommitted" then
-		data = M.uncommitted(panel.files)
-		data.added, data.removed = M.numstat(git("diff", "--numstat", "-z", panel.head and "HEAD" or "--cached"))
-		data.added = data.added + untracked_lines(panel.files, panel.root)
-	else
-		local base = ref and git("merge-base", "HEAD", ref):gsub("%s+$", "") or ""
-		if base == "" then
-			data = { groups = {}, problem = pr and ("No " .. pr.base .. " branch to compare with.") or "No main or master branch to compare with." }
-		else
-			local rows = M.branch_rows(git("diff", "--name-status", "-z", base), panel.files)
-			local vs = pr and (pr.base .. " · #" .. pr.number) or (ref:gsub("^origin/", ""))
-			data = { groups = #rows > 0 and { { title = "Changed", rows = rows } } or {}, note = "No changes on this branch.", vs = vs }
-			data.base = base
-			data.added, data.removed = M.numstat(git("diff", "--numstat", "-z", base))
-			data.added = data.added + untracked_lines(panel.files, panel.root)
-		end
-	end
-	if load == scope_loads then
-		panel.third, panel.scope, panel.data = third, scope, data
-		panel.cache = nil
-	end
-end
-
---- Loads the scope in the background, with the rows emptied when it's another
---- scope than the one shown.
-local function reload_scope(switched)
-	if switched then
-		panel.data = { groups = {}, note = "Loading…" }
-	end
-	spawn("scope " .. (scope_loads + 1), load_scope)
-end
 
 --- The status line's saved input for a transcript's session, if it saves it.
 local function read_status(path)
@@ -2334,38 +1779,6 @@ local function read_agents(state)
 	state.agent_list = list
 end
 
---- The Artifacts tab's categories. Each reply is read once, as replies don't
---- change once Claude has moved on; all are read again when the transcript,
---- Claude's directory or the link patterns change.
-local function refresh_artifacts()
-	local patterns = settings.link_patterns(dir)
-	local ok, encoded = pcall(rex.json.encode, patterns)
-	local key = (panel.cwd or "") .. "\0" .. (ok and encoded or "")
-	local a = panel.artifacts
-	if not (a and a.key == key and a.state == panel.state) then
-		a = { key = key, state = panel.state, per = {}, groups = {}, total = 0, rules = mentions.rules_for(patterns, panel.cwd) }
-		panel.artifacts = a
-		a.changed = true
-	end
-	local responses = panel.state.responses
-	local lists = {}
-	for i = #responses, 1, -1 do
-		local r, done = responses[i], a.per[i]
-		if not (done and done.seq == r.seq) then
-			done = { seq = r.seq, rows = mentions.find({ r.text }, panel.cwd, a.rules) }
-			a.per[i] = done
-			a.changed = true
-			if coroutine.running() and i % 20 == 0 then
-				coroutine.yield()
-			end
-		end
-		lists[#lists + 1] = done.rows
-	end
-	if a.changed or a.count ~= #responses then
-		a.changed, a.count = false, #responses
-		a.groups, a.total = mentions.group(lists)
-	end
-end
 
 local function gather()
 	local size = rex.block.call(terminal, "size", { session_id = panel.session_id, block_id = panel.block_id })
@@ -2383,17 +1796,7 @@ local function gather()
 	panel.claude_pid = pid
 	follow(cwd)
 
-	panel.folded = settings.folded(dir)
-	panel.folded_dirs = settings.folded_dirs(dir, panel.root)
-
-	-- One status call: git status runs slowly in big repositories.
-	local r = run({ "git", "-C", panel.root, "status", "--porcelain", "-b", "-z", "--untracked-files=all" })
-	panel.git = r and r.ok or false
-	panel.files, panel.branch, panel.head = {}, nil, true
-	if panel.git then
-		local status = M.status(r.stdout)
-		panel.files, panel.branch, panel.head = status.files, status.branch, status.head
-	end
+	panel.folded = settings.folded(settings_dir)
 
 	if path then
 		-- A transcript is read into a state of its own, shown once it's read.
@@ -2423,34 +1826,184 @@ local function gather()
 		end
 	end
 
-	if panel.tab == "Changes" or not panel.data then
-		load_scope()
-	end
 	panel.gathered = true
-	refresh_artifacts()
+end
+
+-- Tab plugins ---------------------------------------------------------------
+-- Each Lua file in tabs/ and in ~/.config/rex/sidecar-tabs adds a tab; see the
+-- README.
+
+--- Tab name -> { tab = the table its file returned, due = when its next
+--- refresh starts }.
+local plugins = {}
+M.plugins = plugins
+
+--- Every tab after Info, in the order added.
+M.tab_names = {}
+
+local function has_tab(name)
+	for _, tab in ipairs(M.tab_names) do
+		if tab == name then
+			return true
+		end
+	end
+	return name == "Info"
+end
+
+--- Puts the tabs to show in M.tabs: Info, then the others in the saved order,
+--- and after them, in the order added, those the saved order doesn't name.
+--- A tab with `hidden` set is hidden until the saved order names it. A
+--- hidden open tab gives way to Info.
+local function arrange()
+	local saved, hidden = settings.tabs(settings_dir)
+	local order, listed = {}, {}
+	for i, list in ipairs({ saved, M.tab_names }) do
+		for _, name in ipairs(list) do
+			if not listed[name] and has_tab(name) and name ~= "Info" then
+				listed[name] = true
+				order[#order + 1] = name
+				if i == 2 and plugins[name].tab.hidden then
+					hidden[name] = true
+				end
+			end
+		end
+	end
+	local tabs = { "Info" }
+	for _, name in ipairs(order) do
+		if not hidden[name] then
+			tabs[#tabs + 1] = name
+		end
+	end
+	panel.tab_order, panel.hidden_tabs, M.tabs = order, hidden, tabs
+	if hidden[panel.tab] then
+		panel.tab = "Info"
+	end
+	panel.cache = nil
+end
+
+--- Loads each Lua file in `path` as a tab, added after the others in file
+--- name order. A file gets this module as its argument. A file that fails to
+--- load gets a tab, named after the file, that shows the error.
+function M.load_plugins(path)
+	local r = exec({ "/bin/ls", path })
+	local files = {}
+	for file in (r and r.ok and r.stdout or ""):gmatch("[^\n]+") do
+		if file:match("%.lua$") then
+			files[#files + 1] = file
+		end
+	end
+	table.sort(files)
+	for _, file in ipairs(files) do
+		local ok, tab = pcall(function()
+			return assert(loadfile(path .. file))(M)
+		end)
+		if ok and not (type(tab) == "table" and type(tab.name) == "string" and not has_tab(tab.name)) then
+			ok, tab = false, file .. " must return a table with a tab name not yet in use."
+		end
+		if not ok then
+			local message = tostring(tab)
+			tab = {
+				name = file,
+				view = function(cols)
+					return { lines = M.wrap(message, cols, red, red) }
+				end,
+			}
+		end
+		plugins[tab.name] = { tab = tab, due = 0 }
+		M.tab_names[#M.tab_names + 1] = tab.name
+	end
+	arrange()
+end
+
+--- Starts the refresh of each shown plugin tab that is due, as a task. The
+--- next is due `interval` seconds, 60 by default, after this one starts.
+local function refresh_plugins(now)
+	for name, p in pairs(plugins) do
+		if p.tab.refresh and not panel.hidden_tabs[name] and now >= p.due and spawn("tab " .. name, p.tab.refresh) then
+			p.due = now + (p.tab.interval or 60)
+		end
+	end
+end
+
+--- A plugin tab's view. An error in the plugin's view shows in its place. A
+--- view without pinned lines gets the pane's notice, such as an error in one
+--- of the plugin's tasks.
+local function plugin_view(tab)
+	local cols = panel.cols - 1
+	local ok, v = pcall(tab.view, cols)
+	if not ok or type(v) ~= "table" then
+		v = { lines = M.wrap(tostring(v), cols, red, red) }
+	end
+	local pinned = v.pinned or { panel.notice and (red .. panel.notice .. reset) }
+	return { lines = v.lines or {}, pinned = pinned, hits = v.hits or {}, actions = v.actions or {}, sections = v.sections or {}, selected = v.selected }
+end
+
+--- The tab settings, in place of the open tab's view: Info, then each other
+--- tab in its order, shown or hidden. `at` is the selected tab's place.
+local function tabs_view(cols, at)
+	local lines, actions = {}, {}
+	M.box(lines, actions, cols, grey, bold .. "Tabs" .. reset, "", function()
+		lines[#lines + 1] = "  " .. green .. "✓" .. reset .. " Info" .. dim .. "  always shown" .. reset
+		for i, name in ipairs(panel.tab_order) do
+			local mark = panel.hidden_tabs[name] and (dim .. "○" .. reset) or (green .. "✓" .. reset)
+			lines[#lines + 1] = (i == at and (cyan .. "› " .. reset) or "  ") .. mark .. " " .. name
+			actions[#lines] = { kind = "show_tab", name = name }
+		end
+	end)
+	lines[#lines + 1] = ""
+	lines[#lines + 1] = dim .. "Space shows or hides  J K move  Esc closes" .. reset
+	return { lines = lines, pinned = {}, hits = {}, actions = actions, sections = {}, selected = at + 2 }
+end
+
+--- Shows or hides a tab, and saves the choice.
+local function toggle_tab(name)
+	if name then
+		panel.hidden_tabs[name] = not panel.hidden_tabs[name] or nil
+		pcall(settings.set_tabs, settings_dir, panel.tab_order, panel.hidden_tabs)
+		arrange()
+	end
+end
+
+--- Moves the tab at place `at` in the order one place, by `step`, and saves
+--- the order.
+local function move_tab(at, step)
+	local order = panel.tab_order
+	if order[at] and order[at + step] then
+		order[at], order[at + step] = order[at + step], order[at]
+		panel.arranging = at + step
+		pcall(settings.set_tabs, settings_dir, order, panel.hidden_tabs)
+		arrange()
+	end
+end
+
+--- A key while the tab settings are open; true when it took the key.
+local function tabs_key(k)
+	local at = panel.arranging
+	if k == "j" or k == "down" or k == "k" or k == "up" then
+		local step = (k == "j" or k == "down") and 1 or -1
+		panel.arranging = math.max(1, math.min(#panel.tab_order, at + step))
+	elseif k == " " or k == "\r" or k == "\n" then
+		toggle_tab(panel.tab_order[at])
+	elseif k == "J" or k == "K" then
+		move_tab(at, k == "J" and 1 or -1)
+	elseif k == "escape" or k == "," then
+		panel.arranging = nil
+	else
+		return false
+	end
+	return true
 end
 
 local function build(tab)
-	if tab == "Changes" then
-		return M.changes_view({
-			title = panel.branch or (panel.root:match("[^/]+$") or panel.root),
-			scope = panel.scope,
-			scopes = M.scopes(panel.git, panel.third),
-			tree = panel.tree,
-			folded = panel.folded_dirs,
-			selected = panel.selected[panel.scope],
-			data = panel.data or { groups = {}, note = "Loading…" },
-			notice = panel.notice,
-		}, panel.cols - 1)
+	if panel.arranging then
+		return tabs_view(panel.cols - 1, panel.arranging)
+	end
+	if plugins[tab] then
+		return plugin_view(plugins[tab].tab)
 	end
 	if not panel.gathered then
 		local lines = { dim .. "Reading the session…" .. reset }
-		return { lines = lines, pinned = {}, hits = {}, actions = {}, sections = {}, rows = {} }
-	end
-	if tab == "Artifacts" and panel.state.path then
-		local a = panel.artifacts or { groups = {} }
-		pr_titles(a.groups)
-		return M.artifacts_view(a.groups, panel.cols - 1, panel.folded, panel.focus.Artifacts, panel.notice, panel.titles)
+		return { lines = lines, pinned = {}, hits = {}, actions = {}, sections = {} }
 	end
 	local lines
 	if not panel.state.path then
@@ -2468,7 +2021,7 @@ local function build(tab)
 			processes = panel.processes,
 		})
 	end
-	return { lines = lines, pinned = {}, hits = {}, actions = lines.actions or {}, sections = lines.sections or {}, rows = {}, ticking = lines.ticking }
+	return { lines = lines, pinned = {}, hits = {}, actions = lines.actions or {}, sections = lines.sections or {}, ticking = lines.ticking }
 end
 
 --- The tab's view, built again only after something cleared it.
@@ -2488,17 +2041,19 @@ local function draw()
 	local s = panel.scroll[panel.tab] or 0
 	if panel.reveal then
 		panel.reveal = false
-		for _, r in ipairs(c.rows) do
-			if r.key == panel.selected[panel.scope] then
-				s = math.max(r.line - page, math.min(s, r.line - 1))
-			end
+		if c.selected then
+			s = math.max(c.selected - page, math.min(s, c.selected - 1))
 		end
 	end
 	s = math.max(0, math.min(s, #c.lines - page))
 	panel.scroll[panel.tab] = s
-	local count = #panel.files > 0 and tostring(#panel.files) or nil
-	local found = panel.artifacts and panel.artifacts.total > 0 and tostring(panel.artifacts.total) or nil
-	local badges = { Changes = count, Artifacts = found }
+	local badges = {}
+	for name, p in pairs(plugins) do
+		if p.tab.badge then
+			local ok, badge = pcall(p.tab.badge)
+			badges[name] = ok and badge and tostring(badge) or nil
+		end
+	end
 	local frame, ranges = M.frame(M.tabs, panel.tab, c.lines, s, panel.cols, panel.rows, { pinned = c.pinned, badges = badges })
 	panel.layout = { tabs = ranges, hits = c.hits, pinned = #c.pinned, actions = c.actions, scroll = s }
 	io.write(frame)
@@ -2513,10 +2068,10 @@ end
 
 local function set_tab(tab)
 	panel.tab = tab
+	panel.arranging = nil
 	panel.cache = nil
-	if tab == "Changes" then
-		pr_cache = nil
-		reload_scope(false)
+	if plugins[tab] and plugins[tab].tab.activate then
+		plugins[tab].tab.activate()
 	end
 end
 
@@ -2529,35 +2084,11 @@ local function switch(step)
 	end
 end
 
-local function set_scope(scope)
-	panel.scope = scope
-	panel.scroll.Changes = 0
-	panel.notice = nil
-	panel.cache = nil
-	reload_scope(true)
-end
-
-local function next_scope()
-	local scopes = M.scopes(panel.git, panel.third)
-	for i, scope in ipairs(scopes) do
-		if scope == panel.scope then
-			set_scope(scopes[i % #scopes + 1])
-			return
-		end
-	end
-end
-
-local function toggle_tree()
-	panel.tree = not panel.tree
-	panel.cache = nil
-	pcall(settings.set_tree, dir, panel.tree)
-end
-
 local function toggle_fold(name)
 	local on = not panel.folded[name]
 	panel.folded[name] = on or nil
 	panel.cache = nil
-	pcall(settings.set_folded, dir, name, on)
+	pcall(settings.set_folded, settings_dir, name, on)
 end
 
 --- Highlights the next or previous section heading and scrolls it into view.
@@ -2630,52 +2161,6 @@ local function open_float(label, command, cwd)
 	end
 end
 
---- Opens a row's diff in a float.
-local function open_diff(row)
-	local command = { dir .. "diff-view" }
-	if row.diff == "patch" then
-		local file = os.tmpname()
-		local f = io.open(file, "wb")
-		if not f then
-			return "Can't write the diff to a temporary file."
-		end
-		f:write(M.turn_patch(panel.state, row.absolute, row.path))
-		f:close()
-		command[2], command[3] = "patch", file
-	else
-		command[2], command[3] = "git", panel.root
-		for _, arg in ipairs(M.diff_args(row, panel.data.base, panel.head)) do
-			command[#command + 1] = arg
-		end
-	end
-	return open_float(diff_label .. (row.path:match("[^/]+$") or row.path), command, panel.root)
-end
-
---- What a click on an Artifacts row does: the Search Panel's Enter.
-local function open_mention(row)
-	if row.kind == "link" then
-		if row.target:match("^https?://") then
-			exec({ "/usr/bin/open", row.target })
-		end
-		return
-	end
-	local f = io.open(viewer, "rb")
-	local command = { viewer, row.target, row.line }
-	if f then
-		f:close()
-	else
-		command = { "/usr/bin/less", "-R", "--", row.target }
-	end
-	return open_float(view_label .. (row.target:match("[^/]+$") or row.target), command, row.target:match("^(.*)/[^/]*$"))
-end
-
-local function open_view_panel()
-	if not panel.claude then
-		return "No Claude pane for this sidecar."
-	end
-	return open_float(view_label .. "Search Panel", { dir .. "view-picker", rex_binary, panel.session_id, panel.claude }, panel.cwd)
-end
-
 --- Rex focuses whichever pane it picks when a float closes, so the pane takes
 --- focus back. It doesn't if the user has moved to another tab, as focusing
 --- would bring this one back to the front.
@@ -2690,37 +2175,19 @@ local function watch_float()
 	end
 end
 
-local function toggle_dir(key, path)
-	local on = not panel.folded_dirs[path]
-	panel.folded_dirs[path] = on or nil
-	panel.selected[panel.scope] = key
-	panel.cache = nil
-	pcall(settings.set_folded_dir, dir, panel.root, path, on)
-end
-
-local function open_row(key, row)
-	panel.selected[panel.scope] = key
-	panel.notice = open_diff(row)
-	panel.cache = nil
-end
-
 local function act(action)
-	if action.kind == "tab" then
+	local plugin = plugins[panel.tab]
+	if action.kind == "show_tab" then
+		toggle_tab(action.name)
+	elseif plugin and not panel.arranging and action.kind ~= "tab" and action.kind ~= "fold" then
+		if plugin.tab.act then
+			plugin.tab.act(action)
+		end
+		panel.cache = nil
+	elseif action.kind == "tab" then
 		set_tab(action.tab)
-	elseif action.kind == "scope" then
-		set_scope(action.scope)
-	elseif action.kind == "tree" then
-		toggle_tree()
-	elseif action.kind == "open" then
-		open_row(action.key, action.row)
 	elseif action.kind == "fold" then
 		toggle_fold(action.name)
-	elseif action.kind == "dir" then
-		toggle_dir(action.key, action.path)
-	elseif action.kind == "mention" then
-		panel.notice = open_mention(action.row)
-	elseif action.kind == "view_panel" then
-		panel.notice = open_view_panel()
 	elseif action.kind == "gate" then
 		panel.gate_open = panel.gate_open ~= action.family and action.family or nil
 		panel.cache = nil
@@ -2730,45 +2197,6 @@ local function act(action)
 	elseif action.kind == "show" then
 		panel.show = panel.show ~= action.what and action.what or nil
 		panel.cache = nil
-	end
-end
-
---- Moves the selection, in the tab that has one, or scrolls.
-local function move(step)
-	local rows = current().rows
-	if #rows == 0 then
-		scroll_by(step)
-		return
-	end
-	local at = 0
-	for i, r in ipairs(rows) do
-		if r.key == panel.selected[panel.scope] then
-			at = i
-		end
-	end
-	local target = rows[math.max(1, math.min(#rows, at + step))]
-	panel.selected[panel.scope] = target.key
-	panel.reveal = true
-	panel.cache = nil
-end
-
-local function open_selected()
-	local rows = current().rows
-	for _, r in ipairs(rows) do
-		if r.key == panel.selected[panel.scope] then
-			if r.dir then
-				toggle_dir(r.key, r.dir)
-			else
-				open_row(r.key, r.row)
-			end
-			return
-		end
-	end
-	for _, r in ipairs(rows) do
-		if r.row then
-			open_row(r.key, r.row)
-			return
-		end
 	end
 end
 
@@ -2812,10 +2240,21 @@ end
 
 local function key(k)
 	if k == "\27" then
-		k = escape()
+		k = escape() or "escape"
 	end
 	if type(k) == "table" then
 		mouse(k)
+		return
+	end
+	-- The tab settings take their keys first, and then a plugin tab.
+	local plugin, taken = plugins[panel.tab], false
+	if panel.arranging then
+		taken = tabs_key(k)
+	elseif plugin and plugin.tab.key then
+		taken = plugin.tab.key(k)
+	end
+	if taken then
+		panel.cache, panel.reveal = nil, true
 		return
 	end
 	local page = M.page(panel.rows, #current().pinned) - 1
@@ -2827,35 +2266,41 @@ local function key(k)
 	elseif k == "left" then
 		switch(-1)
 	elseif k == "j" or k == "down" then
-		move(1)
+		scroll_by(1)
 	elseif k == "k" or k == "up" then
-		move(-1)
+		scroll_by(-1)
 	elseif k == " " or k == "pagedown" then
 		scroll_by(page)
 	elseif k == "b" or k == "pageup" then
 		scroll_by(-page)
 	elseif k == "g" then
 		panel.scroll[panel.tab] = 0
-	elseif panel.tab == "Changes" and k == "s" then
-		next_scope()
-	elseif panel.tab == "Changes" and k == "t" then
-		toggle_tree()
-	elseif panel.tab == "Changes" and (k == "\n" or k == "\r") then
-		open_selected()
+	elseif k == "," then
+		panel.arranging, panel.cache = 1, nil
 	elseif panel.tab == "Info" and (k == "f" or k == "s" or k == "o") then
 		act({ kind = "gate", family = ({ f = "file", s = "shell", o = "other" })[k] })
-	elseif panel.tab ~= "Changes" and k == "n" then
+	elseif k == "n" then
 		next_section(1)
-	elseif panel.tab ~= "Changes" and k == "p" then
+	elseif k == "p" then
 		next_section(-1)
-	elseif panel.tab ~= "Changes" and (k == "\n" or k == "\r") then
+	elseif k == "\n" or k == "\r" then
 		fold_focused()
 	end
 end
 
+M.key, M.act, M.current, M.refresh_plugins = key, act, current, refresh_plugins
+-- What the tab plugins in this folder use besides the drawing helpers.
+M.panel, M.dir, M.settings, M.settings_dir, M.rex_binary = panel, dir, settings, settings_dir, rex_binary
+M.open_float, M.diff_label, M.view_label = open_float, diff_label, view_label
+M.section, M.new_lines, M.fold_marks = section, new_lines, fold_marks
+arrange()
+
 if CC_SIDECAR_TEST then
 	return M
 end
+
+M.load_plugins(dir .. "tabs/")
+M.load_plugins(home .. "/.config/rex/sidecar-tabs/")
 
 -- Keys arrive one at a time, and a read gives up after a tenth of a second,
 -- so the loop steps the tasks and redraws without waiting for a key. Modes 1000 and 1006 report
@@ -2873,6 +2318,11 @@ while true do
 	end
 	if now - gathered >= 2 and now - typed >= 1 and spawn("gather", gather) then
 		gathered = now
+		-- Other panes change the tab settings too.
+		arrange()
+	end
+	if now - typed >= 1 then
+		refresh_plugins(now)
 	end
 	if step_tasks() then
 		panel.cache = nil

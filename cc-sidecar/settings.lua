@@ -74,6 +74,21 @@ function M.set_folded_dir(base, root, path, on)
 	write_json(base .. "settings.json", settings)
 end
 
+--- The tabs after Info, in the order shown, and the hidden ones: tab name ->
+--- true.
+function M.tabs(base)
+	local settings = read_json(base .. "settings.json") or {}
+	local tabs = type(settings.tabs) == "table" and settings.tabs or {}
+	local order = type(tabs.order) == "table" and tabs.order or { "Changes", "Artifacts" }
+	return order, type(tabs.hidden) == "table" and tabs.hidden or {}
+end
+
+function M.set_tabs(base, order, hidden)
+	local settings = read_json(base .. "settings.json") or {}
+	settings.tabs = { order = order, hidden = hidden }
+	write_json(base .. "settings.json", settings)
+end
+
 --- Directory -> { Lua pattern -> link basis }, for the Artifacts tab and the
 --- Search Panel.
 function M.link_patterns(base)

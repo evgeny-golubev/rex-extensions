@@ -7,7 +7,8 @@ in `~/.claude.json`.
 
 ![The Changes tab on a pull request, the Info dashboard with permission checks, agents and background tasks, and Artifacts with documents, PRs, Jira issues and links from Claude's replies, with made-up data](../docs/cc-sidecar.png)
 
-The pane has three tabs, redrawn every 2 seconds, and every second while a
+The pane has three tabs, a [Tasks](#tasks) tab you can show, and any that
+[tab plugins](#tab-plugins) add, redrawn every 2 seconds, and every second while a
 clock runs. Their look follows [Flightdeck](https://github.com/scasella/claude-flightdeck),
 a Claude Code mod: each section is a box in its own colour, gauges are cells, and
 an empty section takes no room. Below 36 columns, boxes become plain headings.
@@ -112,6 +113,137 @@ title appears when gh returns it.
 Each reply is read once, as it comes in. All of them are read again when Claude
 changes directory or you change the link patterns.
 
+## Tasks
+
+The day's work from Google Tasks or Apple Reminders, with a daily review. The
+tab is hidden until you show it: press `,`, select **Tasks**, press `Space`,
+then `Esc`. On first use it asks where your tasks are: `g` for Google Tasks
+or `r` for Apple Reminders. `W` asks again later. The choice applies to every
+sidecar pane.
+
+It reads these conventions from the tasks themselves, so the task lists stay
+usable in Google's and Apple's own apps:
+
+| What | How it's written |
+| --- | --- |
+| Rating | A title that starts with `A. `, `B. ` or `C. `. A tasks come first |
+| Estimate | A title that ends with `(30m)`, `(2h)` or `(1h30)` |
+| Planned day | The due date |
+| Steps | Subtasks, one level deep; Google Tasks only |
+
+A task is recurring when its title, without rating and estimate, was completed
+twice in the last 60 days, or once while a task with that title is open, or
+when Apple Reminders says it repeats. It's shown in teal with `↻`.
+
+| View | What's in it |
+| --- | --- |
+| **Now** | **Next**, the one next action: the first task due by today, or else the first A task, or its first open step. **Today**, with a progress bar and the time left. **Attention**, one item at a time |
+| **Today** | What's due by today, then the next 7 days |
+| **All** | Every open task by rating, with its steps |
+
+Click a view's name or press `V` to switch. Attention lists, most important
+first:
+
+- a report from an agent that a task is done, to confirm with `y` or reject
+  with `n` (see [Task actions](#task-actions));
+- the daily review, once you pressed a key in the tab or prompted Claude today;
+- an A task that is 3 days past due or was moved 3 times;
+- a day with more than 6 hours of work, or A work of more than 6 hours. A task
+  without an estimate counts as 72 minutes in the day and 2 hours in the A
+  work, and a recurring one as 15 minutes;
+- a task to split into steps: estimated above 2 hours, or 7 days past due
+  without an estimate.
+
+`v` starts the daily review. It shows each one-off task past due, one at a
+time, to plan for today, give a new date, re-rate, split, estimate, finish or
+drop; a dropped task is completed with the note "Dropped in review". Then, if A
+work is more than a day, the A tasks to re-rate, and last today's list. The
+header shows the streak of days in a row with a review.
+
+| Key | What it does |
+| --- | --- |
+| `j` `k` | Select a task |
+| `x`, or a click on `○` | Mark it done |
+| `a` | Add a task, as `A. Title (20m) fri`: the last word can be a date, and without one the task is due today, or has no date in All |
+| `A` `B` `C` | Rate it |
+| `t` | Plan it for today |
+| `d` | Give a new date: `today`, `tomorrow`, a weekday, `+3` or `2026-12-01`; empty clears it |
+| `e` | Estimate it: `15m`, `1h`, `1h30`; empty clears it |
+| `s` | Add steps, one per line; `Esc` finishes |
+| `v` | Daily review; `-` drops a task, `]` skips one and `Esc` leaves |
+| `Enter` | Select the task the Attention item is about |
+| `y` `n` | Confirm or reject a report on the Attention item |
+| `z` `]` | Hide the Attention item until tomorrow, or show the next |
+| `r` | Fetch the tasks now |
+| `W` | Choose where the tasks come from |
+| `L` | Sign in, when the tab asks |
+| `?` | List the keys |
+
+The footer shows the keys that suit the selected task. A change shows at once,
+dimmed until the provider has it, and is sent in the background, in order. The
+tab fetches the tasks every 60 seconds, and reads its state file every 5
+seconds, so a change from a task action shows at the next read.
+
+The provider, the review streak, the hidden Attention items, the count of due
+date changes and the reports wait in `tasks_state.json` beside
+`settings.json`, which git ignores. Tasks themselves stay with Google or
+Apple. With Google Tasks, the tab sends requests to Google's Tasks API; with
+Apple Reminders, nothing leaves the Mac except through Apple's own sync.
+
+### Google Tasks
+
+Google Tasks needs an OAuth client of your own, made once in Google Cloud:
+
+1. In the [Google Cloud console](https://console.cloud.google.com), create a
+   project.
+2. Under **APIs and services**, **Library**, enable the **Google Tasks API**.
+3. Under **Google Auth Platform**, set up the consent screen: an External app
+   with any name. Under **Audience**, add your Google account as a test user.
+4. Under **Clients**, create an OAuth client of type **Desktop app** and
+   download its JSON file.
+5. Store it in the macOS Keychain, then delete the file:
+
+   ```sh
+   ~/.config/rex/extensions/cc-sidecar/providers/google-tasks import-client ~/Downloads/client_secret_XXX.json
+   ```
+
+6. In the Tasks tab, press `g`, then `L`. The browser opens Google's
+   sign-in; once you allow access, the tab loads your lists.
+
+The client and the refresh token are kept in the Keychain under the service
+`google-tasks-client`. While the app is in Testing, Google ends the sign-in
+after 7 days: the tab then shows "Sign-in needed", and `L` signs in again.
+`providers/google-tasks` runs from a terminal too; its first lines list its
+commands.
+
+### Apple Reminders
+
+Press `r`. macOS asks once for access to Reminders; if the tab shows "Access
+to Reminders needed", press `L` to ask again, or allow it in System Settings,
+Privacy and Security, Reminders. Reminders has no order or subtasks that other
+programs can read, so tasks come oldest first, and steps aren't available.
+
+### Providers
+
+A provider is a command in `providers/`, named in `task-providers.lua`. Its
+contract is at the top of `tabs/tasks.lua`: `tasks`, `add`, `update` and
+`login`, with JSON on standard output, and exit code 3 when sign-in is needed.
+
+### Task actions
+
+The extension adds three Rex actions, which reach the list through the provider
+the tab uses, so an agent can keep it in step with its work:
+
+| Action | What it does |
+| --- | --- |
+| `tasks_list` | The open tasks of every list, as JSON |
+| `tasks_add title=... due=... [notes=...] [list=...] [parent=...]` | Adds a task and returns its ID. The title must start with a rating, unless it's a step under `parent`; `due` is `today`, `tomorrow` or `YYYY-MM-DD` |
+| `tasks_report_done id=... [note=...]` | Reports a task done. The report waits in Attention for `y` or `n`; nothing is completed until then |
+
+Run them as `rex do tasks_list`. The
+[sidecar-task-list](../plugins/sidecar-task-list/README.md) skill teaches
+Claude Code to use them.
+
 ## Search Panel
 
 Press `Cmd+Ctrl+Alt+Shift+O`, run **Rex View: Search Panel** from the palette,
@@ -202,7 +334,7 @@ prompt: Claude's session file (`~/.claude/sessions/<pid>.json`, or under
 stopped. Subagents are read from the `subagents` folder beside it, the status
 line's saved input from `state/statusline/<session>.json`, and Claude's live
 shells from `ps`, by executable name only. PR titles come from `gh`; nothing
-else is sent anywhere, and no AI is involved, so only what Claude Code records
+else is sent anywhere by these two tabs, and no AI is involved, so only what Claude Code records
 as structured data shows: a decision made in plain conversation doesn't.
 
 ## Folding
@@ -219,7 +351,7 @@ the pane focused:
 
 | Key | What it does |
 | --- | --- |
-| `1` `2` `3`, `Tab`, `←` `→` | Switch tabs |
+| `1` to `9`, `Tab`, `←` `→` | Switch tabs |
 | `s` | Next scope on Changes |
 | `f` `s` `o` | On Info, list the last file, shell or other permission checks |
 | `t` | List or tree; the choice is saved in `settings.json` |
@@ -228,12 +360,68 @@ the pane focused:
 | `Enter` | On Changes, open the selected file's diff, or the first file's, or fold the selected folder. On Info and Artifacts, fold the highlighted section |
 | `Space` `b`, `Page Down` `Page Up` | Scroll a page |
 | `g` | Back to the top |
+| `,` | Open the [tab settings](#tab-settings) |
+
+The [Tasks](#tasks) tab has keys of its own.
 
 The wheel scrolls. The pane takes clicks and drags for itself, so a plain drag
 doesn't select text in it.
 
 Not a native Rex extension format: a config module launches a separate
 event-driven `rex do` watcher, like rex-resume.
+
+## Tab settings
+
+`,` opens the tab settings in the pane: each tab after Info, which always
+shows, with `✓` when it shows. `j` `k` select a tab, `Space` or a click
+shows or hides it, `J` `K` move it, and `Esc` or `,` closes the list. The
+choice is saved as `{"tabs": {"order": [...], "hidden": {"Artifacts": true}}}`
+in `settings.json` and applies to all sidecar panes within a couple of
+seconds. Tabs the order doesn't name, such as a new plugin's, follow it.
+Tasks is hidden until you show it.
+
+## Tab plugins
+
+Changes, Artifacts and Tasks are tab plugins, in this folder's `tabs/`. Each `*.lua`
+file there and then in `~/.config/rex/sidecar-tabs/` adds a tab, in file name
+order, and the [tab settings](#tab-settings) order them. The pane reads them
+when it starts. A file gets the panel module as its argument
+(`local sidecar = ...`) and returns a table:
+
+| Field | What it is |
+| --- | --- |
+| `name` | The tab's title, not one in use. Required |
+| `view(cols)` | Returns `{ lines, actions, pinned, hits, sections, selected }`. Required. See below |
+| `refresh()` | Runs as a background task when the pane starts, then every `interval` seconds while no key was pressed in the last second. A hidden tab doesn't refresh |
+| `interval` | Seconds between refreshes, 60 by default |
+| `hidden` | True to hide the tab until it's shown in the tab settings |
+| `activate()` | Runs when the tab opens. It must not wait for a command |
+| `badge()` | The count beside the tab's title, or nil |
+| `key(k)` | Gets each key while the tab is open, before the pane: a character, `up`, `down`, `left`, `right`, `pageup`, `pagedown` or `escape`. Returns true when it took the key |
+| `act(action)` | Runs for a click on a line or column with an action. Actions of kind `tab` and `fold` are the pane's |
+
+In a view, `actions[line]` is what a click on the line passes to `act`; an
+action with `ranges = { { from, to, action } }` acts by column. `pinned` lines
+stay above the others, and `hits[n]` holds the column ranges of pinned line
+`n`. `sections`, from `sidecar.section`, are the boxes that `n` `p` and
+`Enter` fold. `selected`, a line, is scrolled into view after a key.
+
+From the module, a plugin uses `sidecar.run(argv, limit)`, which runs a
+command and returns `{ ok, code, stdout }`, or nil after `limit` seconds (5 by
+default); `sidecar.spawn(name, fn)`, which runs `fn` as a background task
+unless one named `name` runs; and `sidecar.box`, `sidecar.clip`,
+`sidecar.width`, `sidecar.wrap` and `sidecar.colours` to draw. In a task,
+`run` waits without stopping the pane; elsewhere it stops the pane for up to
+5 seconds, so `view`, `key` and `act` never run commands themselves: they
+draw what the last refresh found, and start commands with `spawn`. A task
+must not call `run` inside `pcall`. Changes and Artifacts also use
+`sidecar.panel`, the pane's state, and the other fields the module lists for
+them.
+
+A file that doesn't load gets a tab, named after the file, that shows the
+error, and an error in `view` shows on its tab. An error in a task, `key` or
+`act` becomes the pane's notice, pinned on a tab whose view has no pinned
+lines. The other tabs keep working.
 
 ## Install
 
@@ -260,6 +448,7 @@ pkill -f 'cc-sidecar/watcher\.lua'; rex config reload
 | Rex View: Search Panel | The [Search Panel](#search-panel); also `Cmd+Ctrl+Alt+Shift+O` |
 | Rex View: Set Editor | The command that [edits files](#editor) |
 | Rex View: Edit Link Patterns | Adds, edits and deletes [link patterns](#link-patterns) |
+| Tasks: List Open Tasks, Add Task, Report Task Done | The [task actions](#task-actions) |
 
 The choice is saved as `{"auto_show": false}` in `cc-sidecar/settings.json`,
 which git ignores. It applies from the next Claude that starts, so open panes
@@ -289,6 +478,8 @@ actions are `cc_sidecar_view`, `cc_sidecar_view_editor` and
 
 - `init.lua` starts the watcher, defines the palette actions and binds Rex
   View's key.
+- `task-actions.lua` defines the task actions; `task-providers.lua` names
+  the task providers in `providers/` and reads and writes `tasks_state.json`.
 - `claude.lua` finds a pane's Claude and its transcript.
 - `settings.lua` reads and writes `settings.json`, and passes Show requests to
   the watcher through `show-request.json`.
@@ -300,6 +491,7 @@ actions are `cc_sidecar_view`, `cc_sidecar_view_editor` and
   `view-collect.lua` writes them as the Search Panel's list, and `view-picker`
   shows it.
 - `view-settings` asks for the editor and edits the link patterns.
+- `tabs/` holds the Changes, Artifacts and Tasks tabs.
 
 ## Tests
 
@@ -307,5 +499,5 @@ actions are `cc_sidecar_view`, `cc_sidecar_view_editor` and
 rex do ~/.config/rex/extensions/cc-sidecar/test.lua
 ```
 
-The tests mock Rex and use a made-up transcript; they don't touch live
-sessions.
+The tests mock Rex and use a made-up transcript and made-up tasks; they don't
+touch live sessions or run a task provider.

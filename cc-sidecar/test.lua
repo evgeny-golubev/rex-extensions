@@ -262,10 +262,13 @@ if not ok then
 	error(err, 0)
 end
 
--- The viewer, on a made-up transcript.
-CC_SIDECAR_TEST = true
+-- The viewer, on a made-up transcript, with settings.json in a throwaway folder.
+local panel_base = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "") .. "/"
+CC_SIDECAR_TEST, CC_SIDECAR_TEST_BASE = true, panel_base
 local P = dofile(dir .. "panel.lua")
-CC_SIDECAR_TEST = nil
+CC_SIDECAR_TEST, CC_SIDECAR_TEST_BASE = nil, nil
+P.load_plugins(dir .. "tabs/")
+local C, A = P.plugins.Changes.tab, P.plugins.Artifacts.tab
 
 local function plain(lines)
 	return (table.concat(lines, "\n"):gsub("\27%[[%d;?]*%a", ""))
@@ -430,28 +433,28 @@ local ok2, err2 = pcall(function()
 	equal(P.claude_pid({ foreground = { argv0 = "git" }, ancestors = { { argv0 = "/bin/claude", pid = 7 } } }), 7, "pid")
 
 	-- The status, from one porcelain call.
-	local st = P.status("## main...origin/main [ahead 1]\0 M a.lua\0R  new.lua\0old.lua\0?? docs/x.md\0MM both.lua\0")
+	local st = C.status("## main...origin/main [ahead 1]\0 M a.lua\0R  new.lua\0old.lua\0?? docs/x.md\0MM both.lua\0")
 	equal(st.branch, "main", "branch name")
 	equal(#st.files, 4, "changed files")
 	equal(st.files[2].path, "new.lua", "rename's new path")
 	equal(st.head, true, "branch with commits")
-	local empty = P.status("## No commits yet on main\0")
+	local empty = C.status("## No commits yet on main\0")
 	equal(empty.head, false, "branch without commits")
 	equal(empty.branch, "main", "branch without commits' name")
 
 	-- Uncommitted: a file changed both ways is in both groups, once in the tree.
-	local data = P.uncommitted(st.files)
+	local data = C.uncommitted(st.files)
 	equal(data.groups[1].title, "Staged", "first group")
 	equal(#data.groups[1].rows, 2, "staged rows")
 	equal(data.groups[2].title, "Unstaged", "second group")
 	equal(#data.groups[2].rows, 3, "unstaged rows")
 	equal(#data.merged, 4, "tree rows")
 	equal(data.groups[2].rows[2].mark, "A", "untracked counts as added")
-	equal(#P.uncommitted({}).groups, 0, "nothing changed")
+	equal(#C.uncommitted({}).groups, 0, "nothing changed")
 
 	-- Each row's diff.
 	local args = function(row, ...)
-		return table.concat(P.diff_args(row, ...), " ")
+		return table.concat(C.diff_args(row, ...), " ")
 	end
 	equal(args({ path = "a", diff = "staged" }), "diff --cached -- a", "staged diff")
 	equal(args({ path = "a", diff = "unstaged" }), "diff -- a", "unstaged diff")
@@ -461,17 +464,17 @@ local ok2, err2 = pcall(function()
 	equal(args({ path = "a", diff = "untracked" }), "diff --no-index -- /dev/null a", "untracked diff")
 
 	-- Numbers and the Branch scope.
-	local a2, r2 = P.numstat("3\t1\ta.lua\0-\t-\tpic.png\0" .. "2\t0\tb c.lua\0")
+	local a2, r2 = C.numstat("3\t1\ta.lua\0-\t-\tpic.png\0" .. "2\t0\tb c.lua\0")
 	equal(a2, 5, "added")
 	equal(r2, 1, "removed")
-	local moved_a, moved_r = P.numstat("1\t2\t\0old.lua\0new.lua\0")
+	local moved_a, moved_r = C.numstat("1\t2\t\0old.lua\0new.lua\0")
 	equal(moved_a, 1, "added in a rename")
 	equal(moved_r, 2, "removed in a rename")
-	local renamed = P.branch_rows("R100\0old.lua\0new.lua\0M\0z.lua\0", {})
+	local renamed = C.branch_rows("R100\0old.lua\0new.lua\0M\0z.lua\0", {})
 	equal(#renamed, 2, "a rename is one row")
 	equal(renamed[1].path, "new.lua", "a rename's new path")
 	equal(renamed[1].mark, "R", "rename mark")
-	local branch = P.branch_rows("M\0z.lua\0D\0b.lua\0", { { x = "?", y = "?", path = "c.lua" }, { x = " ", y = "M", path = "z.lua" } })
+	local branch = C.branch_rows("M\0z.lua\0D\0b.lua\0", { { x = "?", y = "?", path = "c.lua" }, { x = " ", y = "M", path = "z.lua" } })
 	equal(#branch, 3, "branch rows with untracked")
 	equal(branch[1].path, "b.lua", "sorted")
 	equal(branch[1].mark, "D", "branch mark")
@@ -505,9 +508,9 @@ local ok2, err2 = pcall(function()
 	has(P.turn_patch(turn, "/src/app/new.lua", "new.lua"), "@@ -0,0 +1,2 @@\n+one\n+two\n", "new file's hunk")
 
 	-- The Changes view: pinned header, grouped list and clickable rows.
-	local v = { title = "feature/x", scope = "Uncommitted", scopes = P.scopes(true, "Branch"), data = data }
+	local v = { title = "feature/x", scope = "Uncommitted", scopes = C.scopes(true, "Branch"), data = data }
 	data.added, data.removed = 7, 2
-	local built = P.changes_view(v, 40)
+	local built = C.changes_view(v, 40)
 	equal(#built.pinned, 4, "pinned lines")
 	has(plain({ built.pinned[1] }), "feature/x", "branch")
 	has(plain({ built.pinned[1] }), "+7 −2", "totals")
@@ -522,25 +525,25 @@ local ok2, err2 = pcall(function()
 	equal(built.rows[1].row.diff, "staged", "first row")
 	equal(built.actions[built.rows[1].line].kind, "open", "row is clickable")
 	v.selected = built.rows[1].key
-	has(plain(P.changes_view(v, 40).lines), "› ", "selected row")
-	equal(table.concat(P.scopes(false), ","), "Last Turn", "scopes without git")
-	equal(table.concat(P.scopes(true, "PR"), ","), "Last Turn,Uncommitted,PR", "a PR instead of Branch")
-	equal(table.concat(P.scopes(true), ","), "Last Turn,Uncommitted", "no Branch on the default branch")
-	equal(P.pick_scope(P.scopes(true, "PR"), "Branch"), "PR", "Branch moves to PR")
-	equal(P.pick_scope(P.scopes(true, "Branch"), "PR"), "Branch", "PR moves to Branch")
-	equal(P.pick_scope(P.scopes(true), "Branch"), "Last Turn", "Branch gone on the default branch")
-	equal(P.pick_scope(P.scopes(true), "Uncommitted"), "Uncommitted", "a scope that stays")
-	local pr = P.pr_info('{"number":12,"baseRefName":"develop","state":"OPEN"}')
+	has(plain(C.changes_view(v, 40).lines), "› ", "selected row")
+	equal(table.concat(C.scopes(false), ","), "Last Turn", "scopes without git")
+	equal(table.concat(C.scopes(true, "PR"), ","), "Last Turn,Uncommitted,PR", "a PR instead of Branch")
+	equal(table.concat(C.scopes(true), ","), "Last Turn,Uncommitted", "no Branch on the default branch")
+	equal(C.pick_scope(C.scopes(true, "PR"), "Branch"), "PR", "Branch moves to PR")
+	equal(C.pick_scope(C.scopes(true, "Branch"), "PR"), "Branch", "PR moves to Branch")
+	equal(C.pick_scope(C.scopes(true), "Branch"), "Last Turn", "Branch gone on the default branch")
+	equal(C.pick_scope(C.scopes(true), "Uncommitted"), "Uncommitted", "a scope that stays")
+	local pr = C.pr_info('{"number":12,"baseRefName":"develop","state":"OPEN"}')
 	equal(pr and pr.number, 12, "PR number")
 	equal(pr and pr.base, "develop", "PR base")
-	equal(P.pr_info('{"number":12,"baseRefName":"develop","state":"MERGED"}'), nil, "merged PR")
-	equal(P.pr_info('{"number":12,"baseRefName":"--output=x","state":"OPEN"}'), nil, "a base that reads as an option")
-	equal(P.pr_info("no pull requests found"), nil, "no PR")
-	equal(P.pr_info(nil), nil, "gh failed")
+	equal(C.pr_info('{"number":12,"baseRefName":"develop","state":"MERGED"}'), nil, "merged PR")
+	equal(C.pr_info('{"number":12,"baseRefName":"--output=x","state":"OPEN"}'), nil, "a base that reads as an option")
+	equal(C.pr_info("no pull requests found"), nil, "no PR")
+	equal(C.pr_info(nil), nil, "gh failed")
 
 	-- The tree merges the groups and lists folders.
 	v.tree, v.selected = true, nil
-	local tree = P.changes_view(v, 40)
+	local tree = C.changes_view(v, 40)
 	has(plain(tree.lines), "Changed 4", "tree box")
 	has(plain(tree.lines), "▾ docs", "folder")
 	local function files_of(view)
@@ -558,7 +561,7 @@ local ok2, err2 = pcall(function()
 		diffs[r.row.diff] = true
 	end
 	equal(diffs.head, true, "tree rows' diffs")
-	local deep = P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true, "Branch"), tree = true, data = { groups = { { title = "Changed", rows = {
+	local deep = C.changes_view({ title = "m", scope = "Branch", scopes = C.scopes(true, "Branch"), tree = true, data = { groups = { { title = "Changed", rows = {
 		{ path = "src/cart/a.ts", mark = "M" }, { path = "src/cart/b.ts", mark = "A" }, { path = "src/ui/c.ts", mark = "M" }, { path = "z.ts", mark = "D" },
 	} } }, vs = "main" } }, 30)
 	local shown_tree = plain(deep.lines)
@@ -569,7 +572,7 @@ local ok2, err2 = pcall(function()
 	has(shown_tree, "z.ts", "top-level file")
 
 	-- Folders come before files at each level, each by name.
-	local ordered = P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true, "Branch"), tree = true, data = { groups = { { title = "Changed", rows = {
+	local ordered = C.changes_view({ title = "m", scope = "Branch", scopes = C.scopes(true, "Branch"), tree = true, data = { groups = { { title = "Changed", rows = {
 		{ path = "z.ts", mark = "M" }, { path = "a.ts", mark = "M" }, { path = "lib/x.ts", mark = "M" }, { path = "lib/sub/y.ts", mark = "M" },
 		{ path = "lib/a.ts", mark = "M" }, { path = "lib-b/k.ts", mark = "M" }, { path = "app/m.ts", mark = "M" },
 	} } }, note = "" } }, 40)
@@ -582,7 +585,7 @@ local ok2, err2 = pcall(function()
 	-- Folders fold, and take what's under them along, nested folders included.
 	local fold_rows = { { path = "src/cart/a.ts", mark = "M" }, { path = "src/cart/b.ts", mark = "M" }, { path = "src/ui/c.ts", mark = "A" }, { path = "z.ts", mark = "M" } }
 	local function fold_view(folded, selected)
-		return P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true, "Branch"), tree = true, folded = folded, selected = selected,
+		return C.changes_view({ title = "m", scope = "Branch", scopes = C.scopes(true, "Branch"), tree = true, folded = folded, selected = selected,
 			data = { groups = { { title = "Changed", rows = fold_rows } }, note = "" } }, 40)
 	end
 	local all_open = fold_view({})
@@ -622,11 +625,11 @@ local ok2, err2 = pcall(function()
 	end
 
 	-- Narrow panes get the short scope names; the columns follow.
-	local narrow, narrow_ranges = P.scope_bar(P.scopes(true, "Branch"), "Branch", 26)
+	local narrow, narrow_ranges = C.scope_bar(C.scopes(true, "Branch"), "Branch", 26)
 	has(plain({ narrow }), "Local", "short name")
 	hasnt(plain({ narrow }), "Uncommitted", "long name")
 	equal(narrow_ranges[3].action.scope, "Branch", "last scope")
-	local _, wide_ranges = P.scope_bar(P.scopes(true, "Branch"), "Branch", 60)
+	local _, wide_ranges = C.scope_bar(C.scopes(true, "Branch"), "Branch", 60)
 	equal(wide_ranges[1].from, 1, "first scope's column")
 	equal(wide_ranges[2].from, wide_ranges[1].to + 2, "columns leave a space")
 
@@ -1048,7 +1051,7 @@ do
 	equal(table.concat(names, " "), "Documents=1 Jira=1 URLs=1 Other=1", "empty categories left out, in order")
 	equal(total, 4, "a row mentioned twice counts once")
 	equal(#V.group({}), 0, "nothing found")
-	local view = P.artifacts_view(groups, 40, {}, nil, nil)
+	local view = A.artifacts_view(groups, 40, {}, nil, nil)
 	local shown = plain(view.lines)
 	has(plain(view.pinned), "Search Panel", "the Search Panel link, pinned")
 	equal(view.hits[1][1].action.kind, "view_panel", "it opens the Search Panel")
@@ -1060,9 +1063,9 @@ do
 	equal(kinds.mention, 4, "each row opens")
 	equal(kinds.fold, 4, "each heading folds")
 	equal(#view.sections, 4, "a section a category")
-	hasnt(plain(P.artifacts_view(groups, 40, { Documents = true }).lines), "notes.md", "folded")
-	has(plain(P.artifacts_view({}, 40, {}).lines), "Nothing in Claude's replies yet.", "nothing found")
-	has(plain(P.artifacts_view({}, 40, {}, nil, "boom").pinned), "boom", "a notice under the link")
+	hasnt(plain(A.artifacts_view(groups, 40, { Documents = true }).lines), "notes.md", "folded")
+	has(plain(A.artifacts_view({}, 40, {}).lines), "Nothing in Claude's replies yet.", "nothing found")
+	has(plain(A.artifacts_view({}, 40, {}, nil, "boom").pinned), "boom", "a notice under the link")
 	local tsv = V.tsv({ { name = "Other", rows = { { kind = "text", label = "a\tb", target = "/r/a", line = "3" } } } })
 	equal(select(2, tsv:gsub("\t", "")), 3, "tabs only between fields")
 	has(tsv, "Other", "the category as the note")
@@ -1087,7 +1090,7 @@ do
 	local prs = pr_groups[1].rows
 	equal(pr_groups[1].name .. "=" .. #prs .. " " .. pr_total, "PRs=3 3", "one row a PR, counted as one")
 	equal(prs[1].name .. " " .. #prs[1].rows .. " " .. tostring(prs[1].direct), "acme/shop#42 2 true", "a PR's links")
-	local pr_view = plain(P.artifacts_view(pr_groups, 60, {}, nil, nil, { ["https://github.com/acme/shop/pull/42"] = "Add rate-limit guard" }).lines)
+	local pr_view = plain(A.artifacts_view(pr_groups, 60, {}, nil, nil, { ["https://github.com/acme/shop/pull/42"] = "Add rate-limit guard" }).lines)
 	has(pr_view, "#42 Add rate-limit guard", "a PR's number before its title")
 	has(pr_view, "╭ ⇄ PRs", "the PRs box")
 	has(pr_view, "Add rate-limit guard", "a PR by its title")
@@ -1097,7 +1100,7 @@ do
 	has(pr_view, "acme/web#1  # 8", "a PR's only link, on its row")
 	hasnt(pr_view, "guard  acme/shop#42", "no repository and number beside a title")
 	local pr_actions = {}
-	for _, a in pairs(P.artifacts_view(pr_groups, 60, {}).actions) do
+	for _, a in pairs(A.artifacts_view(pr_groups, 60, {}).actions) do
 		if a.kind == "mention" then pr_actions[#pr_actions + 1] = a.row.target end
 	end
 	table.sort(pr_actions)
@@ -1110,7 +1113,7 @@ do
 	for i = 1, 13 do
 		many[i] = { kind = "link", label = "https://a.example/" .. i, target = "https://a.example/" .. i }
 	end
-	local capped = P.artifacts_view(V.group({ many }), 60, {})
+	local capped = A.artifacts_view(V.group({ many }), 60, {})
 	has(plain(capped.lines), "a.example/10", "the 10th row")
 	hasnt(plain(capped.lines), "a.example/11", "not the 11th")
 	has(plain(capped.lines), "+3 more · Search Panel", "how many more")
@@ -1133,7 +1136,7 @@ do
 	equal(jira_rows[1].title, "Cart rounding", "a found key's title")
 	local jira_groups = V.group({ { { kind = "link", label = "SHOP-12", target = "https://a.atlassian.net/browse/SHOP-12" } }, jira_rows })
 	equal(jira_groups[1].rows[1].title, "Cart rounding", "an older reply's title fills a newer mention's")
-	has(plain(P.artifacts_view(jira_groups, 60, {}).lines), "SHOP-12 Cart rounding", "the key, then the title")
+	has(plain(A.artifacts_view(jira_groups, 60, {}).lines), "SHOP-12 Cart rounding", "the key, then the title")
 	local pr_tsv = V.tsv(pr_groups)
 	has(pr_tsv, "acme/shop#42 # 123", "a comment in the Search Panel")
 	has(pr_tsv, "⇄\27[0m acme/shop#42", "a category's icon on each row")
@@ -1167,5 +1170,576 @@ do
 	equal(V.kind("/") , "dir", "a real folder")
 	equal(V.kind(dir .. "test.lua"), "file", "a real file")
 	equal(V.kind(dir .. "no-such-file"), nil, "a missing file")
+end
+-- The Tasks tab, on made-up tasks, with its state file beside the throwaway
+-- settings.json. No provider runs: the writes stay queued.
+do
+	local tab = P.plugins.Tasks.tab
+	local lib, state = tab.lib, tab.state
+	local state_file = panel_base .. "tasks_state.json"
+	local spawn, run = P.spawn, P.run
+	P.spawn, P.run = function() return true end, function() end
+	local function strip(s)
+		return (s:gsub("\27%[[%d;?]*%a", ""))
+	end
+	local function write_state(s)
+		local f = assert(io.open(state_file, "wb"))
+		f:write(rex.json.encode(s))
+		f:close()
+		tab.activate()
+	end
+	equal(P.panel.hidden_tabs.Tasks, true, "Tasks is hidden by default")
+	write_state({ provider = "google" })
+
+	local today = "2026-11-21"
+	state.clock = today
+
+	-- Titles and typed values.
+	local p = lib.parse_title("A. Write the report (1h30)")
+	equal(p.rating, "A", "rating prefix")
+	equal(p.name, "Write the report", "name without prefix and estimate")
+	equal(p.estimate, 90, "estimate suffix")
+	equal(lib.parse_title("Taxes (2025)").estimate, nil, "a year is not an estimate")
+	equal(lib.parse_title("Taxes (2025)").name, "Taxes (2025)", "a year stays in the name")
+	equal(lib.parse_title("C. Walk (30m)").estimate, 30, "minutes suffix")
+	equal(lib.compose_title("B", "Walk", 120), "B. Walk (2h)", "title from parts")
+	equal(lib.compose_title(nil, "Walk", nil), "Walk", "title without rating and estimate")
+	equal(lib.normal_title("A. Swim (1h)"), "swim", "normal title")
+	equal(lib.parse_title("Call \226\128\170123 4567\226\128\172").name, "Call 123 4567", "directional marks removed")
+	equal(lib.parse_estimate("1h30"), 90, "1h30")
+	equal(lib.parse_estimate("1.5h"), 90, "1.5h")
+	equal(lib.parse_estimate("45"), 45, "bare minutes")
+	equal(lib.parse_estimate("0m"), nil, "zero")
+	equal(lib.parse_estimate("soon"), nil, "not an estimate")
+	equal(lib.format_minutes(85), "1h25", "1h25")
+	equal(lib.format_minutes(120), "2h", "2h")
+	equal(lib.parse_date("mon", today), "2026-11-23", "next Monday")
+	equal(lib.parse_date("saturday", today), "2026-11-28", "same weekday is next week")
+	equal(lib.parse_date("tomorrow", today), "2026-11-22", "tomorrow")
+	equal(lib.parse_date("+10", today), "2026-12-01", "plus days across a month")
+	equal(lib.parse_date("2026-12-01", today), "2026-12-01", "ISO date")
+	equal(lib.parse_date("2026-02-30", today), nil, "impossible date")
+	equal(lib.parse_date("", today), "", "empty clears")
+	equal(lib.parse_date("soon", today), nil, "not a date")
+	local title, due = lib.parse_entry("A. Call the bank (20m) fri", today)
+	equal(title, "A. Call the bank (20m)", "entry title")
+	equal(due, "2026-11-27", "entry date")
+	title, due = lib.parse_entry("Friday", today)
+	equal(title, "Friday", "a one-word entry keeps its word")
+	equal(due, nil, "a one-word entry has no date")
+	equal(lib.due_label("2026-11-19", today), "2d past", "past due label")
+	equal(lib.due_label("2026-11-23", today), "Mon 23", "weekday label")
+	equal(lib.due_label("2026-12-10", today), "10 Dec", "far label")
+
+	-- A made-up list: Swim was completed once and is open again, and Piano
+	-- practice was completed twice.
+	local function fixture()
+		return { {
+			id = "L", title = "To Do",
+			tasks = {
+				{ id = "swim", title = "A. Swim", due = "2026-11-23" },
+				{ id = "piano", title = "A. Piano practice", due = "2026-11-21" },
+				{ id = "reply", title = "A. Reply to the landlord", due = "2026-11-19" },
+				{ id = "report", title = "A. Write the report", due = "2026-11-12" },
+				{ id = "photos", title = "B. Sort the photos", due = "2026-12-10" },
+				{ id = "course", title = "B. Sign up for a course", due = "" },
+				{ id = "refund", title = "C. Ask for a refund", due = "2026-11-30" },
+				{ id = "site", title = "A. Build the club website", due = "2026-11-10" },
+				{ id = "move", title = "B. Plan the move", due = "2026-12-01" },
+				{ id = "s0", title = "Swim", due = "2026-11-18", status = "completed", completed = "2026-11-18" },
+				{ id = "j1", title = "A. Piano practice (10m)", due = "2026-11-20", status = "completed", completed = "2026-11-20" },
+				{ id = "j2", title = "A. Piano practice", due = "2026-11-19", status = "completed", completed = "2026-11-19" },
+				{ id = "dentist", title = "A. Go to the dentist", status = "completed", completed = "2026-11-21" },
+				{ id = "old", title = "B. Old thing", notes = "Dropped in review", status = "completed", completed = "2026-11-21" },
+			},
+		} }
+	end
+
+	local m = lib.model(fixture(), today, {})
+	equal(m.by.swim.recurring, true, "completed once and open again is recurring")
+	equal(m.by.piano.recurring, true, "completed twice is recurring")
+	equal(m.by.reply.recurring, false, "one-off task")
+	equal(#m.done, 1, "done today leaves out dropped tasks")
+	local today_items = lib.today_items(m)
+	equal(#today_items, 4, "four tasks due by today")
+	equal(lib.next_item(m).id, "piano", "Next: first A task due by today in the provider's order")
+	equal(m.by.report.late, 9, "days past due")
+	equal(lib.load(m, today_items, 5), 15 + 3 * 72, "today load: recurring 15m, one-off 72m each")
+	equal(lib.load(m, lib.a_items(m), 3), 360, "A load leaves out recurring tasks")
+	local items = lib.attention(m, true, {})
+	equal(#items, 3, "review, and two slipping A tasks")
+	equal(items[1].text, "Daily review due · press v", "review prompt first")
+	equal(items[2].id, "report", "slipping task in A, then the provider's order")
+	equal(#lib.attention(m, false, { review = today, ["slip report"] = today }), 1, "snoozed items left out")
+	equal(#lib.late_items(m), 3, "review walks the late one-off tasks")
+	equal(lib.late_items(m)[1].id, "reply", "late tasks in the provider's order within A")
+
+	-- History without the Piano practice completions: Swim completed once under
+	-- an older title and open again, Piano practice never completed.
+	do
+		local lists = fixture()
+		local kept = {}
+		for _, t in ipairs(lists[1].tasks) do
+			if t.id ~= "j1" and t.id ~= "j2" then
+				kept[#kept + 1] = t
+			end
+		end
+		lists[1].tasks = kept
+		local real = lib.model(lists, today, {})
+		equal(real.by.swim.recurring, true, "Swim: completed once and open again")
+		equal(real.by.piano.recurring, false, "Piano practice: no completions, not detected")
+	end
+
+	-- A provider that knows recurrence marks the task itself.
+	do
+		local lists = fixture()
+		lists[1].tasks[5].recurring = true
+		equal(lib.model(lists, today, {}).by.photos.recurring, true, "recurring from the provider")
+	end
+
+	-- Steps: Next shows the first open step; estimates come from the steps.
+	local lists = fixture()
+	table.insert(lists[1].tasks, 9, { id = "s1", title = "Run the build (40m)", parent = "site" })
+	table.insert(lists[1].tasks, 10, { id = "s2", title = "Fix login crash (2h)", parent = "site" })
+	lists[1].tasks[2].due = "2026-11-22"
+	lists[1].tasks[3].due = "2026-11-22"
+	lists[1].tasks[4].due = "2026-11-22"
+	m = lib.model(lists, today, {})
+	local step, parent = lib.next_item(m)
+	equal(step.id, "s1", "Next is the first open step")
+	equal(parent.id, "site", "with its task")
+	equal(lib.remaining(m, m.by.site), 160, "remaining from step estimates")
+	equal(lib.too_large(m, m.by.site), false, "a task with steps is not too large")
+
+	-- Overload by estimates.
+	lists = fixture()
+	lists[1].tasks[3].title = "A. Reply to the landlord (5h)"
+	lists[1].tasks[4].title = "A. Write the report (2h)"
+	m = lib.model(lists, today, {})
+	local keys = {}
+	for _, it in ipairs(lib.attention(m, false, {})) do
+		keys[#keys + 1] = it.key
+	end
+	equal(table.concat(keys, ","), "slip report,slip site,today load,A load,split reply", "overload and split by estimates")
+
+	-- Size and the actions offered.
+	do
+		local lists = fixture()
+		lists[1].tasks[3].title = "A. Reply to the landlord (2h30)"
+		lists[1].tasks[4].title = "A. Write the report (2h)"
+		local sized = lib.model(lists, today, {})
+		equal(lib.too_large(sized, sized.by.reply), true, "more than 2h is too large")
+		equal(lib.too_large(sized, sized.by.report), false, "2h is not too large")
+		local function keys_of(it)
+			local out = {}
+			for _, a in ipairs(lib.actions(sized, it)) do
+				out[#out + 1] = a[1]
+			end
+			return table.concat(out)
+		end
+		equal(keys_of(sized.by.reply), "sdx", "a large task: split, new date, done")
+		equal(keys_of(sized.by.report), "tdx", "a late task: today, new date, done")
+		equal(keys_of(sized.by.course), "ex", "a task without estimate: estimate, done")
+		equal(keys_of(sized.by.piano), "x", "a recurring task due today: done")
+	end
+
+	-- Streak.
+	equal(lib.finish_review({ last = "2026-11-20", streak = 4 }, today).streak, 5, "streak grows after yesterday")
+	equal(lib.finish_review({ last = "2026-11-18", streak = 4 }, today).streak, 1, "streak restarts after a gap")
+	equal(lib.streak({ last = "2026-11-19", streak = 4 }, today), 0, "streak shown as 0 after a missed day")
+
+	-- Drawing: no line wider than the pane, at 34, 40, 48 and 80 columns.
+	state.lists = fixture()
+	state.key_day = today
+	local function check_view(view, cols)
+		state.view = view
+		local v = tab.view(cols)
+		for _, group in ipairs({ v.pinned or {}, v.lines }) do
+			for i, l in ipairs(group) do
+				if P.width(l) > cols then
+					equal(P.width(l), cols, view .. " line " .. i .. " at " .. cols .. " columns: " .. strip(l))
+				end
+			end
+		end
+		return v
+	end
+	for _, cols in ipairs({ 34, 40, 48, 80 }) do
+		for _, view in ipairs({ "now", "today", "all" }) do
+			check_view(view, cols)
+		end
+	end
+	local text = {}
+	for _, l in ipairs(check_view("now", 47).lines) do
+		text[#text + 1] = strip(l)
+	end
+	text = table.concat(text, "\n")
+	equal(text:find("Piano practice ↻", 1, true) ~= nil, true, "recurring mark")
+	equal(text:find("Daily review due · press v", 1, true) ~= nil, true, "review prompt shown after a key today")
+	equal(text:find("1 of 5 done", 1, true) ~= nil, true, "progress counts done today")
+
+	-- A prompt to Claude today shows the review prompt without a key in the tab.
+	state.lists, state.key_day = fixture(), nil
+	P.panel.state = P.new_state()
+	equal(tab.badge(), "4!", "badge alerts for the slipping tasks")
+	equal(#lib.attention(lib.model(state.lists, today, {}), false, {}), 2, "no review prompt before activity")
+	state.view = "now"
+	local before = table.concat(tab.view(47).lines, "\n")
+	equal(before:find("Daily review due", 1, true), nil, "no prompt without activity")
+	P.feed(P.panel.state, rex.json.encode({ type = "user", timestamp = "2026-11-21T12:00:00.000Z", message = { content = "Check the build" } }) .. "\n")
+	local after = table.concat(tab.view(47).lines, "\n")
+	equal(after:find("Daily review due · press v", 1, true) ~= nil, true, "prompt after a prompt to Claude today")
+	state.key_day = today
+
+	-- The A stage: three one-off A tasks of 2h30 exceed a day; B moves one out.
+	state.lists = fixture()
+	for _, t in ipairs(state.lists[1].tasks) do
+		if t.id == "reply" or t.id == "report" or t.id == "site" or t.id == "piano" then
+			t.title = t.title .. " (2h30)"
+		end
+	end
+	tab.key("v")
+	tab.key("a")
+	equal(state.input.advance, false, "adding a task does not decide the review's task")
+	tab.key("escape")
+	equal(state.review.index, 1, "escape from add keeps the review's task")
+	tab.key("s")
+	tab.key("\r")
+	equal(state.review.index, 1, "an empty steps prompt keeps the review's task")
+	tab.key("]")
+	tab.key("]")
+	tab.key("]")
+	equal(state.review.stage, "limit", "A work over a day opens the A stage")
+	for _, cols in ipairs({ 40, 80 }) do
+		check_view("review", cols)
+	end
+	local first = state.selected
+	tab.key("B")
+	equal(lib.model(state.lists, today, {}).by[first].rating, "B", "B re-rates in the A stage")
+	equal(state.review.stage, "limit", "re-rating stays in the A stage")
+	tab.key("\r")
+	equal(state.review.stage, "today", "Enter continues to today")
+	tab.key("escape")
+	equal(state.review, nil, "escape leaves the review")
+
+	-- The Now view selects the Next task; Enter on Attention selects its task;
+	-- ? shows all keys.
+	state.lists, state.view, state.review, state.selected, state.attention = fixture(), "now", nil, nil, 1
+	local shown = strip(table.concat(tab.view(80).lines, "\n"))
+	equal(state.selected, "piano", "Now selects the Next task")
+	equal(shown:find("Piano practice:  x done", 1, true) ~= nil, true, "footer shows the selected task's actions")
+	equal(shown:find("A B C rate", 1, true), nil, "no list of every key in the Now view")
+	tab.key("z")
+	tab.key("\r")
+	equal(state.selected, "report", "Enter selects the Attention item's task")
+	has(shown, "z hide until tomorrow · ] next", "the review prompt's keys")
+	has(shown, "? keys", "the footer names the key list")
+	has(strip(table.concat(tab.view(80).lines, "\n")), "z hide until tomorrow · ] next · Enter go to task", "a warning's keys")
+	tab.key("?")
+	local keys_now = strip(table.concat(tab.view(80).lines, "\n"))
+	for _, part in ipairs({ "Task", "x      mark the task done", "Warnings", "z      hide this warning until tomorrow",
+		"Enter  go to the task it is about", "Views", "V      switch between Now, Today and All" }) do
+		has(keys_now, part, "the key list in the Now view")
+	end
+	hasnt(keys_now, "skip to the next task", "no review keys outside the review")
+	for _, cols in ipairs({ 34, 48 }) do
+		check_view("now", cols)
+	end
+	state.view = "now"
+	tab.key("escape")
+	equal(state.help, false, "Esc closes the key list")
+	state.view = "all"
+	tab.key("?")
+	hasnt(strip(table.concat(tab.view(80).lines, "\n")), "Warnings", "no warning keys where no warning shows")
+	tab.key("?")
+
+	-- A key that does nothing on the screen shown says so.
+	equal(tab.key("z"), true, "z in the All view is answered")
+	has(strip(table.concat(tab.view(80).pinned, "\n")), "z hides warnings; use d to move a task to a later date.", "z explains itself")
+	tab.key("j")
+	equal(state.key_notice, nil, "the next key clears the notice")
+	tab.key("y")
+	has(state.key_notice, "there is none here", "y without a report")
+	state.view = "now"
+
+	-- Review keys, without running the client: the writes stay queued.
+	state.lists = fixture()
+	state.view = "now"
+	tab.key("v")
+	equal(state.view, "review", "v starts the review")
+	equal(state.review.stage, "late", "late tasks first")
+	for _, cols in ipairs({ 34, 40, 48, 80 }) do
+		check_view("review", cols)
+	end
+	tab.key("t")
+	equal(state.review.index, 2, "t plans the task for today and moves on")
+	equal(lib.model(state.lists, today, {}).by.reply.due, today, "planned for today at once")
+	tab.key("-")
+	equal(state.review.confirm, true, "drop asks first")
+	tab.key("n")
+	equal(state.review.confirm, false, "another key keeps the task")
+	tab.key("d")
+	for ch in ("+3"):gmatch(".") do
+		tab.key(ch)
+	end
+	tab.key("\r")
+	equal(lib.model(state.lists, today, {}).by.report.due, "2026-11-24", "new date from the input")
+	equal(state.review.index, 3, "a new date moves on")
+	tab.key("-")
+	tab.key("y")
+	equal(lib.model(state.lists, today, {}).by.site, nil, "dropped task leaves the list")
+	local dropped
+	for _, t in ipairs(state.lists[1].tasks) do
+		if t.id == "site" then
+			dropped = t
+		end
+	end
+	equal(dropped.status .. " " .. dropped.notes, "completed Dropped in review", "dropped: completed with a note")
+	equal(state.review.stage, "today", "A work within a day skips the A stage")
+	check_view("review", 47)
+	tab.key("\r")
+	equal(state.review, nil, "Enter finishes the review")
+	equal(lib.streak(tab.state.saved.review, today), 1, "review recorded with a streak")
+
+	-- Without a provider chosen, the tab asks where the tasks are.
+	do
+		local lists = state.lists
+		write_state({})
+		local asked = strip(table.concat(tab.view(47).lines, "\n"))
+		equal(asked:find("Where are your tasks?", 1, true) ~= nil, true, "the tab asks for the provider")
+		equal(asked:find("Apple Reminders", 1, true) ~= nil, true, "Apple Reminders offered")
+		equal(tab.key("r"), true, "r chooses Apple Reminders")
+		local f = io.open(state_file, "rb")
+		equal(rex.json.decode(f:read("*a")).provider, "apple", "the choice is saved")
+		f:close()
+		tab.key("W")
+		equal(state.choosing, true, "W asks again")
+		tab.key("g")
+		equal(tab.state.saved.provider, "google", "g chooses Google Tasks")
+		equal(state.choosing, false, "the question closes")
+		state.lists = lists
+	end
+
+	-- Claude's report that a task is done waits in Attention for y or n.
+	do
+		local reported = lib.attention(lib.model(fixture(), today, {}), true, {}, { report = { note = "sent it" } })
+		equal(reported[1].text, "Claude reports done: Write the report: sent it", "report first in Attention")
+		equal(reported[1].proposal, true, "report is a proposal")
+		local f = io.open(state_file, "rb")
+		local saved_state = rex.json.decode(f:read("*a"))
+		f:close()
+		saved_state.proposals = { reply = { note = "replied" }, site = { note = "" } }
+		f = io.open(state_file, "wb")
+		f:write(rex.json.encode(saved_state))
+		f:close()
+		tab.activate()
+		state.lists, state.view, state.review, state.attention = fixture(), "now", nil, 1
+		local shown = strip(table.concat(tab.view(80).lines, "\n"))
+		equal(shown:find("Claude reports done: Reply to the landlord: replied", 1, true) ~= nil, true, "report shown")
+		equal(shown:find("y mark done", 1, true) ~= nil, true, "y and n offered")
+		equal(tab.badge(), "4!", "badge alerts for a report")
+		tab.key("y")
+		equal(lib.model(state.lists, today, {}).by.reply, nil, "y marks the task done")
+		equal(tab.state.saved.proposals.reply, nil, "the report is settled")
+		tab.key("n")
+		equal(lib.model(state.lists, today, {}).by.site ~= nil, true, "n keeps the task open")
+		equal(tab.state.saved.proposals.site, nil, "the rejected report is removed")
+	end
+
+	-- Done keeps the selection on the row that takes the task's place.
+	state.lists, state.view, state.review = fixture(), "now", nil
+	state.selected = "reply"
+	tab.key("x")
+	equal(state.selected, "report", "the next row is selected after x")
+
+	-- Steps input adds subtasks under the task.
+	state.lists = fixture()
+	state.view = "all"
+	state.selected = "course"
+	tab.key("s")
+	for ch in ("Find the course (20m)"):gmatch(".") do
+		tab.key(ch)
+	end
+	tab.key("\r")
+	for ch in ("Pay (10m)"):gmatch(".") do
+		tab.key(ch)
+	end
+	tab.key("\r")
+	tab.key("escape")
+	m = lib.model(state.lists, today, {})
+	equal(#(m.steps.course or {}), 2, "two steps added")
+	equal(m.steps.course[1].name, "Find the course", "steps in the order typed")
+	equal(lib.remaining(m, m.by.course), 30, "steps give the estimate")
+
+	-- The task actions, with the provider's answers made up.
+	local actions, calls, answers = {}, {}, {}
+	rex = setmetatable({
+		action = function(a)
+			actions[a.name] = a
+		end,
+		exec = function(argv)
+			calls[#calls + 1] = argv
+			return table.remove(answers, 1)
+		end,
+	}, { __index = real })
+	CC_SIDECAR_TEST_BASE = panel_base
+	assert(loadfile(dir .. "task-actions.lua"))(dir)
+	CC_SIDECAR_TEST_BASE = nil
+	local function fails(name, args, part)
+		local ok, err = pcall(actions[name].run, {}, args)
+		equal(ok, false, name .. " fails")
+		has(tostring(err), part, name .. " error")
+	end
+	local listed = rex.json.encode({ { id = "L", title = "To Do", tasks = { { id = "t1", title = "A. Water the plants", due = "" } } } })
+	write_state({})
+	fails("tasks_list", {}, "No task source chosen")
+	write_state({ provider = "google" })
+	answers[1] = { ok = false, code = 3, stdout = "" }
+	fails("tasks_list", {}, "Sign-in needed")
+	equal(calls[#calls][1], dir .. "providers/google-tasks", "the provider beside the extension")
+	fails("tasks_add", { title = "A. Water the plants" }, "due date is required")
+	fails("tasks_add", { title = "Water the plants", due = "today" }, "must start with a rating")
+	fails("tasks_add", { title = "A. Water the plants", due = "soon" }, "today, tomorrow or YYYY-MM-DD")
+	answers[1] = { ok = true, code = 0, stdout = listed }
+	answers[2] = { ok = true, code = 0, stdout = '{"id":"t2"}' }
+	local added = actions.tasks_add.run({}, { title = "B. Mend the fence (2h)", due = "2026-12-01" })
+	equal(added.id .. " " .. added.list, "t2 L", "tasks_add returns the new task")
+	equal(table.concat(calls[#calls], " ", 2), "add L --due 2026-12-01 B. Mend the fence (2h)", "tasks_add arguments")
+	local saved = rex.json.decode(assert(io.open(state_file, "rb")):read("*a"))
+	equal(type(saved.changed_at), "number", "tasks_add records the change for the tab")
+	answers[1] = { ok = true, code = 0, stdout = listed }
+	fails("tasks_report_done", { id = "t9" }, "No open task with ID t9")
+	answers[1] = { ok = true, code = 0, stdout = listed }
+	equal(actions.tasks_report_done.run({}, { id = "t1", note = "watered" }).title, "A. Water the plants", "the report names the task")
+	saved = rex.json.decode(assert(io.open(state_file, "rb")):read("*a"))
+	equal(saved.proposals.t1.note, "watered", "the report waits in the state file")
+	rex = real
+	P.spawn, P.run = spawn, run
+end
+-- Tab plugins: loaded in file name order, each with its keys, clicks and
+-- refresh, and with its errors kept to its tab.
+do
+	local plugin_dir = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "") .. "/"
+	local function put(name, text)
+		local f = assert(io.open(plugin_dir .. name, "wb"))
+		f:write(text)
+		f:close()
+	end
+	put("b-notes.lua", [[
+local sidecar = ...
+local seen = {}
+return {
+	name = "Notes",
+	interval = 30,
+	seen = seen,
+	refresh = function()
+		seen.refreshed = sidecar.run({ "/bin/echo", "fresh" }).stdout
+	end,
+	view = function(cols)
+		local lines, actions = {}, {}
+		sidecar.box(lines, actions, cols, sidecar.colours.teal, "Notes", "", function()
+			lines[#lines + 1] = "first"
+			actions[#lines] = { kind = "note", id = 1 }
+		end)
+		return { lines = lines, actions = actions, selected = 2 }
+	end,
+	key = function(k)
+		seen[#seen + 1] = k
+		return k == "j"
+	end,
+	act = function(action)
+		seen.acted = action.id
+	end,
+}
+]])
+	put("a-broken.lua", "return {")
+	put("c-faulty.lua", [[
+return {
+	name = "Faulty",
+	view = function() error("no view") end,
+	refresh = function() error("no data") end,
+}
+]])
+	put("d-info.lua", "return { name = 'Info' }")
+	put("notes.txt", "not a plugin")
+	local tabs = {}
+	for i, t in ipairs(P.tabs) do
+		tabs[i] = t
+	end
+	P.load_plugins(plugin_dir)
+	equal(table.concat(P.tabs, " ", #tabs + 1), "a-broken.lua Notes Faulty d-info.lua", "plugin tabs follow, by file name")
+
+	local function select(name)
+		for i, t in ipairs(P.tabs) do
+			if t == name then
+				P.key(tostring(i))
+			end
+		end
+		equal(P.current().tab, name, "a digit selects a plugin tab")
+	end
+	select("Notes")
+	local seen = P.plugins.Notes.tab.seen
+	P.key("j")
+	P.key("k")
+	equal(table.concat(seen, " "), "j k", "the open plugin tab hears keys first")
+	local view = P.current()
+	has(plain(view.lines), "│ first", "the plugin's lines in its box")
+	P.act(view.actions[2])
+	equal(seen.acted, 1, "a click goes to the plugin")
+	P.act({ kind = "tab", tab = "Info" })
+	equal(P.current().tab, "Info", "a tab click is the pane's")
+	P.key("j")
+	equal(#seen, 2, "a plugin hears no keys while its tab is hidden")
+
+	select("a-broken.lua")
+	has(plain(P.current().lines), "a-broken.lua", "the load error on the file's tab")
+	select("Faulty")
+	has(plain(P.current().lines), "no view", "a failing view")
+	select("d-info.lua")
+	has(plain(P.current().lines), "tab name not yet in use", "a tab name in use")
+
+	-- A refresh runs as a task, and its error becomes the pane's notice.
+	P.refresh_plugins(os.clock())
+	for _ = 1, 100 do
+		P.step_tasks()
+		if seen.refreshed then
+			break
+		end
+		rex.sleep(0.02)
+	end
+	equal(seen.refreshed, "fresh\n", "the refresh ran its command")
+	select("Notes")
+	has(plain(P.current().pinned), "no data", "a failed refresh, as the notice")
+	P.refresh_plugins(os.clock())
+	equal(P.spawn("tab Notes", function() end), true, "no refresh before the interval")
+	P.step_tasks()
+
+	-- Tab settings: a hidden tab and a moved one, saved in settings.json.
+	P.key("1")
+	P.key(",")
+	has(plain(P.current().lines), "✓ Info  always shown", "Info always shows")
+	P.key("j")
+	P.key(" ")
+	P.key("j")
+	P.key("K")
+	has(plain(P.current().lines), "○ Artifacts", "a hidden tab")
+	P.key("escape")
+	equal(table.concat(P.tabs, " "), "Info Changes a-broken.lua Notes Faulty d-info.lua", "the tabs shown, in order")
+	local f = assert(io.open(panel_base .. "settings.json", "rb"))
+	local saved = rex.json.decode(f:read("*a"))
+	f:close()
+	equal(saved.tabs.hidden.Artifacts, true, "the hidden tab, saved")
+	equal(saved.tabs.order[2], "Tasks", "the order, saved")
+	equal(saved.tabs.hidden.Tasks, true, "a tab hidden by default, saved hidden")
+	P.key(",")
+	P.key("j")
+	P.key(" ")
+	equal(P.tabs[3], "Tasks", "a tab hidden by default, shown")
+	P.key(" ")
+	P.key("escape")
+	P.key("1")
+	for i = #P.tabs, 1, -1 do
+		P.tabs[i] = tabs[i]
+	end
+	real.exec({ "rm", "-rf", plugin_dir, panel_base })
 end
 return "cc-sidecar: all tests passed"
