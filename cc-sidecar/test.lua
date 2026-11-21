@@ -262,10 +262,11 @@ if not ok then
 	error(err, 0)
 end
 
--- The viewer, on a made-up transcript.
-CC_SIDECAR_TEST = true
+-- The viewer, on a made-up transcript, with settings.json in a throwaway folder.
+local panel_base = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "") .. "/"
+CC_SIDECAR_TEST, CC_SIDECAR_TEST_BASE = true, panel_base
 local P = dofile(dir .. "panel.lua")
-CC_SIDECAR_TEST = nil
+CC_SIDECAR_TEST, CC_SIDECAR_TEST_BASE = nil, nil
 
 local function plain(lines)
 	return (table.concat(lines, "\n"):gsub("\27%[[%d;?]*%a", ""))
@@ -1265,10 +1266,27 @@ return {
 	P.refresh_plugins(os.clock())
 	equal(P.spawn("tab Notes", function() end), true, "no refresh before the interval")
 	P.step_tasks()
+
+	-- Tab settings: a hidden tab and a moved one, saved in settings.json.
+	P.key("1")
+	P.key(",")
+	has(plain(P.current().lines), "✓ Info  always shown", "Info always shows")
+	P.key("j")
+	P.key(" ")
+	P.key("j")
+	P.key("K")
+	has(plain(P.current().lines), "○ Artifacts", "a hidden tab")
+	P.key("escape")
+	equal(table.concat(P.tabs, " "), "Info Changes a-broken.lua Notes Faulty d-info.lua", "the tabs shown, in order")
+	local f = assert(io.open(panel_base .. "settings.json", "rb"))
+	local saved = rex.json.decode(f:read("*a"))
+	f:close()
+	equal(saved.tabs.hidden.Artifacts, true, "the hidden tab, saved")
+	equal(saved.tabs.order[2], "a-broken.lua", "the order, saved")
 	P.key("1")
 	for i = #P.tabs, 1, -1 do
 		P.tabs[i] = tabs[i]
 	end
-	real.exec({ "rm", "-rf", plugin_dir })
+	real.exec({ "rm", "-rf", plugin_dir, panel_base })
 end
 return "cc-sidecar: all tests passed"

@@ -12,6 +12,8 @@ local terminal = "com.superlogical.terminal"
 local home = os.getenv("HOME") or ""
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)") or "./"
 local settings = dofile(dir .. "settings.lua")
+--- The folder of settings.json: a throwaway one in the tests.
+local settings_dir = CC_SIDECAR_TEST_BASE or dir
 local claude = dofile(dir .. "claude.lua")
 local mentions = dofile(dir .. "mentions.lua")
 local rex_binary = home
@@ -2013,9 +2015,9 @@ local panel = {
 	files = {},
 	head = true,
 	scope = "Uncommitted",
-	tree = settings.tree(dir),
+	tree = settings.tree(settings_dir),
 	--- Section name -> true when folded, shared by all panes through settings.
-	folded = settings.folded(dir),
+	folded = settings.folded(settings_dir),
 	--- Folder path -> true when folded in this repository's tree.
 	folded_dirs = {},
 	--- Tab name -> the highlighted section's name.
@@ -2341,7 +2343,7 @@ end
 --- change once Claude has moved on; all are read again when the transcript,
 --- Claude's directory or the link patterns change.
 local function refresh_artifacts()
-	local patterns = settings.link_patterns(dir)
+	local patterns = settings.link_patterns(settings_dir)
 	local ok, encoded = pcall(rex.json.encode, patterns)
 	local key = (panel.cwd or "") .. "\0" .. (ok and encoded or "")
 	local a = panel.artifacts
@@ -2386,8 +2388,8 @@ local function gather()
 	panel.claude_pid = pid
 	follow(cwd)
 
-	panel.folded = settings.folded(dir)
-	panel.folded_dirs = settings.folded_dirs(dir, panel.root)
+	panel.folded = settings.folded(settings_dir)
+	panel.folded_dirs = settings.folded_dirs(settings_dir, panel.root)
 
 	-- One status call: git status runs slowly in big repositories.
 	local r = run({ "git", "-C", panel.root, "status", "--porcelain", "-b", "-z", "--untracked-files=all" })
@@ -2441,18 +2443,48 @@ end
 local plugins = {}
 M.plugins = plugins
 
+--- Every tab after Info, in the order added.
+M.tab_names = { "Changes", "Artifacts" }
+
 local function has_tab(name)
-	for _, tab in ipairs(M.tabs) do
+	for _, tab in ipairs(M.tab_names) do
 		if tab == name then
 			return true
 		end
 	end
-	return false
+	return name == "Info"
 end
 
---- Loads each Lua file in `path` as a tab after the others, in file name
---- order. A file gets this module as its argument. A file that fails to load
---- gets a tab, named after the file, that shows the error.
+--- Puts the tabs to show in M.tabs: Info, then the others in the saved order,
+--- and after them, in the order added, those the saved order doesn't name.
+--- A hidden open tab gives way to Info.
+local function arrange()
+	local saved, hidden = settings.tabs(settings_dir)
+	local order, listed = {}, {}
+	for _, list in ipairs({ saved, M.tab_names }) do
+		for _, name in ipairs(list) do
+			if not listed[name] and has_tab(name) and name ~= "Info" then
+				listed[name] = true
+				order[#order + 1] = name
+			end
+		end
+	end
+	local tabs = { "Info" }
+	for _, name in ipairs(order) do
+		if not hidden[name] then
+			tabs[#tabs + 1] = name
+		end
+	end
+	panel.tab_order, panel.hidden_tabs, M.tabs = order, hidden, tabs
+	if hidden[panel.tab] then
+		panel.tab = "Info"
+	end
+	panel.cache = nil
+end
+
+--- Loads each Lua file in `path` as a tab, added after the others in file
+--- name order. A file gets this module as its argument. A file that fails to
+--- load gets a tab, named after the file, that shows the error.
 function M.load_plugins(path)
 	local r = exec({ "/bin/ls", path })
 	local files = {}
@@ -2479,15 +2511,16 @@ function M.load_plugins(path)
 			}
 		end
 		plugins[tab.name] = { tab = tab, due = 0 }
-		M.tabs[#M.tabs + 1] = tab.name
+		M.tab_names[#M.tab_names + 1] = tab.name
 	end
+	arrange()
 end
 
---- Starts each plugin's refresh that is due, as a task. The next is due
---- `interval` seconds, 60 by default, after this one starts.
+--- Starts the refresh of each shown plugin tab that is due, as a task. The
+--- next is due `interval` seconds, 60 by default, after this one starts.
 local function refresh_plugins(now)
 	for name, p in pairs(plugins) do
-		if p.tab.refresh and now >= p.due and spawn("tab " .. name, p.tab.refresh) then
+		if p.tab.refresh and not panel.hidden_tabs[name] and now >= p.due and spawn("tab " .. name, p.tab.refresh) then
 			p.due = now + (p.tab.interval or 60)
 		end
 	end
@@ -2506,7 +2539,66 @@ local function plugin_view(tab)
 	return { lines = v.lines or {}, pinned = pinned, hits = v.hits or {}, actions = v.actions or {}, sections = v.sections or {}, rows = {}, selected = v.selected, ticking = v.ticking }
 end
 
+--- The tab settings, in place of the open tab's view: Info, then each other
+--- tab in its order, shown or hidden. `at` is the selected tab's place.
+local function tabs_view(cols, at)
+	local lines, actions = {}, {}
+	M.box(lines, actions, cols, grey, bold .. "Tabs" .. reset, "", function()
+		lines[#lines + 1] = "  " .. green .. "✓" .. reset .. " Info" .. dim .. "  always shown" .. reset
+		for i, name in ipairs(panel.tab_order) do
+			local mark = panel.hidden_tabs[name] and (dim .. "○" .. reset) or (green .. "✓" .. reset)
+			lines[#lines + 1] = (i == at and (cyan .. "› " .. reset) or "  ") .. mark .. " " .. name
+			actions[#lines] = { kind = "show_tab", name = name }
+		end
+	end)
+	lines[#lines + 1] = ""
+	lines[#lines + 1] = dim .. "Space shows or hides  J K move  Esc closes" .. reset
+	return { lines = lines, pinned = {}, hits = {}, actions = actions, sections = {}, rows = {}, selected = at + 2 }
+end
+
+--- Shows or hides a tab, and saves the choice.
+local function toggle_tab(name)
+	if name then
+		panel.hidden_tabs[name] = not panel.hidden_tabs[name] or nil
+		pcall(settings.set_tabs, settings_dir, panel.tab_order, panel.hidden_tabs)
+		arrange()
+	end
+end
+
+--- Moves the tab at place `at` in the order one place, by `step`, and saves
+--- the order.
+local function move_tab(at, step)
+	local order = panel.tab_order
+	if order[at] and order[at + step] then
+		order[at], order[at + step] = order[at + step], order[at]
+		panel.arranging = at + step
+		pcall(settings.set_tabs, settings_dir, order, panel.hidden_tabs)
+		arrange()
+	end
+end
+
+--- A key while the tab settings are open; true when it took the key.
+local function tabs_key(k)
+	local at = panel.arranging
+	if k == "j" or k == "down" or k == "k" or k == "up" then
+		local step = (k == "j" or k == "down") and 1 or -1
+		panel.arranging = math.max(1, math.min(#panel.tab_order, at + step))
+	elseif k == " " or k == "\r" or k == "\n" then
+		toggle_tab(panel.tab_order[at])
+	elseif k == "J" or k == "K" then
+		move_tab(at, k == "J" and 1 or -1)
+	elseif k == "escape" or k == "," then
+		panel.arranging = nil
+	else
+		return false
+	end
+	return true
+end
+
 local function build(tab)
+	if panel.arranging then
+		return tabs_view(panel.cols - 1, panel.arranging)
+	end
 	if plugins[tab] then
 		return plugin_view(plugins[tab].tab)
 	end
@@ -2601,6 +2693,7 @@ end
 
 local function set_tab(tab)
 	panel.tab = tab
+	panel.arranging = nil
 	panel.cache = nil
 	if tab == "Changes" then
 		pr_cache = nil
@@ -2638,14 +2731,14 @@ end
 local function toggle_tree()
 	panel.tree = not panel.tree
 	panel.cache = nil
-	pcall(settings.set_tree, dir, panel.tree)
+	pcall(settings.set_tree, settings_dir, panel.tree)
 end
 
 local function toggle_fold(name)
 	local on = not panel.folded[name]
 	panel.folded[name] = on or nil
 	panel.cache = nil
-	pcall(settings.set_folded, dir, name, on)
+	pcall(settings.set_folded, settings_dir, name, on)
 end
 
 --- Highlights the next or previous section heading and scrolls it into view.
@@ -2783,7 +2876,7 @@ local function toggle_dir(key, path)
 	panel.folded_dirs[path] = on or nil
 	panel.selected[panel.scope] = key
 	panel.cache = nil
-	pcall(settings.set_folded_dir, dir, panel.root, path, on)
+	pcall(settings.set_folded_dir, settings_dir, panel.root, path, on)
 end
 
 local function open_row(key, row)
@@ -2794,7 +2887,9 @@ end
 
 local function act(action)
 	local plugin = plugins[panel.tab]
-	if plugin and action.kind ~= "tab" and action.kind ~= "fold" then
+	if action.kind == "show_tab" then
+		toggle_tab(action.name)
+	elseif plugin and not panel.arranging and action.kind ~= "tab" and action.kind ~= "fold" then
 		if plugin.tab.act then
 			plugin.tab.act(action)
 		end
@@ -2912,9 +3007,14 @@ local function key(k)
 		mouse(k)
 		return
 	end
-	-- A plugin tab takes its keys first.
-	local plugin = plugins[panel.tab]
-	if plugin and plugin.tab.key and plugin.tab.key(k) then
+	-- The tab settings take their keys first, and then a plugin tab.
+	local plugin, taken = plugins[panel.tab], false
+	if panel.arranging then
+		taken = tabs_key(k)
+	elseif plugin and plugin.tab.key then
+		taken = plugin.tab.key(k)
+	end
+	if taken then
 		panel.cache, panel.reveal = nil, true
 		return
 	end
@@ -2936,6 +3036,8 @@ local function key(k)
 		scroll_by(-page)
 	elseif k == "g" then
 		panel.scroll[panel.tab] = 0
+	elseif k == "," then
+		panel.arranging, panel.cache = 1, nil
 	elseif panel.tab == "Changes" and k == "s" then
 		next_scope()
 	elseif panel.tab == "Changes" and k == "t" then
@@ -2954,6 +3056,7 @@ local function key(k)
 end
 
 M.key, M.act, M.current, M.refresh_plugins = key, act, current, refresh_plugins
+arrange()
 
 if CC_SIDECAR_TEST then
 	return M
@@ -2977,6 +3080,8 @@ while true do
 	end
 	if now - gathered >= 2 and now - typed >= 1 and spawn("gather", gather) then
 		gathered = now
+		-- Other panes change the tab settings too.
+		arrange()
 	end
 	if now - typed >= 1 then
 		refresh_plugins(now)

@@ -228,12 +228,22 @@ the pane focused:
 | `Enter` | On Changes, open the selected file's diff, or the first file's, or fold the selected folder. On Info and Artifacts, fold the highlighted section |
 | `Space` `b`, `Page Down` `Page Up` | Scroll a page |
 | `g` | Back to the top |
+| `,` | Open the [tab settings](#tab-settings) |
 
 The wheel scrolls. The pane takes clicks and drags for itself, so a plain drag
 doesn't select text in it.
 
 Not a native Rex extension format: a config module launches a separate
 event-driven `rex do` watcher, like rex-resume.
+
+## Tab settings
+
+`,` opens the tab settings in the pane: each tab after Info, which always
+shows, with `✓` when it shows. `j` `k` select a tab, `Space` or a click
+shows or hides it, `J` `K` move it, and `Esc` or `,` closes the list. The
+choice is saved as `{"tabs": {"order": [...], "hidden": {"Artifacts": true}}}`
+in `settings.json` and applies to all sidecar panes within a couple of
+seconds. Tabs the order doesn't name, such as a new plugin's, follow it.
 
 ## Tab plugins
 
