@@ -896,7 +896,10 @@ local fold_marks = { [true] = "▸ ", [false] = "▾ " }
 local orange, lavender, mint, purple = "\27[38;5;209m", "\27[38;5;147m", "\27[38;5;114m", "\27[38;5;141m"
 local gold, teal, blue, grey = "\27[38;5;221m", "\27[38;5;80m", "\27[38;5;75m", "\27[38;5;245m"
 local aqua = "\27[38;5;87m"
-M.colours = { orange = orange, lavender = lavender, mint = mint, purple = purple, gold = gold, teal = teal, blue = blue, grey = grey }
+M.colours = {
+	orange = orange, lavender = lavender, mint = mint, purple = purple, gold = gold, teal = teal, blue = blue, grey = grey, aqua = aqua,
+	reset = reset, bold = bold, dim = dim, red = red, green = green, yellow = yellow, cyan = cyan,
+}
 
 --- Below this width, sections are plain headings instead of boxes.
 M.box_min = 36
@@ -2430,7 +2433,83 @@ local function gather()
 	refresh_artifacts()
 end
 
+-- Tab plugins ---------------------------------------------------------------
+-- Each Lua file in ~/.config/rex/sidecar-tabs adds a tab; see the README.
+
+--- Tab name -> { tab = the table its file returned, due = when its next
+--- refresh starts }.
+local plugins = {}
+M.plugins = plugins
+
+local function has_tab(name)
+	for _, tab in ipairs(M.tabs) do
+		if tab == name then
+			return true
+		end
+	end
+	return false
+end
+
+--- Loads each Lua file in `path` as a tab after the others, in file name
+--- order. A file gets this module as its argument. A file that fails to load
+--- gets a tab, named after the file, that shows the error.
+function M.load_plugins(path)
+	local r = exec({ "/bin/ls", path })
+	local files = {}
+	for file in (r and r.ok and r.stdout or ""):gmatch("[^\n]+") do
+		if file:match("%.lua$") then
+			files[#files + 1] = file
+		end
+	end
+	table.sort(files)
+	for _, file in ipairs(files) do
+		local ok, tab = pcall(function()
+			return assert(loadfile(path .. file))(M)
+		end)
+		if ok and not (type(tab) == "table" and type(tab.name) == "string" and not has_tab(tab.name)) then
+			ok, tab = false, file .. " must return a table with a tab name not yet in use."
+		end
+		if not ok then
+			local message = tostring(tab)
+			tab = {
+				name = file,
+				view = function(cols)
+					return { lines = M.wrap(message, cols, red, red) }
+				end,
+			}
+		end
+		plugins[tab.name] = { tab = tab, due = 0 }
+		M.tabs[#M.tabs + 1] = tab.name
+	end
+end
+
+--- Starts each plugin's refresh that is due, as a task. The next is due
+--- `interval` seconds, 60 by default, after this one starts.
+local function refresh_plugins(now)
+	for name, p in pairs(plugins) do
+		if p.tab.refresh and now >= p.due and spawn("tab " .. name, p.tab.refresh) then
+			p.due = now + (p.tab.interval or 60)
+		end
+	end
+end
+
+--- A plugin tab's view. An error in the plugin's view shows in its place. A
+--- view without pinned lines gets the pane's notice, such as an error in one
+--- of the plugin's tasks.
+local function plugin_view(tab)
+	local cols = panel.cols - 1
+	local ok, v = pcall(tab.view, cols)
+	if not ok or type(v) ~= "table" then
+		v = { lines = M.wrap(tostring(v), cols, red, red) }
+	end
+	local pinned = v.pinned or { panel.notice and (red .. panel.notice .. reset) }
+	return { lines = v.lines or {}, pinned = pinned, hits = v.hits or {}, actions = v.actions or {}, sections = v.sections or {}, rows = {}, selected = v.selected, ticking = v.ticking }
+end
+
 local function build(tab)
+	if plugins[tab] then
+		return plugin_view(plugins[tab].tab)
+	end
 	if tab == "Changes" then
 		return M.changes_view({
 			title = panel.branch or (panel.root:match("[^/]+$") or panel.root),
@@ -2493,12 +2572,21 @@ local function draw()
 				s = math.max(r.line - page, math.min(s, r.line - 1))
 			end
 		end
+		if c.selected then
+			s = math.max(c.selected - page, math.min(s, c.selected - 1))
+		end
 	end
 	s = math.max(0, math.min(s, #c.lines - page))
 	panel.scroll[panel.tab] = s
 	local count = #panel.files > 0 and tostring(#panel.files) or nil
 	local found = panel.artifacts and panel.artifacts.total > 0 and tostring(panel.artifacts.total) or nil
 	local badges = { Changes = count, Artifacts = found }
+	for name, p in pairs(plugins) do
+		if p.tab.badge then
+			local ok, badge = pcall(p.tab.badge)
+			badges[name] = ok and badge and tostring(badge) or nil
+		end
+	end
 	local frame, ranges = M.frame(M.tabs, panel.tab, c.lines, s, panel.cols, panel.rows, { pinned = c.pinned, badges = badges })
 	panel.layout = { tabs = ranges, hits = c.hits, pinned = #c.pinned, actions = c.actions, scroll = s }
 	io.write(frame)
@@ -2705,7 +2793,13 @@ local function open_row(key, row)
 end
 
 local function act(action)
-	if action.kind == "tab" then
+	local plugin = plugins[panel.tab]
+	if plugin and action.kind ~= "tab" and action.kind ~= "fold" then
+		if plugin.tab.act then
+			plugin.tab.act(action)
+		end
+		panel.cache = nil
+	elseif action.kind == "tab" then
 		set_tab(action.tab)
 	elseif action.kind == "scope" then
 		set_scope(action.scope)
@@ -2812,10 +2906,16 @@ end
 
 local function key(k)
 	if k == "\27" then
-		k = escape()
+		k = escape() or "escape"
 	end
 	if type(k) == "table" then
 		mouse(k)
+		return
+	end
+	-- A plugin tab takes its keys first.
+	local plugin = plugins[panel.tab]
+	if plugin and plugin.tab.key and plugin.tab.key(k) then
+		panel.cache, panel.reveal = nil, true
 		return
 	end
 	local page = M.page(panel.rows, #current().pinned) - 1
@@ -2853,9 +2953,13 @@ local function key(k)
 	end
 end
 
+M.key, M.act, M.current, M.refresh_plugins = key, act, current, refresh_plugins
+
 if CC_SIDECAR_TEST then
 	return M
 end
+
+M.load_plugins(home .. "/.config/rex/sidecar-tabs/")
 
 -- Keys arrive one at a time, and a read gives up after a tenth of a second,
 -- so the loop steps the tasks and redraws without waiting for a key. Modes 1000 and 1006 report
@@ -2873,6 +2977,9 @@ while true do
 	end
 	if now - gathered >= 2 and now - typed >= 1 and spawn("gather", gather) then
 		gathered = now
+	end
+	if now - typed >= 1 then
+		refresh_plugins(now)
 	end
 	if step_tasks() then
 		panel.cache = nil

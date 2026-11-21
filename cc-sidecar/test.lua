@@ -1168,4 +1168,107 @@ do
 	equal(V.kind(dir .. "test.lua"), "file", "a real file")
 	equal(V.kind(dir .. "no-such-file"), nil, "a missing file")
 end
+-- Tab plugins: loaded in file name order, each with its keys, clicks and
+-- refresh, and with its errors kept to its tab.
+do
+	local plugin_dir = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "") .. "/"
+	local function put(name, text)
+		local f = assert(io.open(plugin_dir .. name, "wb"))
+		f:write(text)
+		f:close()
+	end
+	put("b-notes.lua", [[
+local sidecar = ...
+local seen = {}
+return {
+	name = "Notes",
+	interval = 30,
+	seen = seen,
+	refresh = function()
+		seen.refreshed = sidecar.run({ "/bin/echo", "fresh" }).stdout
+	end,
+	view = function(cols)
+		local lines, actions = {}, {}
+		sidecar.box(lines, actions, cols, sidecar.colours.teal, "Notes", "", function()
+			lines[#lines + 1] = "first"
+			actions[#lines] = { kind = "note", id = 1 }
+		end)
+		return { lines = lines, actions = actions, selected = 2 }
+	end,
+	key = function(k)
+		seen[#seen + 1] = k
+		return k == "j"
+	end,
+	act = function(action)
+		seen.acted = action.id
+	end,
+}
+]])
+	put("a-broken.lua", "return {")
+	put("c-faulty.lua", [[
+return {
+	name = "Faulty",
+	view = function() error("no view") end,
+	refresh = function() error("no data") end,
+}
+]])
+	put("d-info.lua", "return { name = 'Info' }")
+	put("notes.txt", "not a plugin")
+	local tabs = {}
+	for i, t in ipairs(P.tabs) do
+		tabs[i] = t
+	end
+	P.load_plugins(plugin_dir)
+	equal(table.concat(P.tabs, " ", #tabs + 1), "a-broken.lua Notes Faulty d-info.lua", "plugin tabs follow, by file name")
+
+	local function select(name)
+		for i, t in ipairs(P.tabs) do
+			if t == name then
+				P.key(tostring(i))
+			end
+		end
+		equal(P.current().tab, name, "a digit selects a plugin tab")
+	end
+	select("Notes")
+	local seen = P.plugins.Notes.tab.seen
+	P.key("j")
+	P.key("k")
+	equal(table.concat(seen, " "), "j k", "the open plugin tab hears keys first")
+	local view = P.current()
+	has(plain(view.lines), "│ first", "the plugin's lines in its box")
+	P.act(view.actions[2])
+	equal(seen.acted, 1, "a click goes to the plugin")
+	P.act({ kind = "tab", tab = "Info" })
+	equal(P.current().tab, "Info", "a tab click is the pane's")
+	P.key("j")
+	equal(#seen, 2, "a plugin hears no keys while its tab is hidden")
+
+	select("a-broken.lua")
+	has(plain(P.current().lines), "a-broken.lua", "the load error on the file's tab")
+	select("Faulty")
+	has(plain(P.current().lines), "no view", "a failing view")
+	select("d-info.lua")
+	has(plain(P.current().lines), "tab name not yet in use", "a tab name in use")
+
+	-- A refresh runs as a task, and its error becomes the pane's notice.
+	P.refresh_plugins(os.clock())
+	for _ = 1, 100 do
+		P.step_tasks()
+		if seen.refreshed then
+			break
+		end
+		rex.sleep(0.02)
+	end
+	equal(seen.refreshed, "fresh\n", "the refresh ran its command")
+	select("Notes")
+	has(plain(P.current().pinned), "no data", "a failed refresh, as the notice")
+	P.refresh_plugins(os.clock())
+	equal(P.spawn("tab Notes", function() end), true, "no refresh before the interval")
+	P.step_tasks()
+	P.key("1")
+	for i = #P.tabs, 1, -1 do
+		P.tabs[i] = tabs[i]
+	end
+	real.exec({ "rm", "-rf", plugin_dir })
+end
 return "cc-sidecar: all tests passed"
