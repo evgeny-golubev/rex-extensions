@@ -166,6 +166,10 @@ Tell the user what will happen before running the command:
    box if one is shown, and click **Continue**.
 4. The browser shows "Sign-in complete. This window can be closed."
 
+Tell the user too: if the browser shows "Access blocked" or "Error 403:
+access_denied", Google will not answer the command. They then press `Esc` in
+Claude Code to stop the wait and say what they saw; the fix is in 8.
+
 Then run the sign-in. It waits up to 5 minutes, so give the Bash call a
 timeout of 330000 ms:
 
@@ -181,9 +185,13 @@ The user can also press `L` in the Tasks tab, which runs the same sign-in.
 Count the lists and open tasks through the task actions, without showing them:
 
 ```sh
-f="$TMPDIR/sidecar-tasks-list.json"; rex do tasks_list > "$f"
-i=0; while n=$(plutil -extract "$i.tasks" raw -o - "$f" 2>/dev/null); do echo "list $((i + 1)): $n open tasks"; i=$((i + 1)); done
-rm -f "$f"
+f="$TMPDIR/sidecar-tasks-list.json"
+if rex do tasks_list > "$f" 2> "$f.err"; then
+  i=0; while n=$(plutil -extract "$i.tasks" raw -o - "$f" 2>/dev/null); do echo "list $((i + 1)): $n open tasks"; i=$((i + 1)); done
+else
+  echo "tasks_list failed: $(head -1 "$f.err")"
+fi
+rm -f "$f" "$f.err"
 ```
 
 Tell the user it works, with the counts, and that the tab shows the tasks at
