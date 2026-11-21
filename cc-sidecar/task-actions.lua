@@ -22,6 +22,8 @@ local function provider(args)
 		error("The task provider did not answer.", 0)
 	elseif r.code == 3 then
 		error("Sign-in needed: press L in the Tasks tab.", 0)
+	elseif r.code == 4 then
+		error("The task source is not set up: " .. ((r.stderr or ""):match("[^\n]+") or "see the Tasks tab."), 0)
 	elseif not r.ok then
 		error("The task provider failed: " .. (((r.stdout or "") .. (r.stderr or "")):match("[^\n]+") or "no output"), 0)
 	end

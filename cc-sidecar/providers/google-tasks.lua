@@ -24,12 +24,16 @@
 --                               Change the given fields of a task. An empty DATE clears
 --                               the due date. STATUS is needsAction or completed.
 -- A missing or expired sign-in prints {"error": "auth_required"} and exits with code 3.
+-- Without a stored OAuth client it prints {"error": "setup_required"} and exits with
+-- code 4; standard error names the next step.
 
 local SERVICE = "google-tasks-client"
 local SCOPE = "https://www.googleapis.com/auth/tasks"
 local API = "https://tasks.googleapis.com/tasks/v1"
 local TOKEN_URL = "https://oauth2.googleapis.com/token"
 local AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+--- The console page where test users are added.
+local AUDIENCE_URL = "https://console.cloud.google.com/auth/audience"
 
 --- Stands for JSON null in a request body; rex.json has no null of its own.
 local NULL = "@@json-null@@"
@@ -47,6 +51,12 @@ end
 local function auth_required(detail)
 	io.write(rex.json.encode({ error = "auth_required", detail = detail }), "\n")
 	os.exit(3)
+end
+
+local function setup_required()
+	io.write(rex.json.encode({ error = "setup_required" }), "\n")
+	fail('Google Tasks is not set up yet: no OAuth client is stored. Ask Claude Code "set up the sidecar Tasks tab",'
+		.. " or follow the Google Tasks steps in cc-sidecar/README.md.", 4)
 end
 
 local function exec(argv, stdin, timeout)
@@ -67,7 +77,7 @@ local function keychain_write(account, value)
 end
 
 local function client_config()
-	local raw = keychain_read("client") or fail("No OAuth client stored. Run: google-tasks import-client PATH")
+	local raw = keychain_read("client") or setup_required()
 	local data = rex.json.decode(raw)
 	return data.installed or data.web
 end
@@ -116,8 +126,8 @@ local function post_form(url, fields)
 end
 
 local function access_token()
-	local refresh = keychain_read("refresh_token") or auth_required("not signed in")
 	local client = client_config()
+	local refresh = keychain_read("refresh_token") or auth_required("not signed in")
 	local status, text = post_form(TOKEN_URL, {
 		client_id = client.client_id,
 		client_secret = client.client_secret,
@@ -268,8 +278,10 @@ local function command_import_client(path)
 	local content = f:read("*a")
 	f:close()
 	local ok, data = pcall(rex.json.decode, content)
-	if not (ok and type(data) == "table" and data.installed) then
-		fail("The file is not a Desktop app OAuth client.")
+	if ok and type(data) == "table" and data.web then
+		fail("This file is for a Web application client. Create a client of type Desktop app and download its JSON file.")
+	elseif not (ok and type(data) == "table" and data.installed) then
+		fail("This file is not an OAuth client's JSON file. Download it from Clients: https://console.cloud.google.com/auth/clients")
 	end
 	keychain_write("client", content)
 	return "client stored"
@@ -338,8 +350,13 @@ local function command_login()
 	exec({ "/usr/bin/open", url })
 	io.write("Browser opened for sign-in. Waiting up to 5 minutes.\n")
 	local received = receive_redirect(port)
-	if received.state ~= state or not received.code then
-		fail("Sign-in failed: " .. (received.error or "no response"))
+	if received.error == "access_denied" then
+		fail("Sign-in failed: access denied. Add your Google account under Test users at " .. AUDIENCE_URL .. ", then sign in again.")
+	elseif not received.error and not received.code then
+		fail('Sign-in failed: no answer from the browser within 5 minutes. If Google showed "Error 403: access_denied",'
+			.. " add your Google account under Test users at " .. AUDIENCE_URL .. ".")
+	elseif received.state ~= state or not received.code then
+		fail("Sign-in failed: " .. (received.error or "the answer did not match the request"))
 	end
 	local status, text = post_form(TOKEN_URL, {
 		client_id = client.client_id,

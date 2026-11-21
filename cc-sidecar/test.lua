@@ -1500,6 +1500,69 @@ do
 	equal(state.review, nil, "Enter finishes the review")
 	equal(lib.streak(tab.state.saved.review, today), 1, "review recorded with a streak")
 
+	-- A provider that is not set up, or whose sign-in ended, says what to do next.
+	do
+		local lists, spawned = state.lists, {}
+		local answers = {}
+		P.run = function()
+			return table.remove(answers, 1)
+		end
+		P.spawn = function(name, f)
+			spawned[#spawned + 1] = name
+			if name == "tasks login" then
+				f()
+			end
+			return true
+		end
+		local function fetch_with(r)
+			answers[#answers + 1] = r
+			state.fetched_at = nil
+			tab.refresh()
+		end
+		local function shown(cols)
+			local v = tab.view(cols)
+			local text = {}
+			for _, l in ipairs(v.pinned) do
+				text[#text + 1] = strip(l)
+			end
+			for _, l in ipairs(v.lines) do
+				local plain = strip(l)
+				equal(P.width(plain) <= cols, true, "the hint fits " .. cols .. " columns: " .. plain)
+				text[#text + 1] = plain
+			end
+			return table.concat(text, "\n")
+		end
+		fetch_with({ ok = false, code = 4, stdout = '{"error":"setup_required"}\n', stderr = "Google Tasks is not set up yet.\n" })
+		equal(state.setup_needed, true, "exit code 4: not set up")
+		for _, cols in ipairs({ 34, 47, 80 }) do
+			local text = shown(cols)
+			has(text, "Google Tasks is not set up", "the tab names the missing setup")
+			has(text:gsub("\n", " "), "set up the sidecar Tasks tab", "the tab names what to ask Claude Code")
+			has(text:gsub("\n", " "), "Apple Reminders, which needs no setup", "the tab offers Apple Reminders")
+		end
+		equal(tab.badge(), nil, "no badge while not set up")
+		equal(tab.key("L"), false, "L does nothing while not set up")
+		equal(#spawned, 0, "no sign-in starts while not set up")
+
+		fetch_with({ ok = false, code = 3, stdout = '{"error":"auth_required","detail":"sign-in expired"}\n' })
+		equal(state.setup_needed, false, "a sign-in answer clears the setup notice")
+		equal(state.signed_out, true, "exit code 3: signed out")
+		has(shown(47):gsub("\n", " "), "every 7 days", "an ended sign-in names the 7-day limit")
+		answers = {
+			{ ok = false, code = 1, stdout = "Browser opened for sign-in. Waiting up to 5 minutes.\n",
+				stderr = "Sign-in failed: access denied. Add your Google account under Test users.\n" },
+			{ ok = false, code = 3, stdout = '{"error":"auth_required","detail":"not signed in"}\n' },
+		}
+		equal(tab.key("L"), true, "L signs in")
+		equal(state.fetch_notice, "Sign-in failed: access denied. Add your Google account under Test users.",
+			"a failed sign-in shows the provider's error")
+		has(shown(80), "Sign-in failed: access denied", "the failure is shown")
+		equal(shown(80):find("7 days", 1, true), nil, "no 7-day note before the first sign-in")
+
+		state.lists, state.signed_out, state.sign_in_detail, state.fetch_notice = lists, false, nil, nil
+		P.spawn, P.run = function() return true end, function() end
+	end
+
 	-- Without a provider chosen, the tab asks where the tasks are.
 	do
 		local lists = state.lists
@@ -1596,6 +1659,8 @@ do
 	answers[1] = { ok = false, code = 3, stdout = "" }
 	fails("tasks_list", {}, "Sign-in needed")
 	equal(calls[#calls][1], dir .. "providers/google-tasks", "the provider beside the extension")
+	answers[1] = { ok = false, code = 4, stdout = '{"error":"setup_required"}\n', stderr = "Google Tasks is not set up yet: no OAuth client is stored.\n" }
+	fails("tasks_list", {}, "The task source is not set up: Google Tasks is not set up yet")
 	fails("tasks_add", { title = "A. Water the plants" }, "due date is required")
 	fails("tasks_add", { title = "Water the plants", due = "today" }, "must start with a rating")
 	fails("tasks_add", { title = "A. Water the plants", due = "soon" }, "today, tomorrow or YYYY-MM-DD")
@@ -1614,6 +1679,76 @@ do
 	equal(saved.proposals.t1.note, "watered", "the report waits in the state file")
 	rex = real
 	P.spawn, P.run = spawn, run
+end
+-- The Google Tasks provider, with the Keychain made up and no request sent.
+do
+	local stored, requests = {}, {}
+	--- Runs the provider with `...` as its arguments; returns its exit code,
+	--- standard output and standard error.
+	local function provider(...)
+		local argv = {}
+		for _, a in ipairs({ ... }) do
+			argv[#argv + 1] = a .. "\31"
+		end
+		local out, err = {}, {}
+		local exit, write, stderr = os.exit, io.write, io.stderr
+		os.exit = function(code)
+			error({ exit = code or 0 }, 0)
+		end
+		io.write = function(...)
+			for _, s in ipairs({ ... }) do
+				out[#out + 1] = s
+			end
+		end
+		io.stderr = { write = function(_, ...)
+			for _, s in ipairs({ ... }) do
+				err[#err + 1] = s
+			end
+		end }
+		rex = setmetatable({
+			args = { argv = table.concat(argv) },
+			exec = function(cmd)
+				if cmd[1] == "/usr/bin/security" and cmd[2] == "find-generic-password" then
+					local value = stored[cmd[6]]
+					return { ok = value ~= nil, code = value and 0 or 44, stdout = value or "", stderr = "" }
+				end
+				requests[#requests + 1] = cmd
+				return { ok = false, code = 1, stdout = "", stderr = "no requests in the test" }
+			end,
+		}, { __index = real })
+		local _, result = pcall(dofile, dir .. "providers/google-tasks.lua")
+		os.exit, io.write, io.stderr = exit, write, stderr
+		rex = real
+		return type(result) == "table" and result.exit or result, table.concat(out), table.concat(err)
+	end
+	local code, out, err = provider("tasks")
+	equal(code, 4, "no client: not set up")
+	has(out, "setup_required", "not set up, as JSON")
+	has(err, 'Ask Claude Code "set up the sidecar Tasks tab"', "the error names the next step")
+	stored.refresh_token = "made-up token"
+	equal(provider("tasks"), 4, "a refresh token without a client is not set up")
+	stored.refresh_token, stored.client = nil, '{"installed":{"client_id":"id","client_secret":"made-up"}}'
+	code, out = provider("tasks")
+	equal(code, 3, "a client without a refresh token needs sign-in")
+	has(out, '"not signed in"', "sign-in needed, as JSON")
+	equal(#requests, 0, "nothing is sent without a sign-in")
+	local folder = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "") .. "/"
+	local function client_file(text)
+		local path = folder .. "client.json"
+		local f = assert(io.open(path, "wb"))
+		f:write(text)
+		f:close()
+		return path
+	end
+	code, _, err = provider("import-client", client_file('{"web":{"client_id":"id"}}'))
+	equal(code, 1, "a Web application client is refused")
+	has(err, "Create a client of type Desktop app", "the error names the client type")
+	code, _, err = provider("import-client", client_file("not JSON"))
+	equal(code, 1, "a file that isn't a client is refused")
+	has(err, "https://console.cloud.google.com/auth/clients", "the error names where to download the client")
+	equal(#requests, 0, "a refused file is not stored")
+	os.remove(folder .. "client.json")
+	os.remove(folder)
 end
 -- Tab plugins: loaded in file name order, each with its keys, clicks and
 -- refresh, and with its errors kept to its tab.

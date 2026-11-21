@@ -20,7 +20,9 @@
 --       An empty DATE clears the due date.
 --   login
 --       Signs in interactively.
---   Exit code 3, or the JSON { error = "auth_required" }, means sign-in is needed.
+--   Exit code 3, or the JSON { error = "auth_required" }, means sign-in is needed;
+--   its detail "sign-in expired" means an earlier sign-in ended.
+--   Exit code 4 means the provider is not set up; standard error says how to set it up.
 --
 -- Conventions in the provider's tasks:
 --   Rating       title prefix "A. ", "B. " or "C. ".
@@ -507,6 +509,10 @@ local state = {
 	--- The lists from the last refresh, each with its open and completed tasks.
 	lists = nil,
 	signed_out = false,
+	--- The detail of the last sign-in answer, such as "sign-in expired", or nil.
+	sign_in_detail = nil,
+	--- True when the provider answered that it is not set up.
+	setup_needed = false,
 	--- Lines about the last failed fetch and the last failed write, or nil.
 	fetch_notice = nil,
 	write_notice = nil,
@@ -658,9 +664,13 @@ local function client_run(limit, ...)
 	return sidecar.run({ providers.command(sidecar.dir, provider()), ... }, limit)
 end
 
---- The first line of a command's output, for a notice.
+--- The first line of a command's error output, or else of its output, for a notice.
 local function first_line(r)
-	return r and ((r.stdout or "") .. (r.stderr or "")):match("[^\n]+") or "no answer"
+	if not r then
+		return "no answer"
+	end
+	local text = (r.stderr or "") ~= "" and r.stderr or (r.stdout or "")
+	return text:match("[^\n]+") or "no answer"
 end
 
 local queue = {}
@@ -674,13 +684,16 @@ local function fetch()
 	local generation = state.generation
 	local r = client_run(30, "tasks", "--completed-since", lib.add_days(today(), -HISTORY_DAYS))
 	local ok, data = pcall(rex.json.decode, r and r.stdout or "")
-	if r and (r.code == 3 or ok and type(data) == "table" and data.error == "auth_required") then
-		state.signed_out = true
+	if r and r.code == 4 then
+		state.setup_needed, state.signed_out = true, false
+	elseif r and (r.code == 3 or ok and type(data) == "table" and data.error == "auth_required") then
+		state.signed_out, state.setup_needed = true, false
+		state.sign_in_detail = ok and type(data) == "table" and data.detail or nil
 	elseif r and r.ok and ok and type(data) == "table" then
 		if generation ~= state.generation or #queue > 0 then
 			return
 		end
-		state.lists, state.signed_out, state.fetch_notice = data, false, nil
+		state.lists, state.signed_out, state.setup_needed, state.fetch_notice = data, false, false, nil
 		note_moves(data)
 	else
 		state.fetch_notice = "Tasks: " .. first_line(r)
@@ -1182,7 +1195,7 @@ local function choose(name)
 	change_state(function(s)
 		s.provider = name
 	end)
-	state.choosing, state.lists, state.signed_out, state.selected = false, nil, false, nil
+	state.choosing, state.lists, state.signed_out, state.setup_needed, state.selected = false, nil, false, false, nil
 	state.fetch_notice, state.write_notice, state.review, state.view = nil, nil, nil, "now"
 	-- A fetch from the provider before is discarded.
 	state.fetched_at, state.generation = nil, state.generation + 1
@@ -1224,12 +1237,15 @@ local function handle(k)
 		state.choosing = true
 		return true
 	end
+	if state.setup_needed then
+		return false
+	end
 	if state.signed_out then
 		if k == "L" then
 			state.fetch_notice = provider() == "apple" and "Asking macOS for access to Reminders…" or "Signing in through the browser…"
 			sidecar.spawn("tasks login", function()
 				local r = client_run(300, "login")
-				state.fetch_notice = not (r and r.ok) and ("Sign-in failed: " .. first_line(r)) or nil
+				state.fetch_notice = not (r and r.ok) and (r and first_line(r) or "Sign-in failed: no answer within 5 minutes.") or nil
 				fetch()
 			end)
 		end
@@ -1307,7 +1323,7 @@ function tab.key(k)
 	if handle(k) then
 		return true
 	end
-	if not (tab_keys[k] and state.lists and provider() and not state.choosing and not state.signed_out) then
+	if not (tab_keys[k] and state.lists and provider() and not state.choosing and not state.signed_out and not state.setup_needed) then
 		return false
 	end
 	state.key_notice = unused_notice(k)
@@ -1327,7 +1343,7 @@ function tab.act(action)
 end
 
 function tab.badge()
-	if not state.lists or state.signed_out then
+	if not state.lists or state.signed_out or state.setup_needed then
 		return nil
 	end
 	local m = model()
@@ -1811,6 +1827,22 @@ function tab.view(cols)
 		return choose_view(cols)
 	end
 	local notice = state.key_notice or state.write_notice or state.fetch_notice or (sidecar.panel and sidecar.panel.notice)
+	if state.setup_needed then
+		pinned[1] = c.orange .. providers.names[provider()] .. " is not set up" .. c.reset
+		local lines = {}
+		local text = {
+			'Ask Claude Code: "set up the sidecar Tasks tab". It checks what is done and walks you through the rest, one step at a time.',
+			"Or follow the Google Tasks steps in cc-sidecar/README.md.",
+			"",
+			"r checks again · W switches to Apple Reminders, which needs no setup",
+		}
+		for _, paragraph in ipairs(text) do
+			for _, l in ipairs(paragraph == "" and { "" } or sidecar.wrap(paragraph, cols, "", "")) do
+				lines[#lines + 1] = c.dim .. l .. c.reset
+			end
+		end
+		return { lines = lines, pinned = pinned }
+	end
 	if state.signed_out then
 		local access = provider() == "apple" and "Access to Reminders needed · press L to allow it"
 			or "Sign-in needed · press L to sign in"
@@ -1818,7 +1850,13 @@ function tab.view(cols)
 		if notice then
 			pinned[2] = c.yellow .. notice .. c.reset
 		end
-		return { lines = {}, pinned = pinned }
+		local lines = {}
+		if provider() == "google" and state.sign_in_detail == "sign-in expired" then
+			for _, l in ipairs(sidecar.wrap("Google ended the last sign-in. While the app is in Testing, this happens every 7 days.", cols, "", "")) do
+				lines[#lines + 1] = c.dim .. l .. c.reset
+			end
+		end
+		return { lines = lines, pinned = pinned }
 	end
 	if not state.lists then
 		return { lines = { c.dim .. "Loading tasks…" .. c.reset }, pinned = notice and { c.yellow .. notice .. c.reset } or {} }
