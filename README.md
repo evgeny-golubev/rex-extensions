@@ -84,7 +84,9 @@ over Claude's tab, and `q` closes it. [Details →](plugins/rex-view/README.md)
 
 Claude adds the work you start with it to the task list in cc-sidecar's Tasks
 tab, or finds the task already there, and reports it done when the work is
-finished. You confirm the report in the tab. It needs cc-sidecar.
+finished. You confirm the report in the tab. It needs cc-sidecar. Ask Claude
+"set up the sidecar Tasks tab", and it walks you through the setup, one step at
+a time.
 [Details →](plugins/sidecar-task-list/README.md)
 
 ## Requirements
@@ -183,7 +185,7 @@ rex-resume/                       extension
 cc-sidecar/                       extension
 cc-crab-pond/                     extension
 plugins/rex-view/                 skill, as a plugin
-plugins/sidecar-task-list/        skill, as a plugin
+plugins/sidecar-task-list/        skills, as a plugin
 docs/                             pictures
 ```
 

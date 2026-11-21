@@ -13,7 +13,7 @@
     {
       "name": "sidecar-task-list",
       "source": "./plugins/sidecar-task-list",
-      "description": "Keep the task list in the cc-sidecar Tasks tab in step with the work done in a Claude Code session"
+      "description": "Set up the cc-sidecar Tasks tab step by step, and keep its task list in step with the work done in a Claude Code session"
     }
   ]
 }

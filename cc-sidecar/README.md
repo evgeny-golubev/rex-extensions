@@ -192,29 +192,55 @@ Apple Reminders, nothing leaves the Mac except through Apple's own sync.
 
 ### Google Tasks
 
-Google Tasks needs an OAuth client of your own, made once in Google Cloud:
+The easiest way: ask Claude Code "set up the sidecar Tasks tab". With the
+[sidecar-task-list](../plugins/sidecar-task-list/README.md) plugin installed,
+Claude checks what is done already, then walks you through the rest one step at
+a time and waits for you after each step.
 
-1. In the [Google Cloud console](https://console.cloud.google.com), create a
-   project.
-2. Under **APIs and services**, **Library**, enable the **Google Tasks API**.
-3. Under **Google Auth Platform**, set up the consent screen: an External app
-   with any name. Under **Audience**, add your Google account as a test user.
-4. Under **Clients**, create an OAuth client of type **Desktop app** and
-   download its JSON file.
-5. Store it in the macOS Keychain, then delete the file:
+No Google account, or no time? Use Apple Reminders: press `r` in the tab. It
+needs no setup.
+
+To set up Google Tasks yourself, once, in about 10 minutes:
+
+1. Create a project at <https://console.cloud.google.com/projectcreate>. Any
+   name works.
+2. Open <https://console.cloud.google.com/apis/library/tasks.googleapis.com>,
+   check that the new project is selected at the top, and click **Enable**.
+3. Open <https://console.cloud.google.com/auth/overview> and click **Get
+   started**. App name: anything without the word "Google", such as "Sidecar
+   Tasks". Support and contact email: yours. Audience: **External**.
+4. Open <https://console.cloud.google.com/auth/audience>. Leave the app in
+   **Testing**. Under **Test users**, click **Add users**, add your Google
+   address, and click **Save**.
+5. Open <https://console.cloud.google.com/auth/clients>, click **Create
+   client**, choose **Desktop app**, click **Create**, then **Download JSON**.
+6. Store the file in the macOS Keychain, then delete it:
 
    ```sh
    ~/.config/rex/extensions/cc-sidecar/providers/google-tasks import-client ~/Downloads/client_secret_XXX.json
+   rm ~/Downloads/client_secret_XXX.json
    ```
 
-6. In the Tasks tab, press `g`, then `L`. The browser opens Google's
-   sign-in; once you allow access, the tab loads your lists.
+7. In the Tasks tab, press `g`, then `L`. Choose your account. On "Google
+   hasn't verified this app", click **Advanced**, then **Continue**, and allow
+   access. The tab loads your lists.
+
+If something goes wrong:
+
+| What you see | What to do |
+| --- | --- |
+| The app name is rejected | Leave "Google" out of the name, for example "G Task Client" |
+| **Publish app** fails: "configuration is not complete in Branding" | Leave the app in Testing. It works; you sign in again every 7 days |
+| "Error 403: access_denied", or "Sign-in failed: access denied" | Add your account as a test user (step 4), then press `L` again |
+| You signed in with the wrong account | Sign out with `security delete-generic-password -s google-tasks-client -a refresh_token`, check that the right account is a test user, press `L` and choose it |
+| "Sign-in needed" after a week | Expected while the app is in Testing: press `L` |
+| "Google Tasks is not set up" | No client is stored yet: steps 5 and 6 |
+| "This file is for a Web application client" | Create a client of type **Desktop app** |
+| "HTTP 403 … has not been used in project" | Enable the Tasks API in the client's project (step 2) |
 
 The client and the refresh token are kept in the Keychain under the service
-`google-tasks-client`. While the app is in Testing, Google ends the sign-in
-after 7 days: the tab then shows "Sign-in needed", and `L` signs in again.
-`providers/google-tasks` runs from a terminal too; its first lines list its
-commands.
+`google-tasks-client`. `providers/google-tasks` runs from a terminal too; its
+first lines list its commands.
 
 ### Apple Reminders
 
@@ -227,7 +253,8 @@ programs can read, so tasks come oldest first, and steps aren't available.
 
 A provider is a command in `providers/`, named in `task-providers.lua`. Its
 contract is at the top of `tabs/tasks.lua`: `tasks`, `add`, `update` and
-`login`, with JSON on standard output, and exit code 3 when sign-in is needed.
+`login`, with JSON on standard output, exit code 3 when sign-in is needed, and
+exit code 4 when the provider is not set up.
 
 ### Task actions
 

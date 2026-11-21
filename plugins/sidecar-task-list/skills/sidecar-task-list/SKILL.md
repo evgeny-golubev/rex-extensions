@@ -48,8 +48,9 @@ task open and say what remains.
 
 ## Errors
 
-- "No task source chosen": ask the user to open the Tasks tab and choose a
-  source.
-- "Sign-in needed": ask the user to press `L` in the Tasks tab.
+- "No task source chosen" or "not set up": offer to set up the Tasks tab
+  with the sidecar-tasks-setup skill.
+- "Sign-in needed": ask the user to press `L` in the Tasks tab. If the
+  sign-in fails, use the sidecar-tasks-setup skill.
 - Any other error: tell the user in one line and continue the work; the task
   list must not block it.
