@@ -1852,15 +1852,19 @@ end
 
 --- Puts the tabs to show in M.tabs: Info, then the others in the saved order,
 --- and after them, in the order added, those the saved order doesn't name.
---- A hidden open tab gives way to Info.
+--- A tab with `hidden` set is hidden until the saved order names it. A
+--- hidden open tab gives way to Info.
 local function arrange()
 	local saved, hidden = settings.tabs(settings_dir)
 	local order, listed = {}, {}
-	for _, list in ipairs({ saved, M.tab_names }) do
+	for i, list in ipairs({ saved, M.tab_names }) do
 		for _, name in ipairs(list) do
 			if not listed[name] and has_tab(name) and name ~= "Info" then
 				listed[name] = true
 				order[#order + 1] = name
+				if i == 2 and plugins[name].tab.hidden then
+					hidden[name] = true
+				end
 			end
 		end
 	end
