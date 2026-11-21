@@ -221,7 +221,8 @@ To set up Google Tasks yourself, once, in about 10 minutes:
    rm ~/Downloads/client_secret_XXX.json
    ```
 
-7. In the Tasks tab, press `g`, then `L`. Choose your account. On "Google
+7. In the Tasks tab, press `g` if it asks where your tasks are, then `L`.
+   Choose your account. On "Google
    hasn't verified this app", click **Advanced**, then **Continue**, and allow
    access. The tab loads your lists.
 

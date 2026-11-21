@@ -696,6 +696,7 @@ local function fetch()
 		state.lists, state.signed_out, state.setup_needed, state.fetch_notice = data, false, false, nil
 		note_moves(data)
 	else
+		state.setup_needed = false
 		state.fetch_notice = "Tasks: " .. first_line(r)
 	end
 end
@@ -1237,14 +1238,12 @@ local function handle(k)
 		state.choosing = true
 		return true
 	end
-	if state.setup_needed then
-		return false
-	end
-	if state.signed_out then
+	if state.signed_out or state.setup_needed then
 		if k == "L" then
 			state.fetch_notice = provider() == "apple" and "Asking macOS for access to Reminders…" or "Signing in through the browser…"
 			sidecar.spawn("tasks login", function()
-				local r = client_run(300, "login")
+				-- The provider waits 300 seconds for the browser and then names the likely cause.
+				local r = client_run(330, "login")
 				state.fetch_notice = not (r and r.ok) and (r and first_line(r) or "Sign-in failed: no answer within 5 minutes.") or nil
 				fetch()
 			end)
@@ -1834,11 +1833,16 @@ function tab.view(cols)
 			'Ask Claude Code: "set up the sidecar Tasks tab". It checks what is done and walks you through the rest, one step at a time.',
 			"Or follow the Google Tasks steps in cc-sidecar/README.md.",
 			"",
-			"r checks again · W switches to Apple Reminders, which needs no setup",
+			"L signs in once the client is stored · r checks again · W switches to Apple Reminders, which needs no setup",
 		}
-		for _, paragraph in ipairs(text) do
+		if notice then
+			text[#text + 1] = ""
+			text[#text + 1] = notice
+		end
+		for i, paragraph in ipairs(text) do
+			local colour = (notice and i == #text) and c.yellow or c.dim
 			for _, l in ipairs(paragraph == "" and { "" } or sidecar.wrap(paragraph, cols, "", "")) do
-				lines[#lines + 1] = c.dim .. l .. c.reset
+				lines[#lines + 1] = colour .. l .. c.reset
 			end
 		end
 		return { lines = lines, pinned = pinned }
@@ -1847,10 +1851,12 @@ function tab.view(cols)
 		local access = provider() == "apple" and "Access to Reminders needed · press L to allow it"
 			or "Sign-in needed · press L to sign in"
 		pinned[1] = c.orange .. access .. c.reset
-		if notice then
-			pinned[2] = c.yellow .. notice .. c.reset
-		end
 		local lines = {}
+		if notice then
+			for _, l in ipairs(sidecar.wrap(notice, cols, "", "")) do
+				lines[#lines + 1] = c.yellow .. l .. c.reset
+			end
+		end
 		if provider() == "google" and state.sign_in_detail == "sign-in expired" then
 			for _, l in ipairs(sidecar.wrap("Google ended the last sign-in. While the app is in Testing, this happens every 7 days.", cols, "", "")) do
 				lines[#lines + 1] = c.dim .. l .. c.reset

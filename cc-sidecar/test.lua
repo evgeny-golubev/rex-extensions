@@ -1541,8 +1541,17 @@ do
 			has(text:gsub("\n", " "), "Apple Reminders, which needs no setup", "the tab offers Apple Reminders")
 		end
 		equal(tab.badge(), nil, "no badge while not set up")
-		equal(tab.key("L"), false, "L does nothing while not set up")
-		equal(#spawned, 0, "no sign-in starts while not set up")
+		local missing = { ok = false, code = 4, stdout = '{"error":"setup_required"}\n',
+			stderr = "Google Tasks is not set up yet: no OAuth client is stored. Ask Claude Code to set it up.\n" }
+		answers = { missing, missing }
+		equal(tab.key("L"), true, "L tries the sign-in while not set up")
+		equal(spawned[1], "tasks login", "the sign-in runs in the background")
+		equal(state.setup_needed, true, "still not set up without a client")
+		has(shown(34):gsub("\n", " "), "no OAuth client is stored", "the failed sign-in's error shows below the hint")
+		fetch_with({ ok = false, code = 1, stdout = "", stderr = "Google Tasks answered HTTP 403: the API is disabled\n" })
+		equal(state.setup_needed, false, "another error replaces the setup notice")
+		has(state.fetch_notice, "HTTP 403", "the other error is shown")
+		fetch_with(missing)
 
 		fetch_with({ ok = false, code = 3, stdout = '{"error":"auth_required","detail":"sign-in expired"}\n' })
 		equal(state.setup_needed, false, "a sign-in answer clears the setup notice")
@@ -1556,7 +1565,7 @@ do
 		equal(tab.key("L"), true, "L signs in")
 		equal(state.fetch_notice, "Sign-in failed: access denied. Add your Google account under Test users.",
 			"a failed sign-in shows the provider's error")
-		has(shown(80), "Sign-in failed: access denied", "the failure is shown")
+		has(shown(34):gsub("\n", " "), "Sign-in failed: access denied. Add your Google account", "the failure is shown whole, wrapped")
 		equal(shown(80):find("7 days", 1, true), nil, "no 7-day note before the first sign-in")
 
 		state.lists, state.signed_out, state.sign_in_detail, state.fetch_notice = lists, false, nil, nil
@@ -1682,7 +1691,10 @@ do
 end
 -- The Google Tasks provider, with the Keychain made up and no request sent.
 do
-	local stored, requests = {}, {}
+	local stored = {}
+	local requests = {}
+	--- What the browser sends back to the sign-in's local port.
+	local browser = { request = "" }
 	--- Runs the provider with `...` as its arguments; returns its exit code,
 	--- standard output and standard error.
 	local function provider(...)
@@ -1713,6 +1725,9 @@ do
 					return { ok = value ~= nil, code = value and 0 or 44, stdout = value or "", stderr = "" }
 				end
 				requests[#requests + 1] = cmd
+				if cmd[1] == "/bin/sh" and cmd[3]:find("nc -l", 1, true) then
+					return { ok = true, code = 0, stdout = browser.request, stderr = "" }
+				end
 				return { ok = false, code = 1, stdout = "", stderr = "no requests in the test" }
 			end,
 		}, { __index = real })
@@ -1749,6 +1764,14 @@ do
 	equal(#requests, 0, "a refused file is not stored")
 	os.remove(folder .. "client.json")
 	os.remove(folder)
+	code, _, err = provider("login")
+	equal(code, 1, "no answer from the browser")
+	has(err, "no answer from the browser within 5 minutes", "the error names the wait")
+	has(err, "Test users at https://console.cloud.google.com/auth/audience", "the error names the likely fix")
+	browser.request = "GET /?error=access_denied&state=x HTTP/1.1\r\n"
+	code, _, err = provider("login")
+	equal(code, 1, "access denied")
+	has(err, "access denied. Add your Google account under Test users", "the error names the test user fix")
 end
 -- Tab plugins: loaded in file name order, each with its keys, clicks and
 -- refresh, and with its errors kept to its tab.
