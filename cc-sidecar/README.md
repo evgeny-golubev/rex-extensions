@@ -247,19 +247,28 @@ seconds. Tabs the order doesn't name, such as a new plugin's, follow it.
 
 ## Tab plugins
 
-Each `*.lua` file in `~/.config/rex/sidecar-tabs/` adds a tab, in file name
-order. The pane reads them when it starts. A file gets the panel module as its
-argument (`local sidecar = ...`) and returns a table:
+Changes and Artifacts are tab plugins, in this folder's `tabs/`. Each `*.lua`
+file there and then in `~/.config/rex/sidecar-tabs/` adds a tab, in file name
+order, and the [tab settings](#tab-settings) order them. The pane reads them
+when it starts. A file gets the panel module as its argument
+(`local sidecar = ...`) and returns a table:
 
 | Field | What it is |
 | --- | --- |
 | `name` | The tab's title, not one in use. Required |
-| `view(cols)` | Returns `{ lines, actions, pinned, selected }`. `actions[line]` is what a click on the line passes to `act`; an action with `ranges = { { from, to, action } }` acts by column. `pinned` lines stay above the others. `selected`, a line, is scrolled into view after a key. Required |
-| `refresh()` | Runs as a background task when the pane starts, then every `interval` seconds |
+| `view(cols)` | Returns `{ lines, actions, pinned, hits, sections, selected }`. Required. See below |
+| `refresh()` | Runs as a background task when the pane starts, then every `interval` seconds while no key was pressed in the last second. A hidden tab doesn't refresh |
 | `interval` | Seconds between refreshes, 60 by default |
+| `activate()` | Runs when the tab opens. It must not wait for a command |
 | `badge()` | The count beside the tab's title, or nil |
 | `key(k)` | Gets each key while the tab is open, before the pane: a character, `up`, `down`, `left`, `right`, `pageup`, `pagedown` or `escape`. Returns true when it took the key |
 | `act(action)` | Runs for a click on a line or column with an action. Actions of kind `tab` and `fold` are the pane's |
+
+In a view, `actions[line]` is what a click on the line passes to `act`; an
+action with `ranges = { { from, to, action } }` acts by column. `pinned` lines
+stay above the others, and `hits[n]` holds the column ranges of pinned line
+`n`. `sections`, from `sidecar.section`, are the boxes that `n` `p` and
+`Enter` fold. `selected`, a line, is scrolled into view after a key.
 
 From the module, a plugin uses `sidecar.run(argv, limit)`, which runs a
 command and returns `{ ok, code, stdout }`, or nil after `limit` seconds (5 by
@@ -267,13 +276,16 @@ default); `sidecar.spawn(name, fn)`, which runs `fn` as a background task
 unless one named `name` runs; and `sidecar.box`, `sidecar.clip`,
 `sidecar.width`, `sidecar.wrap` and `sidecar.colours` to draw. In a task,
 `run` waits without stopping the pane; elsewhere it stops the pane for up to
-5 seconds, so `key` and `act` start commands with `spawn`. A task must not
-call `run` inside `pcall`.
+5 seconds, so `view`, `key` and `act` never run commands themselves: they
+draw what the last refresh found, and start commands with `spawn`. A task
+must not call `run` inside `pcall`. Changes and Artifacts also use
+`sidecar.panel`, the pane's state, and the other fields the module lists for
+them.
 
 A file that doesn't load gets a tab, named after the file, that shows the
-error, and an error in `view` shows on its tab. An error in a task, `key` or `act`
-becomes the pane's notice, pinned on a tab whose view has no pinned lines. The other tabs
-keep working.
+error, and an error in `view` shows on its tab. An error in a task, `key` or
+`act` becomes the pane's notice, pinned on a tab whose view has no pinned
+lines. The other tabs keep working.
 
 ## Install
 

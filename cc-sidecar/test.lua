@@ -267,6 +267,8 @@ local panel_base = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "") .. "/"
 CC_SIDECAR_TEST, CC_SIDECAR_TEST_BASE = true, panel_base
 local P = dofile(dir .. "panel.lua")
 CC_SIDECAR_TEST, CC_SIDECAR_TEST_BASE = nil, nil
+P.load_plugins(dir .. "tabs/")
+local C, A = P.plugins.Changes.tab, P.plugins.Artifacts.tab
 
 local function plain(lines)
 	return (table.concat(lines, "\n"):gsub("\27%[[%d;?]*%a", ""))
@@ -431,28 +433,28 @@ local ok2, err2 = pcall(function()
 	equal(P.claude_pid({ foreground = { argv0 = "git" }, ancestors = { { argv0 = "/bin/claude", pid = 7 } } }), 7, "pid")
 
 	-- The status, from one porcelain call.
-	local st = P.status("## main...origin/main [ahead 1]\0 M a.lua\0R  new.lua\0old.lua\0?? docs/x.md\0MM both.lua\0")
+	local st = C.status("## main...origin/main [ahead 1]\0 M a.lua\0R  new.lua\0old.lua\0?? docs/x.md\0MM both.lua\0")
 	equal(st.branch, "main", "branch name")
 	equal(#st.files, 4, "changed files")
 	equal(st.files[2].path, "new.lua", "rename's new path")
 	equal(st.head, true, "branch with commits")
-	local empty = P.status("## No commits yet on main\0")
+	local empty = C.status("## No commits yet on main\0")
 	equal(empty.head, false, "branch without commits")
 	equal(empty.branch, "main", "branch without commits' name")
 
 	-- Uncommitted: a file changed both ways is in both groups, once in the tree.
-	local data = P.uncommitted(st.files)
+	local data = C.uncommitted(st.files)
 	equal(data.groups[1].title, "Staged", "first group")
 	equal(#data.groups[1].rows, 2, "staged rows")
 	equal(data.groups[2].title, "Unstaged", "second group")
 	equal(#data.groups[2].rows, 3, "unstaged rows")
 	equal(#data.merged, 4, "tree rows")
 	equal(data.groups[2].rows[2].mark, "A", "untracked counts as added")
-	equal(#P.uncommitted({}).groups, 0, "nothing changed")
+	equal(#C.uncommitted({}).groups, 0, "nothing changed")
 
 	-- Each row's diff.
 	local args = function(row, ...)
-		return table.concat(P.diff_args(row, ...), " ")
+		return table.concat(C.diff_args(row, ...), " ")
 	end
 	equal(args({ path = "a", diff = "staged" }), "diff --cached -- a", "staged diff")
 	equal(args({ path = "a", diff = "unstaged" }), "diff -- a", "unstaged diff")
@@ -462,17 +464,17 @@ local ok2, err2 = pcall(function()
 	equal(args({ path = "a", diff = "untracked" }), "diff --no-index -- /dev/null a", "untracked diff")
 
 	-- Numbers and the Branch scope.
-	local a2, r2 = P.numstat("3\t1\ta.lua\0-\t-\tpic.png\0" .. "2\t0\tb c.lua\0")
+	local a2, r2 = C.numstat("3\t1\ta.lua\0-\t-\tpic.png\0" .. "2\t0\tb c.lua\0")
 	equal(a2, 5, "added")
 	equal(r2, 1, "removed")
-	local moved_a, moved_r = P.numstat("1\t2\t\0old.lua\0new.lua\0")
+	local moved_a, moved_r = C.numstat("1\t2\t\0old.lua\0new.lua\0")
 	equal(moved_a, 1, "added in a rename")
 	equal(moved_r, 2, "removed in a rename")
-	local renamed = P.branch_rows("R100\0old.lua\0new.lua\0M\0z.lua\0", {})
+	local renamed = C.branch_rows("R100\0old.lua\0new.lua\0M\0z.lua\0", {})
 	equal(#renamed, 2, "a rename is one row")
 	equal(renamed[1].path, "new.lua", "a rename's new path")
 	equal(renamed[1].mark, "R", "rename mark")
-	local branch = P.branch_rows("M\0z.lua\0D\0b.lua\0", { { x = "?", y = "?", path = "c.lua" }, { x = " ", y = "M", path = "z.lua" } })
+	local branch = C.branch_rows("M\0z.lua\0D\0b.lua\0", { { x = "?", y = "?", path = "c.lua" }, { x = " ", y = "M", path = "z.lua" } })
 	equal(#branch, 3, "branch rows with untracked")
 	equal(branch[1].path, "b.lua", "sorted")
 	equal(branch[1].mark, "D", "branch mark")
@@ -506,9 +508,9 @@ local ok2, err2 = pcall(function()
 	has(P.turn_patch(turn, "/src/app/new.lua", "new.lua"), "@@ -0,0 +1,2 @@\n+one\n+two\n", "new file's hunk")
 
 	-- The Changes view: pinned header, grouped list and clickable rows.
-	local v = { title = "feature/x", scope = "Uncommitted", scopes = P.scopes(true, "Branch"), data = data }
+	local v = { title = "feature/x", scope = "Uncommitted", scopes = C.scopes(true, "Branch"), data = data }
 	data.added, data.removed = 7, 2
-	local built = P.changes_view(v, 40)
+	local built = C.changes_view(v, 40)
 	equal(#built.pinned, 4, "pinned lines")
 	has(plain({ built.pinned[1] }), "feature/x", "branch")
 	has(plain({ built.pinned[1] }), "+7 −2", "totals")
@@ -523,25 +525,25 @@ local ok2, err2 = pcall(function()
 	equal(built.rows[1].row.diff, "staged", "first row")
 	equal(built.actions[built.rows[1].line].kind, "open", "row is clickable")
 	v.selected = built.rows[1].key
-	has(plain(P.changes_view(v, 40).lines), "› ", "selected row")
-	equal(table.concat(P.scopes(false), ","), "Last Turn", "scopes without git")
-	equal(table.concat(P.scopes(true, "PR"), ","), "Last Turn,Uncommitted,PR", "a PR instead of Branch")
-	equal(table.concat(P.scopes(true), ","), "Last Turn,Uncommitted", "no Branch on the default branch")
-	equal(P.pick_scope(P.scopes(true, "PR"), "Branch"), "PR", "Branch moves to PR")
-	equal(P.pick_scope(P.scopes(true, "Branch"), "PR"), "Branch", "PR moves to Branch")
-	equal(P.pick_scope(P.scopes(true), "Branch"), "Last Turn", "Branch gone on the default branch")
-	equal(P.pick_scope(P.scopes(true), "Uncommitted"), "Uncommitted", "a scope that stays")
-	local pr = P.pr_info('{"number":12,"baseRefName":"develop","state":"OPEN"}')
+	has(plain(C.changes_view(v, 40).lines), "› ", "selected row")
+	equal(table.concat(C.scopes(false), ","), "Last Turn", "scopes without git")
+	equal(table.concat(C.scopes(true, "PR"), ","), "Last Turn,Uncommitted,PR", "a PR instead of Branch")
+	equal(table.concat(C.scopes(true), ","), "Last Turn,Uncommitted", "no Branch on the default branch")
+	equal(C.pick_scope(C.scopes(true, "PR"), "Branch"), "PR", "Branch moves to PR")
+	equal(C.pick_scope(C.scopes(true, "Branch"), "PR"), "Branch", "PR moves to Branch")
+	equal(C.pick_scope(C.scopes(true), "Branch"), "Last Turn", "Branch gone on the default branch")
+	equal(C.pick_scope(C.scopes(true), "Uncommitted"), "Uncommitted", "a scope that stays")
+	local pr = C.pr_info('{"number":12,"baseRefName":"develop","state":"OPEN"}')
 	equal(pr and pr.number, 12, "PR number")
 	equal(pr and pr.base, "develop", "PR base")
-	equal(P.pr_info('{"number":12,"baseRefName":"develop","state":"MERGED"}'), nil, "merged PR")
-	equal(P.pr_info('{"number":12,"baseRefName":"--output=x","state":"OPEN"}'), nil, "a base that reads as an option")
-	equal(P.pr_info("no pull requests found"), nil, "no PR")
-	equal(P.pr_info(nil), nil, "gh failed")
+	equal(C.pr_info('{"number":12,"baseRefName":"develop","state":"MERGED"}'), nil, "merged PR")
+	equal(C.pr_info('{"number":12,"baseRefName":"--output=x","state":"OPEN"}'), nil, "a base that reads as an option")
+	equal(C.pr_info("no pull requests found"), nil, "no PR")
+	equal(C.pr_info(nil), nil, "gh failed")
 
 	-- The tree merges the groups and lists folders.
 	v.tree, v.selected = true, nil
-	local tree = P.changes_view(v, 40)
+	local tree = C.changes_view(v, 40)
 	has(plain(tree.lines), "Changed 4", "tree box")
 	has(plain(tree.lines), "▾ docs", "folder")
 	local function files_of(view)
@@ -559,7 +561,7 @@ local ok2, err2 = pcall(function()
 		diffs[r.row.diff] = true
 	end
 	equal(diffs.head, true, "tree rows' diffs")
-	local deep = P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true, "Branch"), tree = true, data = { groups = { { title = "Changed", rows = {
+	local deep = C.changes_view({ title = "m", scope = "Branch", scopes = C.scopes(true, "Branch"), tree = true, data = { groups = { { title = "Changed", rows = {
 		{ path = "src/cart/a.ts", mark = "M" }, { path = "src/cart/b.ts", mark = "A" }, { path = "src/ui/c.ts", mark = "M" }, { path = "z.ts", mark = "D" },
 	} } }, vs = "main" } }, 30)
 	local shown_tree = plain(deep.lines)
@@ -570,7 +572,7 @@ local ok2, err2 = pcall(function()
 	has(shown_tree, "z.ts", "top-level file")
 
 	-- Folders come before files at each level, each by name.
-	local ordered = P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true, "Branch"), tree = true, data = { groups = { { title = "Changed", rows = {
+	local ordered = C.changes_view({ title = "m", scope = "Branch", scopes = C.scopes(true, "Branch"), tree = true, data = { groups = { { title = "Changed", rows = {
 		{ path = "z.ts", mark = "M" }, { path = "a.ts", mark = "M" }, { path = "lib/x.ts", mark = "M" }, { path = "lib/sub/y.ts", mark = "M" },
 		{ path = "lib/a.ts", mark = "M" }, { path = "lib-b/k.ts", mark = "M" }, { path = "app/m.ts", mark = "M" },
 	} } }, note = "" } }, 40)
@@ -583,7 +585,7 @@ local ok2, err2 = pcall(function()
 	-- Folders fold, and take what's under them along, nested folders included.
 	local fold_rows = { { path = "src/cart/a.ts", mark = "M" }, { path = "src/cart/b.ts", mark = "M" }, { path = "src/ui/c.ts", mark = "A" }, { path = "z.ts", mark = "M" } }
 	local function fold_view(folded, selected)
-		return P.changes_view({ title = "m", scope = "Branch", scopes = P.scopes(true, "Branch"), tree = true, folded = folded, selected = selected,
+		return C.changes_view({ title = "m", scope = "Branch", scopes = C.scopes(true, "Branch"), tree = true, folded = folded, selected = selected,
 			data = { groups = { { title = "Changed", rows = fold_rows } }, note = "" } }, 40)
 	end
 	local all_open = fold_view({})
@@ -623,11 +625,11 @@ local ok2, err2 = pcall(function()
 	end
 
 	-- Narrow panes get the short scope names; the columns follow.
-	local narrow, narrow_ranges = P.scope_bar(P.scopes(true, "Branch"), "Branch", 26)
+	local narrow, narrow_ranges = C.scope_bar(C.scopes(true, "Branch"), "Branch", 26)
 	has(plain({ narrow }), "Local", "short name")
 	hasnt(plain({ narrow }), "Uncommitted", "long name")
 	equal(narrow_ranges[3].action.scope, "Branch", "last scope")
-	local _, wide_ranges = P.scope_bar(P.scopes(true, "Branch"), "Branch", 60)
+	local _, wide_ranges = C.scope_bar(C.scopes(true, "Branch"), "Branch", 60)
 	equal(wide_ranges[1].from, 1, "first scope's column")
 	equal(wide_ranges[2].from, wide_ranges[1].to + 2, "columns leave a space")
 
@@ -1049,7 +1051,7 @@ do
 	equal(table.concat(names, " "), "Documents=1 Jira=1 URLs=1 Other=1", "empty categories left out, in order")
 	equal(total, 4, "a row mentioned twice counts once")
 	equal(#V.group({}), 0, "nothing found")
-	local view = P.artifacts_view(groups, 40, {}, nil, nil)
+	local view = A.artifacts_view(groups, 40, {}, nil, nil)
 	local shown = plain(view.lines)
 	has(plain(view.pinned), "Search Panel", "the Search Panel link, pinned")
 	equal(view.hits[1][1].action.kind, "view_panel", "it opens the Search Panel")
@@ -1061,9 +1063,9 @@ do
 	equal(kinds.mention, 4, "each row opens")
 	equal(kinds.fold, 4, "each heading folds")
 	equal(#view.sections, 4, "a section a category")
-	hasnt(plain(P.artifacts_view(groups, 40, { Documents = true }).lines), "notes.md", "folded")
-	has(plain(P.artifacts_view({}, 40, {}).lines), "Nothing in Claude's replies yet.", "nothing found")
-	has(plain(P.artifacts_view({}, 40, {}, nil, "boom").pinned), "boom", "a notice under the link")
+	hasnt(plain(A.artifacts_view(groups, 40, { Documents = true }).lines), "notes.md", "folded")
+	has(plain(A.artifacts_view({}, 40, {}).lines), "Nothing in Claude's replies yet.", "nothing found")
+	has(plain(A.artifacts_view({}, 40, {}, nil, "boom").pinned), "boom", "a notice under the link")
 	local tsv = V.tsv({ { name = "Other", rows = { { kind = "text", label = "a\tb", target = "/r/a", line = "3" } } } })
 	equal(select(2, tsv:gsub("\t", "")), 3, "tabs only between fields")
 	has(tsv, "Other", "the category as the note")
@@ -1088,7 +1090,7 @@ do
 	local prs = pr_groups[1].rows
 	equal(pr_groups[1].name .. "=" .. #prs .. " " .. pr_total, "PRs=3 3", "one row a PR, counted as one")
 	equal(prs[1].name .. " " .. #prs[1].rows .. " " .. tostring(prs[1].direct), "acme/shop#42 2 true", "a PR's links")
-	local pr_view = plain(P.artifacts_view(pr_groups, 60, {}, nil, nil, { ["https://github.com/acme/shop/pull/42"] = "Add rate-limit guard" }).lines)
+	local pr_view = plain(A.artifacts_view(pr_groups, 60, {}, nil, nil, { ["https://github.com/acme/shop/pull/42"] = "Add rate-limit guard" }).lines)
 	has(pr_view, "#42 Add rate-limit guard", "a PR's number before its title")
 	has(pr_view, "╭ ⇄ PRs", "the PRs box")
 	has(pr_view, "Add rate-limit guard", "a PR by its title")
@@ -1098,7 +1100,7 @@ do
 	has(pr_view, "acme/web#1  # 8", "a PR's only link, on its row")
 	hasnt(pr_view, "guard  acme/shop#42", "no repository and number beside a title")
 	local pr_actions = {}
-	for _, a in pairs(P.artifacts_view(pr_groups, 60, {}).actions) do
+	for _, a in pairs(A.artifacts_view(pr_groups, 60, {}).actions) do
 		if a.kind == "mention" then pr_actions[#pr_actions + 1] = a.row.target end
 	end
 	table.sort(pr_actions)
@@ -1111,7 +1113,7 @@ do
 	for i = 1, 13 do
 		many[i] = { kind = "link", label = "https://a.example/" .. i, target = "https://a.example/" .. i }
 	end
-	local capped = P.artifacts_view(V.group({ many }), 60, {})
+	local capped = A.artifacts_view(V.group({ many }), 60, {})
 	has(plain(capped.lines), "a.example/10", "the 10th row")
 	hasnt(plain(capped.lines), "a.example/11", "not the 11th")
 	has(plain(capped.lines), "+3 more · Search Panel", "how many more")
@@ -1134,7 +1136,7 @@ do
 	equal(jira_rows[1].title, "Cart rounding", "a found key's title")
 	local jira_groups = V.group({ { { kind = "link", label = "SHOP-12", target = "https://a.atlassian.net/browse/SHOP-12" } }, jira_rows })
 	equal(jira_groups[1].rows[1].title, "Cart rounding", "an older reply's title fills a newer mention's")
-	has(plain(P.artifacts_view(jira_groups, 60, {}).lines), "SHOP-12 Cart rounding", "the key, then the title")
+	has(plain(A.artifacts_view(jira_groups, 60, {}).lines), "SHOP-12 Cart rounding", "the key, then the title")
 	local pr_tsv = V.tsv(pr_groups)
 	has(pr_tsv, "acme/shop#42 # 123", "a comment in the Search Panel")
 	has(pr_tsv, "⇄\27[0m acme/shop#42", "a category's icon on each row")
