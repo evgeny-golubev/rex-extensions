@@ -91,6 +91,20 @@ function M.clip(s, n)
 	return table.concat(out)
 end
 
+--- Iterates over the lines of text, each ended by "\n". Patterns fail on a
+--- line of about a million characters, so the ends are found by plain search.
+local function each_line(text)
+	local pos = 1
+	return function()
+		local nl = text:find("\n", pos, true)
+		if nl then
+			local line = text:sub(pos, nl - 1)
+			pos = nl + 1
+			return line
+		end
+	end
+end
+
 --- Splits plain text after its first n characters.
 local function cut(s, n)
 	local i, count = 1, 0
@@ -111,7 +125,7 @@ function M.wrap(text, cols, first, rest, max_lines)
 		lines[#lines + 1] = line
 		line, used, room = rest, 0, math.max(1, cols - M.width(rest))
 	end
-	for paragraph in (text .. "\n"):gmatch("([^\n]*)\n") do
+	for paragraph in each_line(text .. "\n") do
 		for word in paragraph:gmatch("%S+") do
 			local w = M.width(word)
 			if used > 0 and used + 1 + w > room then
@@ -433,7 +447,7 @@ local function turn_edit(state, path, extra)
 	if #hunks == 0 and extra.type == "create" and type(extra.content) == "string" then
 		local lines = {}
 		local content = extra.content:gsub("\n$", "") .. "\n"
-		for line in content:gmatch("([^\n]*)\n") do
+		for line in each_line(content) do
 			lines[#lines + 1] = "+" .. line
 		end
 		hunks = { { oldStart = 0, oldLines = 0, newStart = 1, newLines = #lines, lines = lines } }
@@ -673,7 +687,11 @@ function M.feed(state, chunk)
 			state.requests = state.requests + 1
 		end
 		if not (typed and (typed:match("^api%-request") or typed:match("^file%-history"))) then
-			local line = text:sub(pos, nl - 1):gsub("\\u001b%[[%d;?]*%a", "")
+			local line = text:sub(pos, nl - 1)
+			-- A pattern scans a long line slowly, so most lines skip it.
+			if line:find("\\u001b", 1, true) then
+				line = line:gsub("\\u001b%[[%d;?]*%a", "")
+			end
 			local ok, r = pcall(rex.json.decode, line)
 			if ok and type(r) == "table" then
 				M.record(state, r)
@@ -1065,7 +1083,7 @@ function M.reply_questions(state)
 		return {}
 	end
 	local out = {}
-	for line in (last.text .. "\n"):gmatch("([^\n]*)\n") do
+	for line in each_line(last.text .. "\n") do
 		local q = line:gsub("^%s*[-*>%d.)]*%s*", ""):gsub("%*%*", ""):gsub("`", "")
 		if q:match("%?%s*$") then
 			out[#out + 1] = q

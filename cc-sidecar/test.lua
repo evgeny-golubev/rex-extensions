@@ -412,6 +412,15 @@ local ok2, err2 = pcall(function()
 	local quoted = P.new_state()
 	P.feed(quoted, '{"type":"user","message":{"role":"user","content":"hi \\u001b[H\\u001b[31mthere"}}\n')
 	equal(quoted.prompts[1].text, "hi there", "transcript text without terminal codes")
+	-- A new file with a line of over a million characters, which a pattern
+	-- can't match.
+	local long = P.new_state()
+	local huge = string.rep("x", 1200000)
+	P.feed(long, rex.json.encode(use("n1", "Write", { file_path = "/src/app/data.txt" })) .. "\n"
+		.. rex.json.encode(result("n1", "ok", { type = "create", content = "head\n" .. huge .. "\n" })) .. "\n")
+	local created = long.turn.files["/src/app/data.txt"]
+	equal(created.added, 2, "lines of a new file with a very long line")
+	equal(created.hunks[1].lines[2], "+" .. huge, "the very long line")
 	local wrapped = P.wrap("one two three four", 9, "> ", "  ")
 	equal(wrapped[1], "> one two", "wrap line 1")
 	equal(wrapped[2], "  three", "wrap line 2")
