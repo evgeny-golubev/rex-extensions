@@ -10,7 +10,7 @@ pane opens by itself.
   subagents on a timeline, running shells, open questions and a session log.
 - **Artifacts**: every doc, PR, Jira issue and link the agent mentioned,
   titled and one click away. The Search Panel finds the rest.
-- **Google Tasks** and **Reminders**: the day's work from Google Tasks or
+- **Tasks** and **Reminders**: the day's work from Google Tasks or
   Apple Reminders. The agent can report a task done, and you confirm it.
 - **Works with Claude Code, Codex, agy** (the Antigravity CLI), **Pi and OpenCode**. A `Sidecar: <folder>` pane opens to the
   right of every agent pane and closes when the agent exits.
@@ -242,7 +242,7 @@ everywhere else. `acme/web#45` and `#45` open a pull request only under `acme`.
 
 ## Task tabs
 
-Two tabs show the day's work: **Google Tasks** and **Reminders** (Apple
+Two tabs show the day's work: **Tasks** (Google Tasks) and **Reminders** (Apple
 Reminders). They work the same way, and each is hidden until you show it:
 press `,`, select the tab, press `Space`, then `Esc`. You can show both.
 
@@ -345,7 +345,7 @@ any more: each tab is its own source.
 
 ### Google Tasks
 
-The Google Tasks tab keeps the rating as a title prefix (`A. Fix the import`)
+The Tasks tab keeps the rating as a title prefix (`A. Fix the import`)
 and has steps.
 
 To set it up yourself, once, in about 10 minutes:
@@ -369,7 +369,7 @@ To set it up yourself, once, in about 10 minutes:
    rm ~/Downloads/client_secret_XXX.json
    ```
 
-7. In the Google Tasks tab, press `L` and choose your account. On "Google
+7. In the Tasks tab, press `L` and choose your account. On "Google
    hasn't verified this app", click **Advanced**, then **Continue**, and allow
    access. The tab loads your lists.
 
@@ -436,7 +436,7 @@ teaches Claude Code to use them.
 
 - Only the sources of shown tabs are asked. A source you don't use never runs.
 - `tasks_add` picks the source from `provider=`, else from the source that has
-  `list=`, else the only shown tab, else Google Tasks.
+  `list=`, else the only shown tab, else Tasks.
 - In Reminders, the rating becomes the Priority, the task goes to the default
   list unless `list=` says otherwise, and `parent=` is refused: there are no
   steps.
@@ -499,12 +499,12 @@ doesn't select text in it.
 The result is saved in `settings.json` as
 `{"tabs": {"order": [...], "hidden": {"Artifacts": true}}}`, and every sidecar
 pane picks it up within a couple of seconds. Tabs the order doesn't name, such
-as a new plugin's, come after it. Google Tasks and Reminders are hidden until
+as a new plugin's, come after it. Tasks and Reminders are hidden until
 you show them.
 
 ## Tab plugins
 
-Changes, Artifacts, Google Tasks and Reminders are tab plugins in this folder's
+Changes, Artifacts, Tasks and Reminders are tab plugins in this folder's
 `tabs/`. The two task tabs share their code in `tasks-core.lua`.
 
 Each `*.lua` file in `tabs/`, then in `~/.config/rex/sidecar-tabs/`, adds a
@@ -670,7 +670,7 @@ its child sessions.
 | Last Turn is empty but files changed | Shell edits may not produce file-change events. Use Uncommitted inside a git repository. |
 | Info is missing boxes | Empty boxes are hidden. Check the agent-specific limits above and status line setup before treating this as a parsing failure. |
 | Search Panel cannot open a viewer | Keep `plugins/rex-view/` in the checkout even if you do not install its Claude Code plugin. |
-| Task tabs are absent | Press `,` and show Google Tasks or Reminders. Follow that provider's setup above. |
+| Task tabs are absent | Press `,` and show Tasks or Reminders. Follow that provider's setup above. |
 | New watcher code is not loaded | Stop the watcher with the command under Install, then reload config. |
 
 Inspect watcher errors with `tail -n 50 ~/.config/rex/state/rex-sidecar.log`.
@@ -685,7 +685,7 @@ without deleting them.
 - `watcher.lua` opens and closes the panes.
 - `panel.lua` runs in each pane. It reads git, `gh`, `ps` and the transcript in
   background tasks, so keys keep working, and draws the tabs.
-- `tabs/` holds the Changes, Artifacts, Google Tasks and Reminders tabs.
+- `tabs/` holds the Changes, Artifacts, Tasks and Reminders tabs.
   `tasks-core.lua` is the code the two task tabs share.
 - `task-providers.lua` names the task providers in `providers/`, their tabs
   and state files, and moves the old Tasks tab's settings.

@@ -24,7 +24,7 @@ Restart Claude Code or run `/reload-plugins`, then ask Claude
 
 Version 0.2.0. It has two Claude Code skills, one for setup and one for
 keeping the list. It works with the rex-sidecar extension's
-[Google Tasks and Reminders tabs](../../rex-sidecar/README.md#task-tabs).
+[Tasks and Reminders tabs](../../rex-sidecar/README.md#task-tabs).
 
 Requires macOS, Rex, Claude Code and the loaded rex-sidecar extension. This
 plugin is packaged for Claude Code; the underlying Rex task actions can
@@ -135,7 +135,7 @@ Update the extension separately using the [repository update guide](../../README
 | Symptom | What to check |
 | --- | --- |
 | Rex cannot find `tasks_list` or `tasks_add` | Load the rex-sidecar extension and run `rex config reload`. The plugin teaches Claude the actions; the extension registers them. |
-| No task lists are returned | Show Google Tasks or Reminders with `,` in the sidecar. Only shown providers are queried. |
+| No task lists are returned | Show Tasks or Reminders with `,` in the sidecar. Only shown providers are queried. |
 | Google sign-in fails or expires | Follow the [Google Tasks troubleshooting table](../../rex-sidecar/README.md#google-tasks). |
 | Reminders access is denied | Allow access in System Settings, then retry as described in [Reminders setup](../../rex-sidecar/README.md#reminders). |
 | A reported task is still open | Select its Attention report in the matching task tab and press `y` to confirm, or `n` to reject it. Reporting alone does not complete it. |

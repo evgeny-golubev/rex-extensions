@@ -5,7 +5,7 @@ description: Sets up the task tabs of the Rex sidecar pane, step by step, with G
 
 # Rex sidecar tasks setup
 
-The Rex sidecar pane has two task tabs: **Google Tasks** and **Reminders**
+The Rex sidecar pane has two task tabs: **Tasks** (Google Tasks) and **Reminders**
 (Apple Reminders). Guide the user through setting up the one they want. Check
 what is already done yourself, then give the user one step at a time. After
 each step the user takes in the browser or in the tab, stop and wait for them
@@ -31,7 +31,7 @@ EXT=~/.config/rex/extensions/rex-sidecar
 test -x "$EXT/providers/google-tasks" && echo "extension: present" || echo "extension: missing"
 echo "task actions: $(rex actions 2>/dev/null | grep -c '^tasks_')"
 order=$(plutil -extract tabs.order json -o - "$EXT/settings.json" 2>/dev/null)
-for tab in "Google Tasks" Reminders; do
+for tab in Tasks Reminders; do
   hidden=$(plutil -extract "tabs.hidden.$tab" raw -o - "$EXT/settings.json" 2>/dev/null)
   case "$order" in *"\"$tab\""*) [ "$hidden" = true ] && echo "$tab tab: hidden" || echo "$tab tab: shown" ;; *) echo "$tab tab: hidden" ;; esac
 done
@@ -89,7 +89,7 @@ Both can be shown at once. Each tab is hidden until shown. Ask the user, in a
 sidecar pane:
 
 1. Press `,` to open the tab settings.
-2. Select **Reminders** or **Google Tasks** and press `Space`.
+2. Select **Reminders** or **Tasks** and press `Space`.
 3. Press `Esc`.
 
 The tab now shows in the tab bar. Wait for the user. For Reminders, go to 4;
@@ -179,7 +179,7 @@ timeout of 330000 ms:
 ```
 
 It prints `signed in` on success. On failure, see "If something goes wrong".
-The user can also press `L` in the Google Tasks tab, which runs the same sign-in.
+The user can also press `L` in the Tasks tab, which runs the same sign-in.
 
 ## 7. Verify
 

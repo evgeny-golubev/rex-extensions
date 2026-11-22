@@ -50,7 +50,7 @@ when the agent exits.
 | **Info** | The model, context and limits, every permission check, subagents on a timeline, running shells, open questions, the last turn and a session log |
 | **Changes** | The files changed in the last turn, the uncommitted work, or the branch or its pull request. Click one to read its diff |
 | **Artifacts** | The documents, PRs, Jira issues and links the agent's replies mention. The **Search Panel** (`Cmd+Ctrl+Alt+Shift+O`) lists them all in a float |
-| **Google Tasks** and **Reminders** | Your day's work, rated A, B and C, with estimates and a daily review. Hidden until you show them |
+| **Tasks** (Google Tasks) and **Reminders** | Your day's work, rated A, B and C, with estimates and a daily review. Hidden until you show them |
 
 ![The Search Panel float, listing files, Jira keys, pull requests and links, with made-up data](docs/rex-view.png)
 
@@ -208,7 +208,8 @@ claude plugin update rex-sidecar-task-list@rex-extensions
   `rex_sidecar_view` for `cc_sidecar_view`.
 - **The Tasks tab is now two tabs**, Google Tasks and Reminders. The first
   time the sidecar opens, your old tab's place and state move to the tab of
-  the source you used.
+  the source you used. Since v1.2.0 the Google one is named **Tasks** again,
+  and a v1.1.0 **Google Tasks** tab moves to it the same way.
 - **The task skill is renamed.** Replace the old plugin:
 
   ```sh
@@ -268,7 +269,7 @@ the named features; you can leave out tools for features you don't need.
 | An update has no effect | Config reload does not replace an already running watcher. Run the watcher restart command under [Update](#update). |
 | Claude context or limits are missing | Check that the status line writes `~/.claude/state/statusline/<session-id>.json` (under `$CLAUDE_CONFIG_DIR` if set), and that `jq` is installed. See the [complete Claude setup](agents/README.md#claude-code). |
 | A Codex, agy, Pi or OpenCode pane has no conversation yet | Send the first prompt so the agent creates its conversation. For Pi, link the [Pi extension](agents/README.md#pi) so a session opened with `--session` or `/resume` is found too. For Codex panes in the same folder with identical thread names, rename one. See [session discovery](agents/README.md). |
-| Google Tasks or Reminders is missing | Both tabs are hidden initially. Enable the tab in [Tab settings](rex-sidecar/README.md#tab-settings), then follow the [Google Tasks](rex-sidecar/README.md#google-tasks) or [Reminders](rex-sidecar/README.md#reminders) setup. |
+| Tasks or Reminders is missing | Both tabs are hidden initially. Enable the tab in [Tab settings](rex-sidecar/README.md#tab-settings), then follow the [Google Tasks](rex-sidecar/README.md#google-tasks) or [Reminders](rex-sidecar/README.md#reminders) setup. |
 
 For sidecar errors, inspect the last 50 log lines:
 

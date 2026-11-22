@@ -1,6 +1,6 @@
 {
   "name": "rex-sidecar-task-list",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Set up the rex-sidecar Google Tasks or Reminders tab step by step, and keep its task lists in step with the work done in a Claude Code session",
   "repository": "https://github.com/evgeny-golubev/rex-extensions",
   "license": "MIT"
