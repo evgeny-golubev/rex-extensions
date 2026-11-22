@@ -7,13 +7,16 @@
 --      cache/last_conversations.json.
 -- The model's effort, the context window and the usage quota come from agy's
 -- status line input, which agents/agy-statusline.sh saves to
--- state/statusline/<conversation>.json. agy runs no subagents that it logs.
+-- state/statusline/<conversation>.json. Conversation titles and subagents
+-- come from conversation_summaries.db.
 -- See agents/init.lua for the interface every adapter has.
 return function(U)
 	local M = { id = "agy", name = "Antigravity" }
 
 	--- How long a pane's session lookup is reused, in seconds.
 	M.cache_ttl = 5
+
+	local EFFORTS = { low = true, medium = true, high = true, xhigh = true, max = true }
 
 	function M.home()
 		return U.home .. "/.gemini/antigravity-cli"
@@ -37,6 +40,14 @@ return function(U)
 		return M.home() .. "/brain/" .. id .. "/.system_generated/logs/transcript_full.jsonl"
 	end
 
+	--- The effort suffix encoded at the end of a model ID (e.g. gemini-4-neon-high).
+	function M.model_effort(model)
+		local suffix = tostring(model or ""):match("%-(%a+)$")
+		if suffix and EFFORTS[suffix:lower()] then
+			return suffix:lower()
+		end
+	end
+
 	--- The model of the latest model step, from the end of a transcript.
 	function M.model(path)
 		local f = io.open(path, "rb")
@@ -54,6 +65,32 @@ return function(U)
 		return model
 	end
 
+	--- Reads rows from conversation_summaries.db with sqlite3 -json, or nil.
+	local function query_db(sql)
+		local db = M.home() .. "/conversation_summaries.db"
+		local f = io.open(db, "rb")
+		if not f then
+			return nil
+		end
+		f:close()
+		local r = U.exec({ "/usr/bin/sqlite3", "-readonly", "-json", db, sql })
+		if not (r and r.ok and r.stdout and r.stdout:match("%S")) then
+			return nil
+		end
+		local ok, rows = pcall(rex.json.decode, r.stdout)
+		return ok and type(rows) == "table" and rows or nil
+	end
+
+	--- The conversation's title from conversation_summaries.db, or nil.
+	function M.title(id)
+		if not (id and id:match("^[%w%-]+$")) then
+			return nil
+		end
+		local rows = query_db("SELECT title FROM conversation_summaries WHERE conversation_id = '" .. id .. "' LIMIT 1")
+		local t = rows and rows[1] and rows[1].title
+		return type(t) == "string" and t:match("%S") and t or nil
+	end
+
 	--- Seconds since 1970 of a UTC time written as YYYY-MM-DDTHH:MM:SSZ.
 	local function utc(text)
 		local y, mo, d, h, mi, sec = tostring(text or ""):match("^(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
@@ -65,13 +102,22 @@ return function(U)
 		return t + os.difftime(now, os.time(os.date("!*t", now)))
 	end
 
+	--- Default context window size when status line input hasn't reported one yet.
+	local function default_window(model)
+		local lower = tostring(model or ""):lower()
+		if lower:find("gemini", 1, true) then
+			return 1048576
+		end
+		return nil
+	end
+
 	--- The context window and the 5-hour and weekly quota from a status line
 	--- input. Gemini models draw on the gemini buckets, others on the 3p ones.
-	function M.status(sl)
+	function M.status(sl, fallback_model)
 		local out = { limits = {} }
+		local model = type(sl.model) == "table" and tostring(sl.model.id or sl.model.display_name or "") or tostring(fallback_model or "")
 		local window = type(sl.context_window) == "table" and tonumber(sl.context_window.context_window_size)
-		out.window = window
-		local model = type(sl.model) == "table" and tostring(sl.model.id or sl.model.display_name or "") or ""
+		out.window = window or default_window(model)
 		local family = model:lower():find("gemini", 1, true) and "gemini" or "3p"
 		local quota = type(sl.quota) == "table" and sl.quota or {}
 		for _, w in ipairs({ { "5h", quota[family .. "-5h"] }, { "7d", quota[family .. "-weekly"] } }) do
@@ -108,17 +154,62 @@ return function(U)
 				local sl = U.read_json(M.home() .. "/state/statusline/" .. id .. ".json") or {}
 				local m = type(sl.model) == "table" and sl.model or {}
 				local model = m.id or M.model(transcript)
-				sess = { id = id, pid = pane.pid, transcript = transcript, cwd = cwd, model = model,
-					model_label = m.display_name or model, effort = m.effort, status = M.status(sl),
-					started = U.started(pane.pid, now) }
+				local effort = m.effort or M.model_effort(model)
+				local title = type(sl.conversation_title) == "string" and sl.conversation_title:match("%S") and sl.conversation_title
+					or M.title(id)
+				local mode = type(sl.cycle_mode) == "string" and sl.cycle_mode ~= "" and sl.cycle_mode or nil
+				sess = {
+					id = id,
+					pid = pane.pid,
+					transcript = transcript,
+					cwd = cwd,
+					name = title,
+					model = model,
+					model_label = m.display_name or model,
+					effort = effort,
+					mode = mode,
+					status = M.status(sl, model),
+					started = U.started(pane.pid, now),
+				}
 			end
 		end
 		cache[key] = { at = now, sess = sess }
 		return sess
 	end
 
-	function M.subagents()
-		return {}
+	function M.subagents(sess)
+		local id = sess and sess.id
+		if not (id and id:match("^[%w%-]+$")) then
+			return {}
+		end
+		local rows = query_db(
+			"SELECT conversation_id, agent_name, status, title FROM conversation_summaries "
+				.. "WHERE parent_conversation_id = '" .. id .. "' ORDER BY last_modified_time"
+		)
+		if not rows then
+			return {}
+		end
+		local out = {}
+		for _, row in ipairs(rows) do
+			local sub_id = row.conversation_id
+			if type(sub_id) == "string" and sub_id:match("^[%w%-]+$") then
+				local transcript = M.transcript(sub_id)
+				local f = io.open(transcript, "rb")
+				if f then
+					f:close()
+					local kind = type(row.agent_name) == "string" and row.agent_name ~= "" and row.agent_name or "subagent"
+					local desc = type(row.title) == "string" and row.title ~= "" and row.title or nil
+					out[#out + 1] = {
+						id = sub_id,
+						type = kind,
+						description = desc,
+						transcript = transcript,
+						finished = row.status ~= "CASCADE_RUN_STATUS_RUNNING",
+					}
+				end
+			end
+		end
+		return out
 	end
 
 	return M

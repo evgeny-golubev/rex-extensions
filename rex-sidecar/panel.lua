@@ -650,9 +650,65 @@ end
 
 local fold_marks = { [true] = "▸ ", [false] = "▾ " }
 
+local function rgb(r, g, b)
+	return string.format("\27[38;2;%d;%d;%dm", r, g, b)
+end
+
+--- Interpolates a truecolor ANSI foreground code along `stops` at t in [0, 1].
+local function gradient_at(stops, t)
+	t = math.max(0, math.min(1, t))
+	local span = #stops - 1
+	if span <= 0 then
+		return rgb(stops[1][1], stops[1][2], stops[1][3])
+	end
+	local pos = t * span
+	local i = math.min(span, math.floor(pos) + 1)
+	local f = pos - (i - 1)
+	local a, b = stops[i], stops[i + 1]
+	return rgb(
+		math.floor(a[1] + (b[1] - a[1]) * f + 0.5),
+		math.floor(a[2] + (b[2] - a[2]) * f + 0.5),
+		math.floor(a[3] + (b[3] - a[3]) * f + 0.5)
+	)
+end
+
+--- Colours each UTF-8 glyph of plain `text` along `stops` across columns [from_col .. total_cols].
+local function paint_gradient(text, stops, from_col, total_cols, prefix)
+	local out, col, denom = {}, from_col, math.max(1, total_cols - 1)
+	prefix = prefix or ""
+	for ch in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+		out[#out + 1] = prefix .. gradient_at(stops, (col - 1) / denom) .. ch
+		col = col + 1
+	end
+	return table.concat(out) .. reset
+end
+
 local orange, lavender, mint, purple = "\27[38;5;209m", "\27[38;5;147m", "\27[38;5;114m", "\27[38;5;141m"
 local gold, teal, blue, grey = "\27[38;5;221m", "\27[38;5;80m", "\27[38;5;75m", "\27[38;5;245m"
 local aqua = "\27[38;5;87m"
+local codex_blue, codex_periwinkle, codex_sky = rgb(75, 123, 255), rgb(147, 168, 255), rgb(96, 165, 250)
+local codex_gradient = {
+	{ 59, 130, 246 }, -- Codex Cobalt Blue #3B82F6
+	{ 99, 102, 241 }, -- Codex Indigo      #6366F1
+}
+local google_blue, google_light_blue = rgb(66, 133, 244), rgb(138, 180, 248)
+local google_gradient = {
+	{ 66, 133, 244 }, -- Google Blue   #4285F4
+	{ 234, 67, 53 }, -- Google Red    #EA4335
+	{ 251, 188, 5 }, -- Google Yellow #FBBC05
+	{ 52, 168, 83 }, -- Google Green  #34A853
+}
+
+M.themes = {
+	claude = { accent = orange, agent = lavender, clock = teal },
+	codex = { accent = codex_blue, agent = codex_periwinkle, clock = codex_sky, gradient = codex_gradient },
+	agy = { accent = google_blue, agent = google_light_blue, clock = google_blue, gradient = google_gradient },
+}
+
+local function theme_of(state)
+	return M.themes[state and state.parser] or M.themes.claude
+end
+
 M.colours = {
 	orange = orange, lavender = lavender, mint = mint, purple = purple, gold = gold, teal = teal, blue = blue, grey = grey, aqua = aqua,
 	reset = reset, bold = bold, dim = dim, red = red, green = green, yellow = yellow, cyan = cyan,
@@ -680,15 +736,22 @@ end
 
 --- A box's top line, or its only line when folded: the title on the left and
 --- `right` at the end, joined by the border.
-local function box_top(colour, title, right, cols, folded)
+local function box_top(colour, title, right, cols, folded, gradient)
 	local tail = right ~= "" and (" " .. right .. " ") or ""
 	local room = cols - 5 - M.width(tail)
 	if room < 4 then
 		tail, room = "", cols - 5
 	end
 	title = M.clip(title, room) .. reset
-	local fill = cols - 4 - M.width(title) - M.width(tail)
+	local title_w = M.width(title)
+	local fill = cols - 4 - title_w - M.width(tail)
 	local left, close = folded and "╶ " or "╭ ", folded and "╴" or "╮"
+	if gradient then
+		local left_s = paint_gradient(left, gradient, 1, cols)
+		local fill_s = paint_gradient(string.rep("─", fill), gradient, 4 + title_w, cols)
+		local close_s = paint_gradient(close, gradient, cols, cols)
+		return left_s .. title .. " " .. fill_s .. tail .. close_s
+	end
 	return colour .. left .. reset .. title .. " " .. colour .. string.rep("─", fill) .. reset .. tail .. colour .. close .. reset
 end
 
@@ -696,7 +759,7 @@ end
 --- framed, and the bottom line. Clicks stored by line in `actions` keep working,
 --- and their column ranges move with the frame. Narrower than M.box_min, the
 --- box is a heading with its lines under it. Returns the top line's number.
-function M.box(out, actions, cols, colour, title, right, body, folded)
+function M.box(out, actions, cols, colour, title, right, body, folded, gradient)
 	right = right or ""
 	if #out > 0 then
 		out[#out + 1] = ""
@@ -709,37 +772,48 @@ function M.box(out, actions, cols, colour, title, right, body, folded)
 		end
 		return head
 	end
-	out[#out + 1] = box_top(colour, title, right, cols, folded)
+	out[#out + 1] = box_top(colour, title, right, cols, folded, gradient)
 	local head = #out
 	if folded then
 		return head
 	end
 	local first = #out + 1
 	body(cols - 4)
+	local left_c = gradient and gradient_at(gradient, 0) or colour
+	local right_c = gradient and gradient_at(gradient, 1) or colour
 	for i = first, #out do
-		out[i] = colour .. "│ " .. reset .. pad(out[i], cols - 4) .. colour .. " │" .. reset
+		out[i] = left_c .. "│ " .. reset .. pad(out[i], cols - 4) .. right_c .. " │" .. reset
 		local a = actions and actions[i]
 		for _, r in ipairs(a and a.ranges or {}) do
 			r.from, r.to = r.from + 2, r.to + 2
 		end
 	end
-	out[#out + 1] = colour .. "╰" .. string.rep("─", cols - 2) .. "╯" .. reset
+	if gradient then
+		out[#out + 1] = paint_gradient("╰" .. string.rep("─", cols - 2) .. "╯", gradient, 1, cols)
+	else
+		out[#out + 1] = colour .. "╰" .. string.rep("─", cols - 2) .. "╯" .. reset
+	end
 	return head
 end
 
 --- A box that folds: a click on its top line, or Enter on it after n and p,
---- folds it. opts: colour, title (the name by default), icon, right (shown
---- dim), or status (shown as it is).
+--- folds it. opts: colour, gradient, title (the name by default), icon, right
+--- (shown dim), or status (shown as it is).
 local function section(out, cols, name, opts, body)
 	local folded = out.folded[name] == true
 	local colour = opts.colour or grey
+	local gradient = opts.gradient
 	local title = (opts.icon and (opts.icon .. " ") or "") .. (opts.title or name)
 	if folded or cols < M.box_min then
 		title = fold_marks[folded] .. title
 	end
-	title = (out.focus == name and "\27[7m" or bold) .. colour .. title .. reset
+	if gradient and out.focus ~= name and not title:find("\27", 1, true) then
+		title = paint_gradient(title, gradient, 3, cols, bold)
+	else
+		title = (out.focus == name and "\27[7m" or bold) .. colour .. title .. reset
+	end
 	local right = opts.status or ((opts.right or "") ~= "" and (dim .. opts.right .. reset)) or ""
-	local head = M.box(out, out.actions, cols, colour, title, right, body, folded)
+	local head = M.box(out, out.actions, cols, colour, title, right, body, folded, gradient)
 	out.actions[head] = { kind = "fold", name = name }
 	out.sections[#out.sections + 1] = { name = name, line = head }
 end
@@ -764,20 +838,44 @@ local function flow(out, parts, n)
 end
 
 --- A gauge of n cells, `fraction` of them on.
-local function cells(fraction, n, colour, on, off)
+local function cells(fraction, n, colour, on, off, gradient)
 	local k = math.max(0, math.min(n, math.floor(fraction * n + 0.5)))
-	return colour .. string.rep(on or "▰", k) .. reset .. dim .. string.rep(off or "▱", n - k) .. reset
+	local lit
+	if gradient and k > 0 then
+		lit = paint_gradient(string.rep(on or "▰", k), gradient, 1, n)
+	else
+		lit = colour .. string.rep(on or "▰", k) .. reset
+	end
+	return lit .. dim .. string.rep(off or "▱", n - k) .. reset
 end
 
 local function level_colour(percent)
 	return percent >= 90 and red or percent >= 70 and yellow or mint
 end
 
---- "Opus 5.5" from "claude-opus-5-5".
+--- "Opus 5.5" from "claude-opus-5-5", "Gemini 4 Neon" from "gemini-4-neon-high".
+local EFFORT_SUFFIX = { low = true, medium = true, high = true, xhigh = true, max = true }
+
 function M.model_name(id)
-	local name, major, minor = tostring(id or ""):match("^claude%-(%a+)%-(%d+)%-(%d+)")
+	local s = tostring(id or "")
+	local name, major, minor = s:match("^claude%-(%a+)%-(%d+)%-(%d+)")
 	if name then
 		return name:sub(1, 1):upper() .. name:sub(2) .. " " .. major .. "." .. minor
+	end
+	if s:match("^gemini%-") then
+		local parts = {}
+		for part in s:gmatch("[^%-]+") do
+			parts[#parts + 1] = part
+		end
+		if #parts > 2 and EFFORT_SUFFIX[parts[#parts]:lower()] then
+			parts[#parts] = nil
+		end
+		for i, part in ipairs(parts) do
+			if part:match("^%a") then
+				parts[i] = part:sub(1, 1):upper() .. part:sub(2)
+			end
+		end
+		return table.concat(parts, " ")
 	end
 	return id
 end
@@ -876,24 +974,32 @@ local function main_box(out, state, cols, o)
 	local limits = (status.limits and #status.limits > 0) and status.limits or recorded.limits or {}
 	local who = o.agent_name or "Claude"
 	local now = o.now
+	local theme = theme_of(state)
 	local running = M.running(state)
-	local right = running and (orange .. "● running" .. reset) or (dim .. "○ idle" .. reset)
-	section(out, cols, "Main", { colour = orange, title = (M.model_name(state.model) or who) .. " · main", status = right }, function(n)
+	local right = running and (theme.accent .. "● running" .. reset) or (dim .. "○ idle" .. reset)
+	local effort = state.effort or o.effort
+	local label = o.model_label or M.model_name(state.model) or who
+	if effort and type(label) == "string" then
+		label = label:gsub("%s*%([%a]+%)%s*$", "")
+	end
+	section(out, cols, "Main", { colour = theme.accent, gradient = theme.gradient, title = label .. " · main", status = right }, function(n)
 		local first_line = #out
 		local about = {}
 		if state.title or o.session_name then
 			about[#about + 1] = state.title or o.session_name
 		end
-		if state.branch then
-			about[#about + 1] = dim .. state.branch .. reset
+		local branch = state.branch or o.branch
+		if branch then
+			about[#about + 1] = dim .. branch .. reset
 		end
 		if #about > 0 then
 			out[#out + 1] = table.concat(about, dim .. " · " .. reset)
 		end
-		local e = efforts[tostring(state.effort or "")]
+		local mode = state.mode or o.mode
+		local e = efforts[tostring(effort or "")]
 		flow(out, {
-			e and ("effort " .. cells(e / 5, 5, orange, "▮", "▯") .. " " .. bold .. state.effort .. reset),
-			state.mode and ("mode " .. state.mode),
+			e and ("effort " .. cells(e / 5, 5, theme.accent, "▮", "▯", theme.gradient) .. " " .. bold .. effort .. reset),
+			mode and ("mode " .. mode),
 			state.requests > 0 and (state.requests .. " req"),
 		}, n)
 		local window = tonumber(status.window) or tonumber(recorded.window)
@@ -907,7 +1013,7 @@ local function main_box(out, state, cols, o)
 			parts[#parts + 1] = "ctx " .. M.tokens(ctx)
 		end
 		if state.compactions > 0 then
-			parts[#parts + 1] = "⟲" .. state.compactions
+			parts[#parts + 1] = "⟲ " .. state.compactions
 		end
 		flow(out, parts, n)
 		parts = {}
@@ -1049,16 +1155,17 @@ local function agents_box(out, state, cols, o)
 			running = running + 1
 		end
 	end
-	section(out, cols, "Agents", { colour = lavender, title = "AGENTS · " .. running .. " running", right = #agents .. " total" }, function(n)
+	local agent_c = theme_of(state).agent
+	section(out, cols, "Agents", { colour = agent_c, title = "AGENTS · " .. running .. " running", right = #agents .. " total" }, function(n)
 		local label_w = math.max(8, math.floor(n * 0.4))
 		local time_w = 7
 		local bar_w = n - label_w - time_w - 2
 		for i = #agents, first, -1 do
 			local a = agents[i]
-			local pulse = math.floor(o.now) % 2 == 0 and (bold .. lavender .. "●") or (lavender .. "●")
+			local pulse = math.floor(o.now) % 2 == 0 and (bold .. agent_c .. "●") or (agent_c .. "●")
 			local live = M.agent_running(a, o.now)
 			local mark = a.finished and (mint .. "✓" .. reset) or live and (pulse .. reset) or (dim .. "○" .. reset)
-			local lane = live and lavender or a.finished and dim .. mint or dim
+			local lane = live and agent_c or a.finished and dim .. mint or dim
 			local label = pad(mark .. " " .. i .. ": " .. (a.description or a.type or "agent"), label_w)
 			local stop = live and o.now or (a.last or a.start)
 			local took = a.start and M.clock(stop - a.start) or ""
@@ -1082,7 +1189,7 @@ local function agents_box(out, state, cols, o)
 					dim .. (a.steps or 0) .. " steps" .. reset,
 				}, n)
 				for t = math.max(1, #(a.tools or {}) - 2), #(a.tools or {}) do
-					out[#out + 1] = "  " .. lavender .. "›" .. reset .. " " .. a.tools[t]
+					out[#out + 1] = "  " .. agent_c .. "›" .. reset .. " " .. a.tools[t]
 				end
 				if a.answer then
 					add(out, M.wrap(a.answer, n, "  " .. dim, "  " .. dim, 2))
@@ -1158,16 +1265,17 @@ local function receipt_box(out, state, cols, o)
 	if not turn.at and #state.tests == 0 and #state.failures == 0 then
 		return
 	end
+	local theme = theme_of(state)
 	local running = M.running(state)
 	local title
 	if running then
-		title = orange .. spin(o.now) .. " turn " .. M.span(o.now - turn.at) .. reset
+		title = theme.accent .. spin(o.now) .. " turn " .. M.span(o.now - turn.at) .. reset
 	elseif turn.ms then
 		title = mint .. "✓" .. reset .. bold .. " last turn " .. M.span(turn.ms / 1000)
 	else
 		title = "turns"
 	end
-	section(out, cols, "Receipt", { colour = orange, title = title, right = "" }, function(n)
+	section(out, cols, "Receipt", { colour = theme.accent, gradient = theme.gradient, title = title, right = "" }, function(n)
 		if turn.at then
 			local function count(k, one)
 				return k .. " " .. one .. (k == 1 and "" or "s")
@@ -1225,11 +1333,13 @@ local function log_box(out, state, cols, o)
 	if room < 3 then
 		room = math.max(3, rows - frame)
 	end
+	local theme = theme_of(state)
 	section(out, cols, "Log", { colour = grey, title = "LOG", right = tostring(#log) }, function(n)
 		for i = math.max(1, #log - room + 1), #log do
 			local e = log[i]
 			local when = e.at and os.date("%H:%M:%S", e.at) or "--:--:--"
-			out[#out + 1] = dim .. when .. reset .. " " .. pad((log_colours[e.who] or grey) .. e.who, 8) .. e.text
+			local who_c = e.who == "main" and theme.accent or e.who == "agent" and theme.agent or log_colours[e.who] or grey
+			out[#out + 1] = dim .. when .. reset .. " " .. pad(who_c .. e.who, 8) .. e.text
 		end
 	end)
 end
@@ -1254,7 +1364,8 @@ function M.info_lines(state, cols, opts)
 	o.now = o.now or os.time()
 	local out = new_lines(o.folded, o.focus)
 	local time, date = M.date_time(o.now)
-	out[#out + 1] = teal .. "◷ " .. reset .. bold .. time .. reset .. "  " .. grey .. date .. reset
+	local theme = theme_of(state)
+	out[#out + 1] = theme.clock .. "◷ " .. reset .. bold .. time .. reset .. "  " .. grey .. date .. reset
 	main_box(out, state, cols, o)
 	advisor_box(out, state, cols, o)
 	gate_box(out, state, cols, o)
@@ -1541,6 +1652,8 @@ local function follow(cwd)
 	panel.cwd = cwd
 	local r = run({ "git", "-C", cwd, "rev-parse", "--show-toplevel" })
 	local root = r and r.ok and (r.stdout:gsub("%s+$", "")) or cwd
+	local br = run({ "git", "-C", root, "rev-parse", "--abbrev-ref", "HEAD" })
+	panel.branch = br and br.ok and (br.stdout:gsub("%s+$", "")) or nil
 	if root ~= panel.root then
 		panel.root = root
 		rex.call("session.set_block_label", {
@@ -1574,7 +1687,8 @@ local function read_agents(state, sess)
 			a.finished = false
 		end
 		if not a.finished then
-			a.type, a.description = sub.type, sub.description
+			a.type = sub.type
+			a.description = sub.description or (state.agy_roles and state.agy_roles[sub.id]) or nil
 			if sub.transcript then
 				M.read_agent(a, sub.transcript, state.gate)
 			end
@@ -1594,8 +1708,9 @@ end
 
 local function gather()
 	local size = rex.block.call(terminal, "size", { session_id = panel.session_id, block_id = panel.block_id })
-	if size and size.columns then
+	if size and size.columns and (size.columns ~= panel.cols or size.rows ~= panel.rows) then
 		panel.cols, panel.rows = size.columns, size.rows
+		panel.clear_screen = true
 	end
 
 	local process = panel.claude
@@ -1825,6 +1940,10 @@ local function build(tab)
 			status = panel.status,
 			agent_name = agent_name(),
 			session_name = panel.sess and panel.sess.name,
+			model_label = panel.sess and panel.sess.model_label,
+			effort = panel.sess and panel.sess.effort,
+			mode = panel.sess and panel.sess.mode,
+			branch = panel.branch,
 			folded = panel.folded,
 			focus = panel.focus.Info,
 			agents = panel.state.agent_list,
@@ -1841,12 +1960,24 @@ end
 --- The tab's view, built again only after something cleared it.
 local function current()
 	local c = panel.cache
-	if not (c and c.tab == panel.tab and c.cols == panel.cols) then
+	if not (c and c.tab == panel.tab and c.cols == panel.cols and c.rows == panel.rows) then
 		c = build(panel.tab)
-		c.tab, c.cols = panel.tab, panel.cols
+		c.tab, c.cols, c.rows = panel.tab, panel.cols, panel.rows
 		panel.cache = c
 	end
 	return c
+end
+
+local function sync_size()
+	local size = panel.session_id and panel.block_id
+		and rex.block.call(terminal, "size", { session_id = panel.session_id, block_id = panel.block_id })
+	if size and size.columns and (size.columns ~= panel.cols or size.rows ~= panel.rows) then
+		panel.cols, panel.rows = size.columns, size.rows
+		panel.cache = nil
+		panel.clear_screen = true
+		return true
+	end
+	return false
 end
 
 local function draw()
@@ -1870,7 +2001,9 @@ local function draw()
 	end
 	local frame, ranges = M.frame(M.tabs, panel.tab, c.lines, s, panel.cols, panel.rows, { pinned = c.pinned, badges = badges })
 	panel.layout = { tabs = ranges, hits = c.hits, pinned = #c.pinned, actions = c.actions, scroll = s }
-	io.write(frame)
+	local clear = panel.clear_screen and "\27[2J" or ""
+	panel.clear_screen = nil
+	io.write("\27[?2026h" .. clear .. frame .. "\27[?2026l")
 	if io.stdout.flush then
 		io.stdout:flush()
 	end
@@ -1884,6 +2017,7 @@ local function set_tab(tab)
 	panel.tab = tab
 	panel.arranging = nil
 	panel.cache = nil
+	sync_size()
 	if plugins[tab] and plugins[tab].tab.activate then
 		plugins[tab].tab.activate()
 	end
@@ -2140,12 +2274,19 @@ M.load_plugins(home .. "/.config/rex/sidecar-tabs/")
 -- second without keys. os.clock is wall time in this runtime.
 exec({ "/bin/sh", "-c", "stty -icanon -echo min 0 time 1 </dev/tty" })
 io.write("\27[?1049h\27[?1000h\27[?1006h\27[?25l\27[2J")
-local gathered, drawn, dirty, typed, watched = 0, 0, false, 0, 0
+local gathered, drawn, dirty, typed, watched, sized = 0, 0, false, 0, 0, 0
 while true do
 	local now = os.clock()
 	if panel.float and now - watched >= 0.25 then
 		watched = now
 		pcall(watch_float)
+	end
+	if now - sized >= 0.2 then
+		sized = now
+		local ok, resized = pcall(sync_size)
+		if ok and resized then
+			dirty = true
+		end
 	end
 	if now - gathered >= 2 and now - typed >= 1 and spawn("gather", gather) then
 		gathered = now
