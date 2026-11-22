@@ -8,7 +8,7 @@ M.names = { google = "Google Tasks", apple = "Apple Reminders" }
 local files = { google = "google-tasks", apple = "apple-reminders" }
 
 --- Provider name -> its tab's name and state file.
-M.tabs = { google = "Google Tasks", apple = "Reminders" }
+M.tabs = { google = "Tasks", apple = "Reminders" }
 M.state_files = { google = "tasks_state.json", apple = "reminders_state.json" }
 
 --- The command of a provider in the extension folder `base`, or nil for an
@@ -55,10 +55,11 @@ function M.migrate(base, settings)
 		os.rename(base .. "tasks_state.json", base .. M.state_files.apple)
 	end
 	local order, hidden = settings.tabs(base)
+	local target = M.tabs[name]
 	for i, tab in ipairs(order) do
-		if tab == "Tasks" then
-			order[i] = M.tabs[name]
-			hidden[M.tabs[name]], hidden.Tasks = hidden.Tasks, nil
+		if (tab == "Tasks" or tab == "Google Tasks") and tab ~= target then
+			order[i] = target
+			hidden[target], hidden[tab] = hidden[tab], nil
 			settings.set_tabs(base, order, hidden)
 			return
 		end

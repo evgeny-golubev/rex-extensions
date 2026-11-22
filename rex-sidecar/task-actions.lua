@@ -80,7 +80,7 @@ local function sources(wanted)
 	end
 	local list = shown()
 	if #list == 0 then
-		error("No task tab is shown: in the sidecar, press , and show Google Tasks or Reminders.", 0)
+		error("No task tab is shown: in the sidecar, press , and show Tasks or Reminders.", 0)
 	end
 	return list
 end
