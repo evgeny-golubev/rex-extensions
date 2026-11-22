@@ -32,15 +32,20 @@ plugin's automatic skill integration is packaged for Claude Code.
 
 | File | How it's shown |
 | --- | --- |
-| png, jpg, gif, webp | The picture, scaled to fit and redrawn when the float changes size. A gif shows its first frame |
-| Markdown | Formatted by `glow`, with paragraphs filling the float's width, from the top. Asked for at a line, or without `glow`, it's shown like code |
-| Code and other text | Line numbers and colours from `bat`, at a line if one is given |
+| Markdown, pictures (png, jpg, gif, webp, svg, heic), PDF, EPUB, HTML, Word, PowerPoint, Excel, CSV | In [leaf](https://leaf.dipxsy.app), a terminal reader, when it's installed |
+| Code and other text, or any file asked for at a line | Line numbers and colours from `bat`, at that line |
 | Binary files | A short notice instead |
+
+Without leaf, pictures are drawn by the viewer itself (scaled to fit, a gif's
+first frame), Markdown is formatted by `glow`, and other documents are shown
+like text. When leaf is missing, the skill tells Claude, and Claude asks
+whether to install it before doing so.
 
 ## Keys
 
-- `q` closes the float. On a picture, `Esc` closes it too.
-- Text scrolls with the keys of `less` and the mouse wheel.
+- `q` closes the float. On a picture without leaf, `Esc` closes it too.
+- In leaf, `?` lists its keys. Code and text scroll with the keys of `less` and
+  the mouse wheel.
 - Dragging selects text.
 
 A new float replaces the one before it, and takes focus.
@@ -49,6 +54,7 @@ A new float replaces the one before it, and takes focus.
 
 | Tool | What it adds | Without it |
 | --- | --- | --- |
+| [`leaf`](https://leaf.dipxsy.app) (`brew install deepanshumishraa/tap/leaf`) | Markdown, pictures and documents in a reader | The viewer's own picture drawing, `glow`, or plain text |
 | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) | Colours and line numbers | Plain text, with a note on how to install it |
 | [`glow`](https://github.com/charmbracelet/glow) (`brew install glow`) | Formatted Markdown | Markdown shown like code, with no note |
 
@@ -95,7 +101,7 @@ plugins/rex-view/skills/rex-view/scripts/show README.md 120
 | --- | --- |
 | Claude does not find the skill after install | Restart Claude Code or run `/reload-plugins`. |
 | Manual use cannot find the target pane | Run it from a Rex terminal pane so the viewer can use the Rex session and block environment. |
-| Markdown appears as source | Install `glow`; requests for a specific line intentionally use the code viewer. |
+| Markdown appears as source | Install leaf, or `glow`; requests for a specific line intentionally use the code viewer. |
 | Text has no colours or line numbers | Install `bat`; the viewer falls back to plain text without it. |
 | A GIF does not animate | Only its first frame is displayed. |
 

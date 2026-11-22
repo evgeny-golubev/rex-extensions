@@ -3,6 +3,25 @@
 Releases are tagged `vX.Y.Z` on GitHub. The skills keep their own versions,
 in each plugin's `plugin.json`.
 
+## Unreleased
+
+### leaf
+
+- [leaf](https://leaf.dipxsy.app) is now the viewer for the sidecar's diffs
+  and for Rex View's documents and pictures, when it's installed:
+  - **Changes:** a file's diff opens in leaf, in the same float. leaf gets the
+    same diff as before, so every scope shows what it did.
+  - **Artifacts, the Search Panel and rex-view:** Markdown, pictures, PDF,
+    EPUB, HTML and Office files open in leaf. Code and text, and any file
+    opened at a line, stay with `bat`.
+  - Without leaf, the old viewers (delta, bat, glow) are used.
+- When leaf is missing, the first diff or file a sidecar opens asks once, in
+  the palette, whether to install it with Homebrew. **Don't ask again** is
+  saved in `settings.json`, and the new **Rex View: Install leaf** action asks
+  again.
+- **rex-view 0.6.0:** when leaf is missing, `show` says so, and Claude asks you
+  before installing it.
+
 ## v1.1.0 — 2026-11-22
 
 Agy support, two task tabs with Reminders done properly, task editing and

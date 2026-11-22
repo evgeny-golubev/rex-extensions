@@ -65,10 +65,16 @@ scopes:
 
 **Reading a diff.** Click a file, or select it and press `Enter`. The diff
 opens in a floating pane, and `q` closes it. With
-[delta](https://github.com/dandavison/delta), the code is highlighted, and old
-and new sit side by side when the pane is 120 columns or wider. delta's own git
-settings apply. Without delta, [bat](https://github.com/sharkdp/bat) colours
-the added and removed lines.
+[leaf](https://leaf.dipxsy.app) installed, the diff opens in leaf: old and new
+side by side, `i` for one column, `c` to comment, `?` for its keys. Without
+leaf, [delta](https://github.com/dandavison/delta) highlights the code, side by
+side when the pane is 120 columns or wider, and without delta
+[bat](https://github.com/sharkdp/bat) colours the added and removed lines.
+
+When leaf is missing, the first diff or file a sidecar opens asks once, in the
+palette, whether to install it with Homebrew: **Install with Homebrew**, **Not
+now** or **Don't ask again**. The install runs in a float, so you see it. Run
+**Rex View: Install leaf** from the palette to be asked again.
 
 **The tree.** Folders come before files. Click a folder, or select it and press
 `Enter`, to fold it. A folded folder shows how many files it holds. Folds are
@@ -122,7 +128,8 @@ calls doesn't count. **Search Panel**, pinned at the top, opens the
 | **Other** | Other files that exist, such as source code, with an optional `:line` |
 
 **Opening.** Click a row to open it, as `Enter` does in the Search Panel. A
-file or image opens in the viewer in a float. A link opens in your browser.
+file or image opens in the viewer in a float: documents and pictures in leaf
+when it's installed, code at its line with `bat`. A link opens in your browser.
 
 **What's listed.**
 
@@ -574,6 +581,7 @@ pkill -f 'rex-sidecar/watcher\.lua'; rex config reload
 | Rex View: Search Panel | The [Search Panel](#search-panel); also `Cmd+Ctrl+Alt+Shift+O` |
 | Rex View: Set Editor | The command that [edits files](#editor) |
 | Rex View: Edit Link Patterns | Adds, edits and deletes [link patterns](#link-patterns) |
+| Rex View: Install leaf | Installs [leaf](https://leaf.dipxsy.app) with Homebrew, for diffs, Markdown and pictures |
 | Tasks: List Open Tasks, Add Task, Report Task Done | The [task actions](#task-actions) |
 
 - Auto-show is saved as `{"auto_show": false}` in `settings.json`. It applies

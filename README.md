@@ -232,9 +232,10 @@ limits](agents/README.md) for session discovery and agent-specific behavior.
 | rex-crab-pond graphics | Unicode 16 octant characters (Rex draws them itself) |
 | Claude context and limits, and status line details in the pond | The Claude status line step above, with `jq` (`brew install jq`) |
 | agy model, effort, context and usage quota | The bundled agy status line script configured above, with `jq` |
-| Highlighted diffs | [`delta`](https://github.com/dandavison/delta) (`brew install git-delta`); without it, [`bat`](https://github.com/sharkdp/bat) colours them |
+| Diffs, Markdown, pictures and documents in a reader | [`leaf`](https://leaf.dipxsy.app) (`brew install deepanshumishraa/tap/leaf`); the sidecar offers to install it |
+| Highlighted diffs without leaf | [`delta`](https://github.com/dandavison/delta) (`brew install git-delta`); without it, [`bat`](https://github.com/sharkdp/bat) colours them |
 | Colours in rex-view | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
-| Formatted Markdown in rex-view | [`glow`](https://github.com/charmbracelet/glow) (`brew install glow`) |
+| Formatted Markdown in rex-view without leaf | [`glow`](https://github.com/charmbracelet/glow) (`brew install glow`) |
 | The Search Panel | [`fzf`](https://github.com/junegunn/fzf) (`brew install fzf`), and `jq` |
 | PR scope and PR titles | [`gh`](https://cli.github.com), signed in (`brew install gh`, `gh auth login`) |
 

@@ -8,7 +8,7 @@
     {
       "name": "rex-view",
       "source": "./plugins/rex-view",
-      "description": "Show images, Markdown and source code in a floating pane over the Rex tab Claude runs in"
+      "description": "Show images, Markdown, documents and source code in a floating pane over the Rex tab Claude runs in, through leaf when it is installed"
     },
     {
       "name": "rex-sidecar-task-list",
