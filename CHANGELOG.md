@@ -5,6 +5,10 @@ in each plugin's `plugin.json`.
 
 ## Unreleased
 
+### rex-sidecar
+
+- The Info tab's top line shows the date and time.
+
 ### Antigravity CLI (agy)
 
 - rex-sidecar, rex-crab-pond and rex-resume work with `agy`, through a new

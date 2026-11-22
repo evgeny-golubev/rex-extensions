@@ -1317,6 +1317,13 @@ do
 	has(plain(a.tools), "Shell", "codex subagent's tool calls")
 	equal(cx.gate.total, 0, "codex logs no permission checks")
 end
+-- The date and time at the top of Info.
+do
+	local at = os.time({ year = 2026, month = 11, day = 22, hour = 18, min = 4 })
+	equal(P.date_time(at), "Sun 22 Nov 2026 · 18:04", "the date and time")
+	local top = plain({ P.info_lines(P.new_state(), 60, { now = at })[1] })
+	equal(top, string.rep(" ", 60 - 23) .. "Sun 22 Nov 2026 · 18:04", "right-aligned on the first line")
+end
 -- agy: an Antigravity CLI transcript read through its parser.
 do
 	local function step(t, fields)

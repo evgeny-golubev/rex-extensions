@@ -78,7 +78,8 @@ documented, so a Claude Code update can empty Last Turn, Info and Artifacts.
 
 ## Info
 
-Info opens first. Every box folds; see [Folding](#folding).
+Info opens first. Its top line shows the date and time, such as
+`Sun 22 Nov 2026 · 18:04`. Every box folds; see [Folding](#folding).
 
 | Box | What's in it |
 | --- | --- |
