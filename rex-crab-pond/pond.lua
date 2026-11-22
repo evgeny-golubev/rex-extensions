@@ -21,6 +21,7 @@ M.colors = {
 	codex = "#10A37F",
 	codex_subagent = "#5CC9A7",
 	agy = "#4285F4",
+	agy_subagent = "#8AB4F8",
 	pi = "#E06C9F",
 	pi_subagent = "#EE9BC0",
 	opencode = "#C9D1D9",

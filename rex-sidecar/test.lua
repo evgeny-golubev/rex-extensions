@@ -1375,6 +1375,47 @@ do
 	raw[#raw + 1] = rex.json.encode(step("PLANNER_RESPONSE", { content = "Done." }))
 	local turns = P.parsers.agy.turns(raw, 5)
 	equal(#turns .. " " .. turns[1], "1 Done.", "agy turns")
+	-- CLI edit_file / write_file hunks, model effort, CHECKPOINT, subagents, workflows, and run_command without exit code.
+	local ax2 = P.new_state("agy")
+	ax2.root = "/src/app"
+	P.record(ax2, step("USER_INPUT", { content = "<USER_REQUEST>Update files</USER_REQUEST>" }))
+	P.record(ax2, step("CHECKPOINT", { content = "compacted" }))
+	P.record(ax2, step("PLANNER_RESPONSE", { model = "gemini-4-neon-high", input_tokens = 200000, tool_calls = {
+		{ name = "write_file", args = { Path = "/src/app/new.ts", Content = "a\nb\n" } },
+		{ name = "edit_file", args = { Path = "/src/app/old.ts", Target = "old1\nold2", Replacement = "new1" } },
+		{ name = "run_command", args = { CommandLine = "ls" } },
+		{ name = "run_workflow", args = { Description = "Run vitest", Script = "bunx vitest run" } },
+		{ name = "run_workflow", args = { Description = "Background build", Script = "vite build" } },
+		{ name = "invoke_subagent", args = { Role = "Reviewer", TypeName = "self" } },
+	} }))
+	P.record(ax2, step("GENERIC", { status = "DONE", content = "Created file." }))
+	P.record(ax2, step("GENERIC", { status = "DONE", content = "Edited file." }))
+	P.record(ax2, step("GENERIC", { status = "ERROR", content = "no such directory" }))
+	P.record(ax2, step("GENERIC", { status = "DONE", content = "3 passed" }))
+	P.record(ax2, step("GENERIC", { status = "RUNNING", content = "Tool is running as a background task" }))
+	P.record(ax2, step("GENERIC", { status = "DONE", content = '{"conversationId": "sub-1"}' }))
+	equal(ax2.compactions, 1, "agy CHECKPOINT increments compactions")
+	equal(ax2.effort, "high", "agy effort extracted from model ID")
+	equal(P.model_name("gemini-4-neon-high"), "Gemini 4 Neon", "gemini model name prettified")
+	local td = P.turn_data(ax2, ax2.root)
+	equal(td.added .. " " .. td.removed, "3 2", "agy edit_file and write_file hunks counted in Last Turn")
+	equal(ax2.turn.agents, 1, "invoke_subagent increments turn.agents")
+	equal(ax2.agy_roles["sub-1"], "Reviewer", "invoke_subagent role recorded by conversationId")
+	equal(ax2.turn.errors, 1, "run_command ERROR without exit code counted; RUNNING workflow is not an error")
+	equal(#ax2.tests .. " " .. tostring(ax2.tests[1].ok), "1 true", "run_workflow vitest recorded as passing test")
+	local sub = P.new_agent("sub-1", "agy")
+	P.agent_record(sub, step("PLANNER_RESPONSE", { input_tokens = 500, content = "Looks good", tool_calls = { { name = "read_file", args = { Path = "/src/app/a.ts" } } } }))
+	equal(sub.steps .. " " .. sub.context .. " " .. sub.answer, "1 500 Looks good", "agy subagent transcript parsed")
+	-- Native themes: AGY uses Google truecolor gradient, Codex uses cobalt->indigo.
+	local agy_info = table.concat(P.info_lines(ax2, 60, { now = os.time(), model_label = "Gemini 4 Neon (High)", mode = "auto", status = { window = 1048576, limits = {} } }), "\n")
+	has(agy_info, "38;2;66;133;244", "agy uses Google Blue truecolor gradient")
+	has(agy_info, "38;2;52;168;83", "agy gradient reaches Google Green")
+	has(plain({ agy_info }), "Gemini 4 Neon · main", "redundant effort suffix stripped from title")
+	has(plain({ agy_info }), "mode auto", "statusline mode shown")
+	local cx_theme = P.new_state("codex")
+	cx_theme.model = "gpt-5-codex"
+	local cx_info = table.concat(P.info_lines(cx_theme, 60, { now = os.time() }), "\n")
+	has(cx_info, "38;2;59;130;246", "codex uses Cobalt Blue truecolor gradient")
 end
 -- Pi: a Pi session transcript read through its parser.
 do
@@ -1462,7 +1503,7 @@ end
 -- The Tasks tab, on made-up tasks, with its state file beside the throwaway
 -- settings.json. No provider runs: the writes stay queued.
 do
-	local tab = P.plugins["Google Tasks"].tab
+	local tab = P.plugins.Tasks.tab
 	local lib, state = tab.lib, tab.state
 	local state_file = panel_base .. "tasks_state.json"
 	local spawn, run = P.spawn, P.run
@@ -1476,7 +1517,7 @@ do
 		f:close()
 		tab.activate()
 	end
-	equal(P.panel.hidden_tabs["Google Tasks"], true, "Google Tasks is hidden by default")
+	equal(P.panel.hidden_tabs.Tasks, true, "Tasks is hidden by default")
 	equal(P.panel.hidden_tabs.Reminders, true, "Reminders is hidden by default")
 	write_state({ provider = "google" })
 
@@ -1887,8 +1928,8 @@ do
 		put("settings.json", { tabs = { order = { "Tasks" }, hidden = { Tasks = true } } })
 		providers.migrate(base, settings)
 		order, hidden = settings.tabs(base)
-		equal(order[1], "Google Tasks", "Google Tasks takes the Tasks tab's place")
-		equal(hidden["Google Tasks"], true, "hidden as the Tasks tab was")
+		equal(order[1], "Tasks", "Tasks stays in its place")
+		equal(hidden.Tasks, true, "hidden as the Tasks tab was")
 		equal(providers.read_state(base).provider, "google", "Google's state stays")
 		real.exec({ "/bin/rm", "-rf", base })
 	end
@@ -1994,9 +2035,9 @@ do
 	write_state({})
 	show_tabs()
 	fails("tasks_list", {}, "No task tab is shown")
-	show_tabs("Google Tasks")
+	show_tabs("Tasks")
 	answers[1] = { ok = false, code = 3, stdout = "" }
-	fails("tasks_list", {}, "Sign-in needed: press L in the Google Tasks tab")
+	fails("tasks_list", {}, "Sign-in needed: press L in the Tasks tab")
 	equal(calls[#calls][1], dir .. "providers/google-tasks", "the provider beside the extension")
 	answers[1] = { ok = false, code = 4, stdout = '{"error":"setup_required"}\n', stderr = "Google Tasks is not set up yet: no OAuth client is stored.\n" }
 	fails("tasks_list", {}, "Google Tasks is not set up: Google Tasks is not set up yet")
@@ -2020,7 +2061,7 @@ do
 
 	-- Both tabs shown: both providers are listed, without a hidden Reminders
 	-- list, and each task carries its rating.
-	show_tabs("Google Tasks", "Reminders")
+	show_tabs("Tasks", "Reminders")
 	local af = assert(io.open(apple_file, "wb"))
 	af:write(rex.json.encode({ hidden_lists = { R2 = true }, default_list = "R1" }))
 	af:close()
@@ -2039,7 +2080,7 @@ do
 	equal(#all .. " " .. all[1].provider, "1 apple", "Reminders listed while Google fails")
 	answers[1] = { ok = false, code = 3, stdout = "" }
 	answers[2] = { ok = false, code = 3, stdout = "" }
-	fails("tasks_list", {}, "Sign-in needed: press L in the Google Tasks tab")
+	fails("tasks_list", {}, "Sign-in needed: press L in the Tasks tab")
 
 	-- With only Reminders shown, a task goes to its default list, its rating
 	-- to the priority field.
@@ -2434,12 +2475,12 @@ return {
 	local saved = rex.json.decode(f:read("*a"))
 	f:close()
 	equal(saved.tabs.hidden.Artifacts, true, "the hidden tab, saved")
-	equal(saved.tabs.order[2], "Google Tasks", "the order, saved")
-	equal(saved.tabs.hidden["Google Tasks"], true, "a tab hidden by default, saved hidden")
+	equal(saved.tabs.order[2], "Tasks", "the order, saved")
+	equal(saved.tabs.hidden.Tasks, true, "a tab hidden by default, saved hidden")
 	P.key(",")
 	P.key("j")
 	P.key(" ")
-	equal(P.tabs[3], "Google Tasks", "a tab hidden by default, shown")
+	equal(P.tabs[3], "Tasks", "a tab hidden by default, shown")
 	P.key(" ")
 	P.key("escape")
 	P.key("1")
