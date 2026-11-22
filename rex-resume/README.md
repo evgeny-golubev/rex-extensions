@@ -3,52 +3,44 @@
 **Reboot without losing your place.** After a restart, a Rex update or a
 crash, every pane comes back running what it ran before.
 
+![A tab before a restart with claude, codex, nvim and zsh panes; the saved sessions.json snapshot and settings.json; the same panes after the restart with claude --resume, codex resume and nvim src/cart/total.ts typed back in; made-up data](../docs/rex-resume.png)
+
 | Was running | Comes back as |
 | --- | --- |
-| Claude Code | `claude --resume <session>`: the same conversation, same folder |
+| Claude Code | `claude --resume <session>`: the same conversation, in the same folder |
 | Codex | `codex resume <thread>`: the same conversation, in the thread's folder |
-| nvim, less, htop, ssh, … | The same command, such as `nvim src/app.lua`, as [its settings](#settings) allow |
+| nvim, less, htop, ssh and others | The same command, such as `nvim src/app.lua`, as your [settings](#settings) allow |
 | A shell | A shell in the same folder |
 
-There's nothing on screen and nothing to click. It saves a snapshot a second
-after anything changes, and puts it back once after the server restarts.
+There's nothing on screen and nothing to click.
 
 **Try it:** add `require("extensions.rex-resume")` to `~/.config/rex/init.lua`
 and run `rex config reload`. [Full install →](#install)
 
-Rex brings back sessions, tabs and splits itself, but not the programs in
-them, so this extension types each pane's command back in. It also saves
-every session's tabs, splits, labels and folders, so a session Rex didn't
-bring back is recreated too.
+## How it works
 
-Not a native Rex extension format: a config module launches a separate
-event-driven `rex do` watcher.
+Rex brings back sessions, tabs and splits by itself, but not the programs
+that ran in them. rex-resume fills that gap:
 
-## Install
+1. **It saves.** A second after anything changes (a layout, a label, a
+   folder or the program in a pane), it writes a snapshot of every session:
+   tabs, splits, labels, folders and each pane's command.
+2. **It restores, once.** When Rex starts again, it waits until Rex has
+   finished bringing sessions back: the list of sessions must stay the same
+   for 3 seconds, at most 20 seconds in all. Then:
+   - a session Rex didn't bring back is created from the snapshot;
+   - in a session Rex did bring back, it finds each pane again: the tab by
+     its label or place, the pane by its folder or place. Once the pane's
+     shell is ready, it types the saved command, with a `cd` first when the
+     folder differs.
 
-Place this directory at `~/.config/rex/extensions/rex-resume/` and add to
-your Rex `init.lua`:
-
-```lua
-require("extensions.rex-resume")
-```
-
-Then run `rex config reload`. Every config load starts a watcher; a new one
-quits when another is already connected, so to load a changed `watcher.lua`,
-stop the running one first:
-
-```sh
-pkill -f 'rex-resume/watcher\.lua'; rex config reload
-```
-
-Coming from cc-resume, its earlier name: change the `require` line, then run
-`pkill -f 'cc-resume/watcher\.lua'; rex config reload`. The snapshot stays
-where it was, so nothing is lost.
+A pane that's already running a program is left alone. A snapshot is only
+used after a real restart, and the used one is kept as `sessions.json.prev`.
 
 ## Settings
 
-An optional `settings.json` in this directory, kept out of git. It's read on
-every save, so an edit applies without a restart.
+Settings are optional. They live in `settings.json` in this folder, which git
+ignores. The file is read on every save, so an edit applies straight away.
 
 ```json
 {
@@ -57,54 +49,98 @@ every save, so an edit applies without a restart.
 }
 ```
 
-| `mode` | Brings back |
+`mode` decides which programs come back, and how:
+
+| `mode` | What comes back |
 | --- | --- |
 | `allow_full` (default) | Programs in `programs`, with their arguments: `nvim src/app.lua` |
-| `allow_name` | Programs in `programs`, by name only: `nvim`. Arguments are never read |
-| `any_full` | Any program that isn't a shell, with its arguments; `programs` is ignored |
+| `allow_name` | Programs in `programs`, by name only: `nvim`. Their arguments are never read |
+| `any_full` | Any program that isn't a shell, with its arguments. `programs` is ignored |
 
-Without `programs`, the list is nvim, vim, vi, nano, less, man, htop, btop,
-top, watch, lazygit, tig, k9s, ssh and codex. Claude Code always comes back,
-whatever the mode or list; Codex comes back in its conversation while `codex`
-is allowed.
+Without `programs`, the list is: nvim, vim, vi, nano, less, man, htop, btop,
+top, watch, lazygit, tig, k9s, ssh and codex.
 
-Arguments come from `ps` and are saved as plain text in the snapshot, so in
-`any_full` mode a token passed on a command line ends up there too. The other
-modes only read the arguments of programs on the list. `ps` loses quoting, so
-an argument with spaces in it comes back split in two.
+Claude Code always comes back, whatever the mode or the list.
 
-## Behavior and state
+### Arguments and privacy
 
-- Saves a second after a layout, label, directory or foreground-program change.
-- Restores only when the snapshot comes from an earlier server run. Rex now
-  brings sessions back itself, with their tabs and directories but not the
-  programs in them, so the watcher first waits until the session list has
-  stayed the same for 3 seconds (at most 20). Then:
-  - a session that's still missing is created from the snapshot;
-  - in a session Rex brought back, each pane that ran a saved program is found
-    again: the tab by its label or place, the pane by its directory or
-    place. Once its shell is up, the command is typed into it, after a `cd`
-    when the directory differs. A pane already running a program is left
-    alone.
+Rex only tells the extension a program's name. The arguments come from `ps`,
+and they're saved as plain text in the snapshot.
 
-  The used snapshot is kept as `sessions.json.prev`.
-- Claude Code is found through `~/.claude/sessions/<pid>.json`. Its original
-  flags (model, permission mode) aren't known, so it resumes with defaults.
-- Codex comes back in its conversation: `codex resume <thread>`, in the
-  thread's directory. The thread is found as [agents/README.md](../agents/README.md#codex)
-  describes. Until Codex has a thread, which is after your first prompt, its
-  own command is saved, and the save is tried again every 5 seconds, 6
-  times. Leave `codex` out of `programs` to have Codex panes come back as
-  shells.
-- A program comes back as it was started, not as it was left: nvim reopens
-  its files but not its buffers or undo history.
-- Quitting a resumed program leaves the shell it was typed into.
-- rex-sidecar and rex-crab-pond panes aren't saved. They reopen when Claude
-  resumes.
-- State: `~/.config/rex/state/sessions.json`; launcher errors go to
-  `~/.config/rex/state/sessions.log`.
+- In `allow_full` and `allow_name`, arguments are read only for programs on
+  your list.
+- In `any_full`, every program's arguments are saved. A token passed on a
+  command line ends up in the snapshot too.
+- `ps` drops quotes, so an argument with a space in it comes back as two.
+
+## Claude Code and Codex
+
+**Claude Code** is found through `~/.claude/sessions/<pid>.json`. Its original
+flags, such as the model or the permission mode, aren't known, so it resumes
+with the defaults.
+
+**Codex** comes back with `codex resume <thread>`, in the thread's folder. The
+thread is found as [agents/README.md](../agents/README.md#codex) describes.
+
+Both take a moment before they can be saved. Claude writes its session file
+a few seconds after it starts, and Codex only has a thread after your first
+prompt. Until then, the save is tried again every 5 seconds, up to 6 times.
+For Codex, its own command is saved in the meantime.
+
+To have Codex panes come back as plain shells, leave `codex` out of
+`programs`.
+
+## Limits
+
+- A program comes back as it was started, not as you left it. nvim reopens
+  its file, but not its buffers or undo history.
+- Quitting a resumed program leaves you in the shell it was typed into.
+- rex-sidecar and rex-crab-pond panes aren't saved. They reopen by themselves
+  when Claude resumes.
+
+## Install
+
+1. Put this folder at `~/.config/rex/extensions/rex-resume/`.
+2. Add this line to `~/.config/rex/init.lua`:
+
+   ```lua
+   require("extensions.rex-resume")
+   ```
+
+3. Run `rex config reload`.
+
+It isn't a native Rex extension: the config line starts a separate `rex do`
+watcher that reacts to Rex's events. Every config load starts one, and a new
+one quits when another is already running. So after changing `watcher.lua`,
+stop the old one first:
+
+```sh
+pkill -f 'rex-resume/watcher\.lua'; rex config reload
+```
+
+### Upgrading from cc-resume
+
+rex-resume used to be called cc-resume. Change the `require` line to the new
+name, then run:
+
+```sh
+pkill -f 'cc-resume/watcher\.lua'; rex config reload
+```
+
+The snapshot stays where it was, so nothing is lost.
+
+## Files
+
+| File | What's in it |
+| --- | --- |
+| `~/.config/rex/state/sessions.json` | The snapshot |
+| `~/.config/rex/state/sessions.json.prev` | The snapshot used at the last restore |
+| `~/.config/rex/state/sessions.log` | Errors from starting the watcher |
+| `settings.json`, in this folder | Your settings |
 
 ## Manual use
+
+Run the watcher by hand, with a snapshot and settings of its own:
 
 ```sh
 rex do --all ~/.config/rex/extensions/rex-resume/watcher.lua state=/tmp/x.json settings=/tmp/s.json
@@ -116,5 +152,5 @@ rex do --all ~/.config/rex/extensions/rex-resume/watcher.lua state=/tmp/x.json s
 rex do ~/.config/rex/extensions/rex-resume/test.lua
 ```
 
-The tests mock Rex around a temporary directory; they don't touch live
-sessions or the real snapshot.
+The tests fake Rex around a temporary folder. They don't touch live sessions
+or the real snapshot.

@@ -3,6 +3,46 @@
 Releases are tagged `vX.Y.Z` on GitHub. The skills keep their own versions,
 in each plugin's `plugin.json`.
 
+## Unreleased
+
+### rex-sidecar: two task tabs
+
+The Tasks tab is now two tabs, **Google Tasks** and **Reminders**, which you
+can show on their own or together. Their shared code lives in
+`rex-sidecar/tasks-core.lua`.
+
+- **Upgrading:** the first time the sidecar opens, the old Tasks tab's place
+  and state move to the tab of the source it used. The `W` key, which chose
+  the source, is gone.
+- **Reminders** now does what Apple Reminders supports, and no more:
+  - A, B and C are stored in the reminder's Priority field (High, Medium,
+    Low), so Apple's apps show them too. The tab still shows A, B and C, and
+    the same keys set them. A title that still starts with "A. " counts as
+    before, and loses the prefix the next time you rate it.
+  - `l` chooses which lists show, and the default list for new tasks.
+  - `m` moves a task to another list. EventKit can't change a reminder's
+    list, so the move copies the reminder and deletes the original.
+    Attachments, tags and subtasks made in Apple's app don't come along.
+  - Steps and "split it into steps" warnings are gone, as Reminders has no
+    subtasks for other programs.
+
+### Task actions and skill
+
+- The task actions use whichever task tabs are shown, and take
+  `provider=google|apple`. `tasks_list` names each list's provider and each
+  task's rating.
+- The skill plugin is renamed **rex-sidecar-task-list** (0.2.0), with the
+  skills `rex-sidecar-task-list` and `rex-sidecar-tasks-setup`. Uninstall
+  `sidecar-task-list` and install the new one; see the README's Update
+  section.
+
+### Docs
+
+- The repository is now called "Rex extensions and agent skills".
+- Every README is rewritten to be easier to read.
+- New pictures: the sidecar with the Reminders tab, the Reminders tab's
+  views and list picker, and a diagram of what rex-resume brings back.
+
 ## v1.0.1 — 2026-11-22
 
 ### rex-resume
