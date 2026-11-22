@@ -1,23 +1,25 @@
 -- The crab pond: runs inside the "Crabs" pane that watcher.lua opens, and
--- draws what runs in this tab as pixel crabs: the tab's main Claude, then crabs for its subagents and background tasks,
--- the tab's other Claudes and the programs in its other panes. It reads
--- Claude Code's session and status line files, Rex's view of the tab and the
+-- draws what runs in this tab as pixel crabs: the tab's main agent (Claude
+-- Code or Codex), then crabs for its subagents and background tasks, the
+-- tab's other agents and the programs in its other panes. It reads each
+-- agent's session through agents/init.lua, Rex's view of the tab and the
 -- process list, and gathers them again every 2 seconds; the crabs move 4
 -- times a second.
 
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)")
 local sprites = dofile(dir .. "sprites.lua")
 local glyphs = dofile(dir .. "glyphs.lua")
+local agents = dofile(dir .. "../agents/init.lua")
 
 local M = {}
 
 local terminal = "com.superlogical.terminal"
-local home = os.getenv("HOME") or ""
-local claude_dir = home .. "/.claude"
 
 M.colors = {
 	claude = "#D97757",
 	subagent = "#E89A7F",
+	codex = "#10A37F",
+	codex_subagent = "#5CC9A7",
 	agent = "#4FB3A9",
 	editor = "#6A8FD8",
 	git = "#D9534F",
@@ -275,24 +277,31 @@ function M.subagent_outfit(agent_type, task)
 	return subagent_outfits[hash % #subagent_outfits + 1]
 end
 
-local function is_claude(p)
-	return p ~= nil and p.argv0 ~= nil and basename(p.argv0):lower() == "claude"
+--- A Codex session's outfit, from its reasoning effort.
+function M.codex_outfit(model, effort)
+	effort = (effort or ""):lower()
+	if effort == "xhigh" or effort == "high" then
+		return "scientist"
+	elseif effort == "low" or effort == "minimal" then
+		return "ninja"
+	end
+	return "robot"
 end
 
---- The process ID of the Claude in a pane, if one runs there.
-function M.claude_pid(process)
-	if not process then
-		return nil
+--- An agent session's outfit.
+function M.agent_outfit(adapter_id, model, effort)
+	if adapter_id == "codex" then
+		return M.codex_outfit(model, effort)
 	end
-	if is_claude(process.foreground) then
-		return process.foreground.pid
-	end
-	for _, p in ipairs(process.ancestors or {}) do
-		if is_claude(p) then
-			return p.pid
-		end
-	end
+	return M.claude_outfit(model, effort)
 end
+
+--- The process ID of the agent in a pane, if one runs there.
+function M.claude_pid(process)
+	local _, _, pid = agents.in_process(process)
+	return pid
+end
+M.agent_pid = M.claude_pid
 
 --- The exit code of a pane's last command, or nil.
 local function exit_code(process)
@@ -441,7 +450,8 @@ end
 --- the monitor it runs or else by its program, from processes ({ pid, ppid, age,
 --- comm }). Only executable names are read, never arguments, which can hold
 --- secrets. `monitors` is the list from its transcript, if known.
-function M.task_crabs(claude_pid, processes, monitors, now)
+function M.task_crabs(claude_pid, processes, monitors, now, who)
+	who = who or "Claude"
 	local used = {}
 	local children = {}
 	for _, p in ipairs(processes) do
@@ -473,16 +483,16 @@ function M.task_crabs(claude_pid, processes, monitors, now)
 			local crab
 			local monitor = monitor_of(wrapper, monitors, used, now or os.time())
 			if monitor then
-				crab = { kind = "monitor", outfit = "lookout", color = M.colors.monitor, state = "busy", name = monitor.description, detail = "Claude's monitor" }
+				crab = { kind = "monitor", outfit = "lookout", color = M.colors.monitor, state = "busy", name = monitor.description, detail = who .. "'s monitor" }
 			elseif tails then
 				crab = { kind = "monitor", outfit = "lookout", color = M.colors.monitor, state = "busy", name = "monitor", detail = "watching output" }
 			elseif program then
 				local k, name = M.program_kind(program)
-				crab = { kind = k, outfit = outfit_of_kind[k], color = M.colors[k], accent = M.program_accent(name), state = "busy", name = name, detail = "Claude's shell" }
+				crab = { kind = k, outfit = outfit_of_kind[k], color = M.colors[k], accent = M.program_accent(name), state = "busy", name = name, detail = who .. "'s shell" }
 			elseif sleeps then
-				crab = { kind = "shell", outfit = "sleeper", color = M.colors.shell, state = "sleep", name = "waiting", detail = "Claude's shell" }
+				crab = { kind = "shell", outfit = "sleeper", color = M.colors.shell, state = "sleep", name = "waiting", detail = who .. "'s shell" }
 			else
-				crab = { kind = "shell", outfit = "plain", color = M.colors.shell, state = "busy", name = "shell", detail = "Claude's shell" }
+				crab = { kind = "shell", outfit = "plain", color = M.colors.shell, state = "busy", name = "shell", detail = who .. "'s shell" }
 			end
 			crab.age = wrapper.age
 			crabs[#crabs + 1] = crab
@@ -716,7 +726,7 @@ function M.scene(cols, rows, view, frame, now)
 	local main_lines, main_width = nil, 0
 	if main then
 		main_lines = {
-			{ { main.name or "Claude", M.colors.claude, true } },
+			{ { main.name or "Claude", main.color or M.colors.claude, true } },
 			{ { main.detail or "", M.colors.text } },
 			{ { main.extra or "", M.colors.dim } },
 		}
@@ -793,17 +803,6 @@ end
 
 -- Gathering -----------------------------------------------------------------
 
-local function read_json(path)
-	local f = io.open(path, "rb")
-	if not f then
-		return nil
-	end
-	local text = f:read("*a")
-	f:close()
-	local ok, value = pcall(rex.json.decode, text)
-	return ok and value or nil
-end
-
 local function list(command)
 	local r = rex.exec(command, { timeout = 5 })
 	local out = {}
@@ -839,21 +838,18 @@ local pond = {
 	monitors = {},
 }
 
---- A Claude pane's crab, from its session and status line files.
-local function claude_crab(pid, record, now)
-	local s = read_json(claude_dir .. "/sessions/" .. pid .. ".json") or {}
-	local sl = s.sessionId and read_json(claude_dir .. "/state/statusline/" .. s.sessionId .. ".json") or {}
-	local working = (record and record.state == "working") or s.status == "busy"
-	local model = sl.model and sl.model.display_name
+--- An agent pane's crab, from its session.
+local function agent_crab(adapter, sess, record, now)
+	sess = sess or {}
+	local working = (record and record.state == "working") or sess.working
 	return {
-		kind = "claude",
-		color = M.colors.claude,
-		outfit = M.claude_outfit(sl.model and sl.model.id or model, sl.effort and sl.effort.level),
+		kind = adapter.id,
+		color = M.colors[adapter.id] or M.colors.agent,
+		outfit = M.agent_outfit(adapter.id, sess.model, sess.effort),
 		state = working and "busy" or "idle",
-		name = sl.session_name or s.name or "Claude",
-		detail = model or "Claude",
-		extra = s.startedAt and ("up " .. M.duration(now - s.startedAt / 1000)),
-		statusline = sl,
+		name = sess.name or adapter.name,
+		detail = sess.model_label or adapter.name,
+		extra = sess.started and ("up " .. M.duration(now - sess.started)),
 	}
 end
 
@@ -897,33 +893,23 @@ local function read_monitors(path)
 	return monitors.list
 end
 
-local function subagent_crabs(statusline, into, now)
-	local transcript = statusline.transcript_path
-	if not transcript then
+--- Crabs for an agent's running subagents, named by the tasks it gave them.
+local function subagent_crabs(adapter, sess, into, now)
+	if not sess then
 		return
 	end
-	local agents = transcript:gsub("%.jsonl$", "") .. "/subagents"
-	-- A subagent stopped by a crash or a resume never gets `finished`, so only
-	-- one whose transcript moved in the last 10 minutes counts as running.
-	local recent = {}
-	for _, path in ipairs(list({ "/usr/bin/find", agents, "-name", "*.jsonl", "-mmin", "-10" })) do
-		recent[basename(path)] = true
-	end
-	for _, name in ipairs(list({ "/bin/ls", agents })) do
-		if name:match("%.meta%.json$") and recent[(name:gsub("%.meta%.json$", ".jsonl"))] then
-			local meta = read_json(agents .. "/" .. name)
-			if meta and not meta.finished then
-				local since = started(agents .. "/" .. name:gsub("%.meta%.json$", ".jsonl"))
-				into[#into + 1] = {
-					age = since and (now - since),
-					kind = "subagent",
-					color = M.colors.subagent,
-					outfit = M.subagent_outfit(meta.agentType, meta.description),
-					state = "busy",
-					name = meta.description or meta.agentType or "agent",
-					detail = meta.agentType,
-				}
-			end
+	for _, sub in ipairs(adapter.subagents(sess, now)) do
+		if sub.running then
+			local since = sub.started or (sub.transcript and started(sub.transcript))
+			into[#into + 1] = {
+				age = since and (now - since),
+				kind = "subagent",
+				color = M.colors[adapter.id .. "_subagent"] or M.colors.subagent,
+				outfit = M.subagent_outfit(sub.type, sub.description),
+				state = "busy",
+				name = sub.description or sub.type or "agent",
+				detail = sub.type,
+			}
 		end
 	end
 end
@@ -967,10 +953,17 @@ local function gather()
 			local label = b.label or ""
 			if b.creator_name == terminal and not M.helper_pane(label) then
 				local p = block_call(pond.session_id, b.block_id, "process")
+				local adapter, sess = agents.session(p, pond.session_id, b.block_id)
 				local pid = M.claude_pid(p)
-				if pid then
+				if adapter and pid then
 					local status = block_call(pond.session_id, b.block_id, "program_status")
-					claudes[#claudes + 1] = { block_id = b.block_id, pid = pid, record = status and status.records and status.records[1] }
+					claudes[#claudes + 1] = {
+						block_id = b.block_id,
+						pid = pid,
+						adapter = adapter,
+						sess = sess,
+						record = status and status.records and status.records[1],
+					}
 				elseif p and p.foreground then
 					shells[#shells + 1] = M.pane_crab(p, ages)
 				end
@@ -996,15 +989,18 @@ local function gather()
 
 	local result, crabs, others = { crabs = {} }, {}, {}
 	for i, cl in ipairs(claudes) do
-		local crab = claude_crab(cl.pid, cl.record, now)
+		local crab = agent_crab(cl.adapter, cl.sess, cl.record, now)
 		if i == main_index then
 			result.main = crab
 			pond.main_pid = cl.pid
 		else
 			others[#others + 1] = crab
 		end
-		subagent_crabs(crab.statusline, crabs, now)
-		for _, task in ipairs(M.task_crabs(cl.pid, processes, read_monitors(crab.statusline.transcript_path), now)) do
+		subagent_crabs(cl.adapter, cl.sess, crabs, now)
+		-- Monitors are Claude Code's; a Codex runs its commands under its
+		-- app-server, so none are this pane's children.
+		local monitors = cl.adapter.id == "claude" and cl.sess and read_monitors(cl.sess.transcript) or nil
+		for _, task in ipairs(M.task_crabs(cl.pid, processes, monitors, now, cl.adapter.name)) do
 			crabs[#crabs + 1] = task
 		end
 	end

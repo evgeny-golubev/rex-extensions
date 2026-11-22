@@ -458,7 +458,7 @@ local function load_scope()
 	if scope == "Last Turn" then
 		data = sidecar.turn_data(panel.state, panel.root)
 		if not panel.state.path then
-			data.problem = "No Claude session found for this pane."
+			data.problem = "No " .. sidecar.agent_name() .. " session found for this pane."
 		end
 	elseif scope == "Uncommitted" then
 		data = C.uncommitted(changes.files)

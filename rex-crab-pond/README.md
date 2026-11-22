@@ -1,7 +1,7 @@
 # Rex Crab Pond
 
 Opens a `Crabs` pane along the bottom 8% of every Rex tab that runs Claude
-Code, and closes it when the last Claude in the tab exits. The pane shows what
+Code or Codex, and closes it when the last of them in the tab exits. The pane shows what
 runs in that tab as animated pixel crabs:
 
 ![rex-crab-pond](../docs/rex-crab-pond.png)
@@ -29,6 +29,12 @@ the model and effort:
 | Opus, effort low | Ninja |
 | Sonnet | Musician |
 | Haiku | Gardener |
+
+A Codex is green, named after its thread, and dressed by its reasoning effort:
+a scientist for high or xhigh, a ninja for low or minimal, and otherwise a
+robot. Its subagents are lighter green and run while their thread keeps
+changing. Codex runs its commands under its app-server rather than its own
+process, so it has no background shell crabs.
 
 **Subagents** are lighter peach, titled with the task Claude gave them. The first
 word of their type or task that names a job picks the outfit, matched at the
@@ -205,7 +211,8 @@ key, bind `rex_crab_pond_show` or `rex_crab_pond_auto_show` with `rex.bind`.
 - `settings.lua` reads and writes `settings.json`, and passes Show requests to
   the watcher through `show-request.json`.
 - `watcher.lua` opens and closes the panes.
-- `pond.lua` runs in each pane: gathers, lays out and draws.
+- `pond.lua` runs in each pane: gathers, lays out and draws. It finds each
+  agent's session through [`../agents/`](../agents/README.md).
 - `sprites.lua` is the pixel art.
 - `glyphs.lua` maps each 2 x 4 pixel pattern to its character, generated
   from Unicode 16's `UnicodeData.txt`.

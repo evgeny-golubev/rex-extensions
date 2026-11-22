@@ -197,6 +197,13 @@ local ok, err = pcall(function()
 	fire()
 	equal(#timers, 0, "rechecks repeat")
 
+	-- Codex gets a pane the same way, and loses it on exit.
+	foreground("block:4", "/opt/homebrew/bin/codex", "/src/app")
+	equal(#splits, 6, "pane for Codex")
+	equal(splits[6].anchor_id, "block:4", "beside Codex")
+	foreground("block:4", "-zsh", "/src/app")
+	equal(closed[7], "block:sidecar6", "pane closed when Codex exits")
+
 	-- A second copy quits.
 	reset()
 	clients = { { info = { label = "rex-sidecar" } } }
@@ -1170,6 +1177,145 @@ do
 	equal(V.kind("/") , "dir", "a real folder")
 	equal(V.kind(dir .. "test.lua"), "file", "a real file")
 	equal(V.kind(dir .. "no-such-file"), nil, "a missing file")
+end
+
+do
+	-- Codex: a rollout read through its parser into the same state.
+	local at = "2026-11-18T04:19:39.000Z"
+	local function ev(t, payload)
+		payload.type = t
+		return { timestamp = at, type = "event_msg", payload = payload }
+	end
+	local function item(it)
+		return ev("item_completed", { item = it })
+	end
+	local function text(t)
+		return { { type = "Text", text = t } }
+	end
+	local rollout = {
+		{ timestamp = at, type = "session_meta", payload = { cwd = "/src/app", git = { branch = "feature" } } },
+		{ timestamp = at, type = "turn_context", payload = { cwd = "/src/app", model = "gpt-test", effort = "high", approval_policy = "on-request", sandbox_policy = { type = "workspace-write" } } },
+		ev("task_started", {}),
+		item({ type = "UserMessage", content = { { type = "text", text = "Fix the parser" } } }),
+		item({ type = "AgentMessage", content = text("Looking."), phase = "commentary" }),
+		item({ type = "CommandExecution", command = { "/bin/zsh", "-lc", "cd /src/app && pytest -q tests" }, status = "failed", exit_code = 1, aggregated_output = "1 failed\nmore" }),
+		item({ type = "CommandExecution", command = { "/bin/zsh", "-lc", "ls" }, status = "completed", exit_code = 0, aggregated_output = "" }),
+		item({ type = "FileChange", status = "completed", changes = {
+			["/src/app/a.lua"] = { type = "update", unified_diff = "@@ -1,2 +1,2 @@\n x\n-old\n+new\n\n@@ -10 +10,2 @@\n y\n+z\n" },
+			["/src/app/b.lua"] = { type = "add", content = "one\ntwo\n" },
+			["/src/app/c.lua"] = { type = "delete", content = "gone\n" },
+		} }),
+		item({ type = "SubAgentActivity", kind = "started", agent_path = "/root/review_parser", agent_thread_id = "t2" }),
+		item({ type = "McpToolCall", server = "linear", tool = "get_issue", status = "failed" }),
+		item({ type = "ContextCompaction" }),
+		ev("token_count", {
+			info = { last_token_usage = { input_tokens = 50000 }, model_context_window = 200000 },
+			rate_limits = { primary = { used_percent = 40, window_minutes = 300, resets_at = 2000 }, secondary = { used_percent = 10, window_minutes = 10080 } },
+		}),
+		item({ type = "AgentMessage", content = text("Fixed it. See https://example.com/pr/1"), phase = "final_answer" }),
+		ev("task_complete", { duration_ms = 65000 }),
+	}
+	local lines = {}
+	for i, r in ipairs(rollout) do
+		lines[i] = rex.json.encode(r)
+	end
+	-- Records Codex writes with these keys first: a usage record counts as a
+	-- request, and raw model items and reasoning aren't read.
+	lines[#lines + 1] = '{"timestamp":"' .. at .. '","ordinal":40,"type":"token_usage_record","payload":{}}'
+	lines[#lines + 1] = '{"timestamp":"' .. at .. '","ordinal":41,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"SHOULD NOT APPEAR"}]}}'
+	lines[#lines + 1] = '{"timestamp":"' .. at .. '","ordinal":42,"type":"event_msg","payload":{"type":"item_completed","item":{"type":"Reasoning"}}}'
+	local cx = P.new_state("codex")
+	local all = table.concat(lines, "\n") .. "\n"
+	P.feed(cx, all:sub(1, 300))
+	P.feed(cx, all:sub(301))
+
+	equal(cx.model, "gpt-test", "codex model")
+	equal(cx.effort, "high", "codex effort")
+	equal(cx.mode, "on-request · workspace-write", "codex approval and sandbox")
+	equal(cx.branch, "feature", "codex branch")
+	equal(cx.root, "/src/app", "codex directory")
+	equal(#cx.prompts, 1, "codex prompts")
+	equal(cx.prompts[1].text, "Fix the parser", "codex prompt")
+	equal(#cx.responses, 1, "one response per turn")
+	equal(cx.responses[1].text, "Fixed it. See https://example.com/pr/1", "the last message is the response")
+	equal(cx.requests, 1, "usage records count requests")
+	equal(cx.compactions, 1, "codex compactions")
+	equal(cx.claude_ms, 65000, "codex working time")
+	equal(P.running(cx), false, "idle after the turn completes")
+	equal(cx.context, 50000, "codex context")
+	equal(cx.status.window, 200000, "codex context window")
+	equal(cx.status.limits[1].label, "5h", "primary limit")
+	equal(cx.status.limits[1].used, 40, "primary limit used")
+	equal(cx.status.limits[2].label, "7d", "secondary limit")
+	equal(#cx.tests, 1, "codex test command")
+	equal(cx.tests[1].ok, false, "failed test run")
+	equal(cx.failures[1].error, "exit 1: 1 failed", "failure's first line")
+	equal(cx.turn.edits, 3, "codex edits")
+	equal(cx.turn.errors, 2, "codex errors: a command and an MCP call")
+	equal(cx.turn.agents, 1, "codex subagents started")
+
+	local turn = P.turn_data(cx, cx.root)
+	local marks = {}
+	for _, r in ipairs(turn.groups[1].rows) do
+		marks[r.path] = r.mark
+	end
+	equal(marks["a.lua"], "M", "updated file")
+	equal(marks["b.lua"], "A", "added file")
+	equal(marks["c.lua"], "D", "deleted file")
+	equal(turn.added, 4, "codex lines added")
+	equal(turn.removed, 2, "codex lines removed")
+	local patch = P.turn_patch(cx, "/src/app/a.lua", "a.lua")
+	has(patch, "@@ -1,2 +1,2 @@\n x\n-old\n+new\n@@ -10,1 +10,2 @@\n y\n+z", "hunks without the blank line between them")
+
+	local info = plain(P.info_lines(cx, 70, { now = 1000, agent_name = "Codex", session_name = "Parser fix" }))
+	has(info, "gpt-test · main", "codex main box")
+	has(info, "Parser fix", "session name without an AI title")
+	has(info, "ctx", "codex context shown")
+	has(info, "5h", "codex limits shown")
+	has(info, "codex ", "codex working time label")
+	hasnt(info, "SHOULD NOT APPEAR", "raw model items skipped")
+	has(plain(P.info_lines(P.new_state("codex"), 60, { agent_name = "Codex" })), "Nothing from Codex yet.", "empty codex session")
+	-- The session's limits win over the transcript's; its window comes from the transcript.
+	local fresh = plain(P.info_lines(cx, 70, { now = 1000, agent_name = "Codex", status = { limits = { { label = "7d", used = 99, resets_at = 5000 } } } }))
+	has(fresh, "99%", "account limits from the session")
+	has(fresh, "25%", "context window from the transcript")
+
+	local started = P.new_state("codex")
+	P.feed(started, rex.json.encode(ev("task_started", {})) .. "\n")
+	equal(P.running(started), true, "a turn without a prompt still runs")
+	equal(cx.subagent_status.t2, "started", "a subagent's latest activity")
+	P.record(started, item({ type = "SubAgentActivity", kind = "completed", agent_thread_id = "t2" }))
+	equal(started.subagent_status.t2, "completed", "a finished subagent")
+
+	local declined = P.new_state("codex")
+	P.record(declined, item({ type = "CommandExecution", command = { "pytest" }, status = "declined" }))
+	equal(#declined.tests, 0, "a command that didn't run isn't a test run")
+	equal(declined.turn.errors, 0, "nor an error")
+	P.record(declined, item({ type = "CommandExecution", command = { "false" }, status = "failed" }))
+	equal(declined.failures[1].error, "status failed", "a failure without an exit code")
+
+	local cp = P.parsers.codex
+	equal(cp.command_text({ "/bin/zsh", "-lc", "echo hi" }), "echo hi", "a shell's script")
+	equal(cp.command_text({ "git", "status" }), "git status", "plain arguments")
+	local turns = cp.turns(lines, 5)
+	equal(#turns, 1, "codex turns")
+	equal(turns[1], "Fixed it. See https://example.com/pr/1", "codex turn's final message")
+	has(plain(A.artifacts_view({}, 60, {}, nil, nil, {}, "Codex").pinned), "all of Codex's replies", "artifacts name the agent")
+
+	local a = P.new_agent("t2", "codex")
+	for _, r in ipairs({
+		item({ type = "CommandExecution", command = { "/bin/zsh", "-lc", "rg parser" }, status = "completed", exit_code = 0 }),
+		item({ type = "FileChange", status = "completed", changes = { ["/src/app/a.lua"] = { type = "update", unified_diff = "" } } }),
+		ev("token_count", { info = { last_token_usage = { input_tokens = 1234 } } }),
+		item({ type = "AgentMessage", content = text("Looks right.") }),
+	}) do
+		P.agent_record(a, r, cx.gate)
+	end
+	equal(a.steps, 2, "codex subagent steps")
+	equal(a.context, 1234, "codex subagent context")
+	equal(a.answer, "Looks right.", "codex subagent answer")
+	has(plain(a.tools), "Shell", "codex subagent's tool calls")
+	equal(cx.gate.total, 0, "codex logs no permission checks")
 end
 -- The Tasks tab, on made-up tasks, with its state file beside the throwaway
 -- settings.json. No provider runs: the writes stay queued.

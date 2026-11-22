@@ -4,6 +4,8 @@ Make the [Rex](https://www.superlogical.com) terminal a better home for
 [Claude Code](https://claude.com/claude-code) on macOS: see what each Claude
 changed and what you decided with it, watch your agents as pixel crabs, get your
 conversations and programs back after a restart, and let Claude show you files.
+rex-sidecar and rex-crab-pond work with [Codex](https://github.com/openai/codex)
+too, through the adapters in [`agents/`](agents/README.md).
 
 | | Name | What you get | Runs as |
 | --- | --- | --- | --- |
@@ -183,6 +185,7 @@ claude plugin update sidecar-task-list@rex-extensions
 
 ```text
 .claude-plugin/marketplace.json   the plugin marketplace
+agents/                           Claude Code and Codex adapters for rex-sidecar and rex-crab-pond
 rex-resume/                       extension
 rex-sidecar/                       extension
 rex-crab-pond/                     extension
@@ -193,7 +196,7 @@ docs/                             pictures
 
 ## Privacy
 
-Everything reads Claude Code's own files and the process list on your machine (rex-resume also reads the command lines of the programs its settings allow).
+Everything reads Claude Code's and Codex's own files and the process list on your machine (rex-resume, and rex-sidecar and rex-crab-pond for a Codex, also read the command lines of programs).
 No AI is involved. Nothing is sent anywhere, except by rex-sidecar's Tasks tab
 once you choose Google Tasks: it then reads and changes your tasks through
 Google's Tasks API.
@@ -201,6 +204,7 @@ Google's Tasks API.
 ## Tests
 
 ```sh
+rex do ~/.config/rex/extensions/agents/test.lua
 rex do ~/.config/rex/extensions/rex-resume/test.lua
 rex do ~/.config/rex/extensions/rex-sidecar/test.lua
 rex do ~/.config/rex/extensions/rex-crab-pond/test.lua

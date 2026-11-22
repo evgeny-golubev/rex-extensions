@@ -20,19 +20,21 @@ local titles = {}
 --- mentions.group; a click on a row opens it as the Search Panel's Enter does.
 
 
---- `titles` maps a PR's link to its title, when it's known.
-function A.artifacts_view(groups, cols, folded, focus, notice, titles)
+--- `titles` maps a PR's link to its title, when it's known; `who` names the
+--- agent, Claude by default.
+function A.artifacts_view(groups, cols, folded, focus, notice, titles, who)
 	titles = titles or {}
+	who = who or "Claude"
 	local out = sidecar.new_lines(folded, focus)
 	local link = "Search Panel"
 	local built = {
 		lines = out,
-		pinned = { bold .. teal .. link .. reset .. dim .. "  ↗ all of Claude's replies" .. reset, notice and (red .. notice .. reset) or "" },
+		pinned = { bold .. teal .. link .. reset .. dim .. "  ↗ all of " .. who .. "'s replies" .. reset, notice and (red .. notice .. reset) or "" },
 		hits = { { { from = 1, to = width(link), action = { kind = "view_panel" } } } },
 		rows = {},
 	}
 	if #groups == 0 then
-		out[1] = dim .. "Nothing in Claude's replies yet." .. reset
+		out[1] = dim .. "Nothing in " .. who .. "'s replies yet." .. reset
 	end
 	for _, g in ipairs(groups) do
 		local n = cols
@@ -158,10 +160,10 @@ function A.view(cols)
 	if not panel.gathered then
 		return { lines = { dim .. "Reading the session…" .. reset }, pinned = {} }
 	elseif not panel.state.path then
-		return { lines = { dim .. "No Claude session found for this pane." .. reset }, pinned = {} }
+		return { lines = { dim .. "No " .. sidecar.agent_name() .. " session found for this pane." .. reset }, pinned = {} }
 	end
 	local a = artifacts or { groups = {} }
-	return A.artifacts_view(a.groups, cols, panel.folded, panel.focus[A.name], panel.notice, titles)
+	return A.artifacts_view(a.groups, cols, panel.folded, panel.focus[A.name], panel.notice, titles, sidecar.agent_name())
 end
 
 --- What a click on a row does: the Search Panel's Enter. A link opens in the
@@ -187,7 +189,7 @@ end
 
 local function open_view_panel()
 	if not panel.claude then
-		return "No Claude pane for this sidecar."
+		return "No agent pane for this sidecar."
 	end
 	return sidecar.open_float(sidecar.view_label .. "Search Panel", { sidecar.dir .. "view-picker", sidecar.rex_binary, panel.session_id, panel.claude }, panel.cwd)
 end

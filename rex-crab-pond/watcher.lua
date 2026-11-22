@@ -1,11 +1,13 @@
--- Opens a "Crabs" pane along the bottom of every tab that runs Claude Code,
--- and closes it when the last Claude in that tab exits. The pane runs
+-- Opens a "Crabs" pane along the bottom of every tab that runs a coding agent
+-- (Claude Code or Codex; see agents/init.lua), and closes it when the last
+-- agent in that tab exits. The pane runs
 -- pond.lua. init.lua starts this file with every config load
 -- (`rex do --all watcher.lua`).
 
 local terminal = "com.superlogical.terminal"
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)")
 local settings = dofile(dir .. "settings.lua")
+local agents = dofile(dir .. "../agents/init.lua")
 --- Where settings.json lives; the tests point it elsewhere.
 local base = REX_CRAB_POND_TEST_BASE or dir
 local home = os.getenv("HOME") or ""
@@ -38,22 +40,10 @@ local function check(value, err)
 	return value
 end
 
-local function is_claude(p)
-	return p ~= nil and p.argv0 ~= nil and p.argv0:match("[^/]*$"):lower() == "claude"
-end
-
---- Whether Claude runs in the pane: in the foreground, or under a command it
---- started in the foreground.
+--- Whether an agent runs in the pane: in the foreground, or under a command
+--- it started in the foreground.
 local function runs_claude(foreground, ancestors)
-	if is_claude(foreground) then
-		return true
-	end
-	for _, p in ipairs(ancestors or {}) do
-		if is_claude(p) then
-			return true
-		end
-	end
-	return false
+	return agents.find(foreground, ancestors) ~= nil
 end
 
 local function window_of(session_id, block_id)
