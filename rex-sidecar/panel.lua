@@ -1241,19 +1241,19 @@ end
 local week_days = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" }
 local month_names = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" }
 
---- The date and time as "Sun 22 Nov 2026 · 18:04", written out here, as
---- this runtime's os.date gives day names in lower case.
+--- The time, "18:04", and the date, "Sun · 22 Nov 2026", written out here,
+--- as this runtime's os.date gives day names in lower case.
 function M.date_time(now)
 	local t = os.date("*t", now)
-	return string.format("%s %d %s %d · %02d:%02d", week_days[t.wday], t.day, month_names[t.month], t.year, t.hour, t.min)
+	return string.format("%02d:%02d", t.hour, t.min), string.format("%s · %d %s %d", week_days[t.wday], t.day, month_names[t.month], t.year)
 end
 
 function M.info_lines(state, cols, opts)
 	local o = opts or {}
 	o.now = o.now or os.time()
 	local out = new_lines(o.folded, o.focus)
-	local stamp = M.date_time(o.now)
-	out[#out + 1] = string.rep(" ", math.max(0, cols - M.width(stamp))) .. dim .. stamp .. reset
+	local time, date = M.date_time(o.now)
+	out[#out + 1] = teal .. "◷ " .. reset .. bold .. time .. reset .. "  " .. grey .. date .. reset
 	main_box(out, state, cols, o)
 	advisor_box(out, state, cols, o)
 	gate_box(out, state, cols, o)

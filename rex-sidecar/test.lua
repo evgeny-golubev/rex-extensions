@@ -760,7 +760,7 @@ local ok2, err2 = pcall(function()
 	has(plain(open), "npm test", "the tests, listed")
 	hasnt(plain(open), "OPEN", "no box with nothing open")
 	hasnt(plain(open), "GATE", "no gate before a check")
-	equal(P.width(open[1]), 60, "a box fills the width")
+	equal(P.width(open[3]), 60, "a box fills the width, under the clock and a blank line")
 	local closed = P.info_lines(tested, 60, { now = 400, folded = { Receipt = true }, show = "tests" })
 	has(plain(closed), "╶ ▸ ✓ last turn 2m37s", "a folded box is one line")
 	hasnt(plain(closed), "npm test", "and hides its body")
@@ -1320,9 +1320,10 @@ end
 -- The date and time at the top of Info.
 do
 	local at = os.time({ year = 2026, month = 11, day = 22, hour = 18, min = 4 })
-	equal(P.date_time(at), "Sun 22 Nov 2026 · 18:04", "the date and time")
+	local time, date = P.date_time(at)
+	equal(time .. " " .. date, "18:04 Sun · 22 Nov 2026", "the time and the date")
 	local top = plain({ P.info_lines(P.new_state(), 60, { now = at })[1] })
-	equal(top, string.rep(" ", 60 - 23) .. "Sun 22 Nov 2026 · 18:04", "right-aligned on the first line")
+	equal(top, "◷ 18:04  Sun · 22 Nov 2026", "on the first line")
 end
 -- agy: an Antigravity CLI transcript read through its parser.
 do
