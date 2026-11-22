@@ -24,7 +24,7 @@ or `agy` in a tab. [Full install →](#install)
 [Keys and mouse](#keys-and-mouse) · [Tab settings](#tab-settings) ·
 [Tab plugins](#tab-plugins) · [Install](#install) · [Files](#files) · [Tests](#tests)
 
-![Four sidecar panes with made-up data: Info with the model, permission checks, agents and running processes; Changes on a pull request; Artifacts with documents, PRs, Jira issues and links; and Reminders with the next task, today's list and a report waiting for confirmation](../docs/rex-sidecar.png)
+![Four sidecar panes with made-up data: Info with the time and date, the model, permission checks, agents and running processes; Changes on a pull request; Artifacts with documents, PRs, Jira issues and links; and Reminders with the next task, today's list and a report waiting for confirmation](../docs/rex-sidecar.png)
 
 The sidecar replaces Claude Code's own diff panel. Turn that one off with
 `"diffSidebarOpen": false` in `~/.claude.json`.

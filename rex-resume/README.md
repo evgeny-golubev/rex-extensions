@@ -3,7 +3,7 @@
 **Reboot without losing your place.** After a restart, a Rex update or a
 crash, every pane comes back running what it ran before.
 
-![A tab before a restart with claude, codex, nvim and zsh panes; the saved sessions.json snapshot and settings.json; the same panes after the restart with claude --resume, codex resume and nvim src/cart/total.ts typed back in; made-up data](../docs/rex-resume.png)
+![A tab before a restart with claude, codex, nvim and agy panes; the saved sessions.json snapshot and settings.json; the same panes after the restart with claude --resume, codex resume, nvim src/cart/total.ts and agy --conversation typed back in; made-up data](../docs/rex-resume.png)
 
 | Was running | Comes back as |
 | --- | --- |

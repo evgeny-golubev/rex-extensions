@@ -3,7 +3,10 @@
 Releases are tagged `vX.Y.Z` on GitHub. The skills keep their own versions,
 in each plugin's `plugin.json`.
 
-## Unreleased
+## v1.1.0 — 2026-11-22
+
+Agy support, two task tabs with Reminders done properly, task editing and
+deleting, a clock on the Info tab, and rewritten docs.
 
 ### rex-sidecar
 

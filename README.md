@@ -41,7 +41,7 @@ Answers two questions: what did the agent change, and what's still waiting on
 you? The pane opens on the right of every Claude Code, Codex or agy pane and closes
 when the agent exits.
 
-![rex-sidecar with made-up data. Info: the model, context, limits, permission checks, subagents, running shells, open questions and the last turn. Changes: the files changed on a pull request. Artifacts: documents, PRs, Jira issues, links and files from the agent's replies. Reminders: the day's tasks, rated A, B and C.](docs/rex-sidecar.png)
+![rex-sidecar with made-up data. Info: the time and date, the model, context, limits, permission checks, subagents, running shells, open questions and the last turn. Changes: the files changed on a pull request. Artifacts: documents, PRs, Jira issues, links and files from the agent's replies. Reminders: the day's tasks, rated A, B and C.](docs/rex-sidecar.png)
 
 | Tab | What it shows |
 | --- | --- |
