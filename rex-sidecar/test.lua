@@ -2060,6 +2060,33 @@ do
 	equal(calls[#calls - 1], "update L1 z1 --status needsAction", "not done, through the provider")
 	equal(lib.model(state.lists, "2026-11-21", {}).by.z1.done, nil, "open again at once")
 
+	-- An edit or a new task without a name is refused.
+	state.view, state.selected = "all", "c1"
+	local before = #calls
+	tab.key("E")
+	state.input.text = "A. (20m)"
+	tab.key("\r")
+	equal(state.input and state.input.error, "A task needs a name.", "an empty name on edit")
+	equal(#calls, before, "nothing saved")
+	tab.key("escape")
+	tab.key("a")
+	state.input.text = "B. (20m) fri"
+	tab.key("\r")
+	equal(state.input and state.input.error, "A task needs a name.", "an empty name on add")
+	tab.key("escape")
+
+	-- D deletes a task after y; another key keeps it.
+	state.selected = "c1"
+	tab.key("D")
+	has(plain(tab.view(60).lines), "Delete Plan the summer trip? It can't be undone.", "D asks first")
+	tab.key("n")
+	equal(#calls, before, "n keeps the task")
+	equal(lib.model(state.lists, "2026-11-21", {}).by.c1 ~= nil, true, "still there")
+	tab.key("D")
+	tab.key("y")
+	equal(calls[#calls - 1], "delete L1 c1", "y deletes it through the provider")
+	equal(lib.model(state.lists, "2026-11-21", {}).by.c1, nil, "gone at once")
+
 	-- A blank line between the view switcher and the first box.
 	local pinned = tab.view(60).pinned
 	equal(pinned[#pinned], "", "space under the switcher")

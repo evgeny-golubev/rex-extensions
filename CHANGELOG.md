@@ -30,6 +30,9 @@ can show on their own or together. Their shared code lives in
     type one last.
   - `x` on a task done today marks it not done again. Done tasks can now be
     selected.
+  - `D` deletes a task, with its steps, after you confirm with `y`. Both
+    providers have a new `delete` command.
+  - A task's name can't be left empty when adding or editing it.
   - A blank line now separates the view switcher from the first box.
 
 ### Task actions and skill

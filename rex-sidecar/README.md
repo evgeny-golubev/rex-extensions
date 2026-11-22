@@ -291,7 +291,8 @@ of days in a row with a review.
 | `t` | Plan it for today |
 | `d` | Give it a new date: `today`, `tomorrow`, a weekday, `+3` or `2026-12-01`. Empty clears it |
 | `e` | Estimate it: `15m`, `1h`, `1h30`. Empty clears it |
-| `E` | Edit it: the line starts as `A. Title (20m)`. Change the rating, title or estimate, or add a date as the last word to move it |
+| `E` | Edit it: the line starts as `A. Title (20m)`. Change the rating, title or estimate, or add a date as the last word to move it. The name can't be empty |
+| `D` | Delete it, with its steps. The tab asks first: `y` deletes, any other key keeps it |
 | `s` | Add steps, one per line; `Esc` finishes. Google Tasks only |
 | `l` | Choose the lists shown and the list for new tasks. Reminders only |
 | `m` | Move the task to another list. Reminders only |
@@ -428,7 +429,7 @@ A provider is a command in `providers/`, named in `task-providers.lua`, which
 also names each one's tab and state file. The contract is at the top of
 `tasks-core.lua`:
 
-- `tasks [--completed-since DATE]`, `add`, `update` and `login`;
+- `tasks [--completed-since DATE]`, `add`, `update`, `delete` and `login`;
 - JSON on standard output;
 - exit code 3 when sign-in is needed, and 4 when the provider isn't set up.
 

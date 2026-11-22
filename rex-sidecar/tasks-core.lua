@@ -26,6 +26,8 @@
 --       provider without subtasks refuses --parent with a message.
 --   update LIST TASK [--title TEXT] [--due DATE] [--notes TEXT] [--status STATUS]
 --       An empty DATE clears the due date.
+--   delete LIST TASK
+--       Deletes a task.
 --   login
 --       Signs in interactively.
 --   Exit code 3, or the JSON { error = "auth_required" }, means sign-in is needed;
@@ -550,6 +552,8 @@ local state = {
 	input = nil,
 	--- The list picker: { kind = "lists" or "move", index, id }, or nil.
 	picker = nil,
+	--- The ID of the task D asks to delete, until y or another key answers.
+	deleting = nil,
 	--- The daily review in progress: { stage, ids, index, confirm }, or nil.
 	review = nil,
 	--- True while the list of keys is shown.
@@ -860,6 +864,33 @@ local function reopen(id)
 	end
 end
 
+--- Deletes a task, and its steps first, at once and through the provider in
+--- the background.
+local function delete_task(id)
+	local t, list = find_task(id)
+	if not t or t.pending then
+		return
+	end
+	local ids = {}
+	for _, x in ipairs(list.tasks) do
+		if x.parent == id and not x.pending then
+			ids[#ids + 1] = x.id
+		end
+	end
+	ids[#ids + 1] = id
+	for _, gone in ipairs(ids) do
+		for i, x in ipairs(list.tasks) do
+			if x.id == gone then
+				table.remove(list.tasks, i)
+				break
+			end
+		end
+		enqueue("Deleting the task", function()
+			return client_run(30, "delete", list.id, gone)
+		end)
+	end
+end
+
 --- Sets the rating or the estimate in a task's title; `field` is "rating"
 --- or "estimate", and a nil value removes it.
 local function retitle(id, field, value, label)
@@ -1167,7 +1198,7 @@ end
 
 --- Completes a task and selects the row that takes its place, so that the
 --- selection never jumps to the top of the list.
-local function complete_row(id, drop)
+local function complete_row(id, drop, remove)
 	local done = model().by[id]
 	if done and done.done then
 		reopen(id)
@@ -1189,7 +1220,11 @@ local function complete_row(id, drop)
 			at = i
 		end
 	end
-	complete(id, drop)
+	if remove then
+		delete_task(id)
+	else
+		complete(id, drop)
+	end
 	local rest = open_rows()
 	local row = rest[math.min(at, #rest)]
 	state.selected = row and row.item.id
@@ -1240,6 +1275,10 @@ local function commit(input)
 		if text == "" then
 			return true
 		end
+		if lib.parse_title(lib.parse_entry(text, day)).name == "" then
+			input.error = "A task needs a name."
+			return false
+		end
 		local m = model()
 		local selected = m.by[state.selected or ""]
 		local list = default_list() or selected and selected.list or (shown_lists() or {})[1]
@@ -1252,11 +1291,11 @@ local function commit(input)
 		end
 		state.selected = add_task(list, title, due).id
 	elseif input.kind == "edit" then
-		if text == "" then
-			input.error = "A task needs a title."
+		local title, due = lib.parse_entry(text, day)
+		if lib.parse_title(title).name == "" then
+			input.error = "A task needs a name."
 			return false
 		end
-		local title, due = lib.parse_entry(text, day)
 		local fields = { due = due }
 		if PRIORITY then
 			local p = lib.parse_title(title)
@@ -1377,6 +1416,9 @@ local function task_key(k, it, m)
 	elseif k == "E" then
 		open_input("edit", it)
 		return true
+	elseif k == "D" then
+		state.deleting = it.id
+		return true
 	elseif k == "s" and STEPS then
 		open_input("steps", it.step_of or it)
 		return true
@@ -1450,6 +1492,18 @@ local function handle(k)
 	if state.picker then
 		return picker_key(k)
 	end
+	if state.deleting then
+		local id = state.deleting
+		state.deleting = nil
+		if k == "y" then
+			local in_review = state.review and state.review.stage == "late"
+			complete_row(id, false, true)
+			if in_review then
+				advance()
+			end
+		end
+		return true
+	end
 	if k == "r" then
 		state.fetched_at = nil
 		sidecar.spawn("tasks refresh", refresh_all)
@@ -1513,10 +1567,10 @@ end
 --- The keys this tab uses somewhere; one that does nothing on the screen
 --- shown gets a notice instead of no answer.
 local tab_keys = {}
-for k in ((STEPS and "s" or "") .. (LISTS and "lm" or "") .. "xtdeEaABCvVz]yn-Lrjk"):gmatch(".") do
+for k in ((STEPS and "s" or "") .. (LISTS and "lm" or "") .. "xtdeEDaABCvVz]yn-Lrjk"):gmatch(".") do
 	tab_keys[k] = true
 end
-local task_keys = { x = true, t = true, d = true, e = true, E = true, s = STEPS or nil, m = LISTS or nil, A = true, B = true, C = true }
+local task_keys = { x = true, t = true, d = true, e = true, E = true, D = true, s = STEPS or nil, m = LISTS or nil, A = true, B = true, C = true }
 local unused_notices = {
 	z = "z hides warnings; use d to move a task to a later date.",
 	["]"] = "] shows the next warning; there is no other one here.",
@@ -1966,7 +2020,7 @@ local function key_groups(m)
 	end
 	local task_list = task and {
 		{ "x", "mark the task done" }, { "t", "plan it for today" }, { "d", "give it a new date" },
-		{ "e", "estimate how long it takes" }, { "E", "edit its title, rating, estimate or date" }, { "A B C", "rate it A, B or C" },
+		{ "e", "estimate how long it takes" }, { "E", "edit its title, rating, estimate or date" }, { "D", "delete it, after y to confirm" }, { "A B C", "rate it A, B or C" },
 	} or {}
 	if task and STEPS then
 		task_list[#task_list + 1] = { "s", "split it into steps" }
@@ -2123,6 +2177,16 @@ function tab.view(cols)
 		input_box(v, m)
 	elseif state.help then
 		help_box(v, m)
+	end
+	if state.deleting then
+		local it = m.by[state.deleting]
+		v.box(c.red, "Delete task", nil, function(n)
+			for _, l in ipairs(sidecar.wrap("Delete " .. (it and it.name or "this task") .. "? It can't be undone.", n, "", "")) do
+				v.add(l)
+			end
+			v.hints({ "y deletes it", "any other key keeps it" }, n)
+		end)
+		v.selected = 1
 	end
 	if state.picker then
 		picker_box(v, m)

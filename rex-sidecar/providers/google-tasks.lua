@@ -23,6 +23,7 @@
 --   update LIST_ID TASK_ID [--title TEXT] [--due DATE] [--notes TEXT] [--status STATUS]
 --                               Change the given fields of a task. An empty DATE clears
 --                               the due date. STATUS is needsAction or completed.
+--   delete LIST_ID TASK_ID      Delete a task.
 -- A missing or expired sign-in prints {"error": "auth_required"} and exits with code 3.
 -- Without a stored OAuth client it prints {"error": "setup_required"} and exits with
 -- code 4; standard error names the next step.
@@ -389,8 +390,14 @@ elseif command == "add" then
 	result = command_add(args)
 elseif command == "update" then
 	result = command_update(args)
+elseif command == "delete" then
+	if not (args[1] and args[2]) then
+		fail("Usage: delete LIST_ID TASK_ID")
+	end
+	api("DELETE", "/lists/" .. args[1] .. "/tasks/" .. args[2], access_token())
+	result = "deleted"
 else
-	fail("Commands: import-client, login, tasks, add, update. See the head of google-tasks.lua.", 2)
+	fail("Commands: import-client, login, tasks, add, update, delete. See the head of google-tasks.lua.", 2)
 end
 io.write(type(result) == "table" and rex.json.encode(result) or result, "\n")
 os.exit(0)

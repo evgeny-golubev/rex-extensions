@@ -5,6 +5,7 @@
 //   add LIST [--due DATE] [--notes TEXT] [--priority P] TITLE
 //   update LIST TASK [--title TEXT] [--due DATE] [--notes TEXT] [--status STATUS] [--priority P]
 //   move LIST TASK NEWLIST
+//   delete LIST TASK
 //   login
 // Lists are Reminders lists and tasks are reminders, by identifier. Each task
 // also has "recurring", true when it has a recurrence rule, and "priority",
@@ -201,6 +202,13 @@ function command_move(args) {
   return JSON.stringify({ id: ObjC.unwrap(copy.calendarItemIdentifier) });
 }
 
+function command_delete(args) {
+  const reminder = store.calendarItemWithIdentifier(args[1]);
+  if (reminder.isNil()) throw new Error("No such task: " + args[1]);
+  if (!store.removeReminderCommitError(reminder, true, $())) throw new Error("Deleting the reminder failed");
+  return "deleted";
+}
+
 function command_login() {
   let answer = null;
   store.requestFullAccessToRemindersWithCompletion(function (granted) {
@@ -218,7 +226,8 @@ function dispatch(command, args) {
   if (command === "add") return command_add(args);
   if (command === "update") return command_update(args);
   if (command === "move") return command_move(args);
-  throw new Error("Commands: tasks, add, update, move, login");
+  if (command === "delete") return command_delete(args);
+  throw new Error("Commands: tasks, add, update, move, delete, login");
 }
 
 /** Prints the result on standard output, or an error's message on standard
