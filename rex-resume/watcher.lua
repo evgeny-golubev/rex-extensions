@@ -155,7 +155,7 @@ end
 
 --- Turns a `session.view` layout node into a `session.create` layout node, or
 --- nil when nothing in it is kept. Sidecar panes are left out: the
---- cc-sidecar extension opens them again beside the resumed Claude.
+--- rex-sidecar extension opens them again beside the resumed Claude.
 local function capture(node, view, blocks)
 	if node.split then
 		local s = node.split

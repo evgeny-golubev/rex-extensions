@@ -1,10 +1,10 @@
-# CC Crab Pond for Rex
+# Rex Crab Pond
 
 Opens a `Crabs` pane along the bottom 8% of every Rex tab that runs Claude
 Code, and closes it when the last Claude in the tab exits. The pane shows what
 runs in that tab as animated pixel crabs:
 
-![cc-crab-pond](../docs/cc-crab-pond.png)
+![rex-crab-pond](../docs/rex-crab-pond.png)
 
 **Every crab is one thing running in the tab.** Read it in four parts:
 
@@ -115,11 +115,11 @@ Clawd, Claude Code's mascot by Anthropic.
 
 ## Install
 
-Place this directory at `~/.config/rex/extensions/cc-crab-pond/` and add to your
+Place this directory at `~/.config/rex/extensions/rex-crab-pond/` and add to your
 Rex `init.lua`:
 
 ```lua
-require("extensions.cc-crab-pond")
+require("extensions.rex-crab-pond")
 ```
 
 Then run `rex config reload`, and save Claude Code's status line input as
@@ -127,7 +127,7 @@ below. To load a changed `watcher.lua`, stop the running watcher first; the
 crab panes reopen with the new `pond.lua`:
 
 ```sh
-pkill -f 'cc-crab-pond/watcher\.lua'; rex config reload
+pkill -f 'rex-crab-pond/watcher\.lua'; rex config reload
 ```
 
 ### Claude Code status line
@@ -144,7 +144,7 @@ If you already have a status line script (`"statusLine"` in
 # Read JSON input from stdin
 input=$(cat)
 
-# Save the input for the Rex cc-crab-pond extension
+# Save the input for the Rex rex-crab-pond extension
 sid=$(echo "$input" | jq -r '.session_id // empty')
 [ -n "$sid" ] && mkdir -p ~/.claude/state/statusline && printf '%s' "$input" > ~/.claude/state/statusline/"$sid".json
 ```
@@ -156,7 +156,7 @@ If you have none, save this as `~/.claude/statusline-command.sh`:
 # Read JSON input from stdin
 input=$(cat)
 
-# Save the input for the Rex cc-crab-pond extension
+# Save the input for the Rex rex-crab-pond extension
 sid=$(echo "$input" | jq -r '.session_id // empty')
 [ -n "$sid" ] && mkdir -p ~/.claude/state/statusline && printf '%s' "$input" > ~/.claude/state/statusline/"$sid".json
 echo "$input" | jq -r '.model.display_name'
@@ -181,10 +181,10 @@ running session after its next reply. The saved files are small; remove
 | Show Crabs Pane | Opens the pane in the focused tab, with or without a Claude in it |
 | Disable / Enable Crabs Pane Auto-Show | Whether a pane opens by itself when Claude starts in a tab. On by default |
 
-The choice is saved as `{"auto_show": false}` in `cc-crab-pond/settings.json`,
+The choice is saved as `{"auto_show": false}` in `rex-crab-pond/settings.json`,
 which git ignores. It applies to tabs where Claude starts from then on, so open
 panes stay. The palette shows whichever of Disable and Enable applies. For a
-key, bind `cc_crab_pond_show` or `cc_crab_pond_auto_show` with `rex.bind`.
+key, bind `rex_crab_pond_show` or `rex_crab_pond_auto_show` with `rex.bind`.
 
 ## Behavior
 
@@ -196,7 +196,7 @@ key, bind `cc_crab_pond_show` or `cc_crab_pond_auto_show` with `rex.bind`.
 - When the watcher starts, it replaces leftover crab panes with new ones.
 - rex-resume doesn't save crab panes; they come back with the resumed
   Claude.
-- Watcher errors go to `~/.config/rex/state/cc-crab-pond.log`; the pane shows
+- Watcher errors go to `~/.config/rex/state/rex-crab-pond.log`; the pane shows
   its own.
 
 ## Files
@@ -213,7 +213,7 @@ key, bind `cc_crab_pond_show` or `cc_crab_pond_auto_show` with `rex.bind`.
 ## Tests
 
 ```sh
-rex do ~/.config/rex/extensions/cc-crab-pond/test.lua
+rex do ~/.config/rex/extensions/rex-crab-pond/test.lua
 ```
 
 The tests mock Rex; they don't touch live sessions.

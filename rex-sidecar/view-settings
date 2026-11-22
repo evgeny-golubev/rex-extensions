@@ -1,5 +1,5 @@
 #!/bin/bash
-# The Rex View settings floats, which write cc-sidecar's settings.json:
+# The Rex View settings floats, which write rex-sidecar's settings.json:
 #   view-settings editor     ask for the editor command
 #   view-settings patterns [dir]   list, add, edit and delete link patterns;
 #                                  dir is where a new one applies at first

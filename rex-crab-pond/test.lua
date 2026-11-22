@@ -1,4 +1,4 @@
--- Run: rex do ~/.config/rex/extensions/cc-crab-pond/test.lua
+-- Run: rex do ~/.config/rex/extensions/rex-crab-pond/test.lua
 -- Mocks the Rex API: it doesn't touch live sessions or panes.
 local real = rex
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)")
@@ -38,7 +38,7 @@ end
 
 -- settings.json in a throwaway folder, never the real one.
 local test_base = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "") .. "/"
-CC_CRAB_POND_TEST_BASE = test_base
+REX_CRAB_POND_TEST_BASE = test_base
 local S = dofile(dir .. "settings.lua")
 local poll
 
@@ -202,7 +202,7 @@ local ok, err = pcall(function()
 
 	-- A second copy quits.
 	reset()
-	clients = { { info = { label = "cc-crab-pond" } } }
+	clients = { { info = { label = "rex-crab-pond" } } }
 	run()
 	equal(stopped, true, "second copy stopped")
 	equal(#splits, 0, "second copy's panes")
@@ -238,14 +238,14 @@ local ok, err = pcall(function()
 end)
 rex = real
 real.exec({ "rm", "-rf", test_base })
-CC_CRAB_POND_TEST_BASE = nil
+REX_CRAB_POND_TEST_BASE = nil
 if not ok then
 	error(err, 0)
 end
 
-CC_CRAB_POND_TEST = true
+REX_CRAB_POND_TEST = true
 local P = dofile(dir .. "pond.lua")
-CC_CRAB_POND_TEST = nil
+REX_CRAB_POND_TEST = nil
 
 ok, err = pcall(function()
 	-- Programs get crabs by what they do.
@@ -486,4 +486,4 @@ end)
 if not ok then
 	error(err, 0)
 end
-return "cc-crab-pond: all tests passed"
+return "rex-crab-pond: all tests passed"

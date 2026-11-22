@@ -1,11 +1,11 @@
-# CC Sidecar for Rex
+# Rex Sidecar
 
 Opens a `Sidecar: <folder>` pane to the right of every pane that runs Claude
 Code, and closes it when Claude exits or its pane closes. It stands in for
 Claude Code's own diff panel; turn that one off with `"diffSidebarOpen": false`
 in `~/.claude.json`.
 
-![The Changes tab on a pull request, the Info dashboard with permission checks, agents and background tasks, and Artifacts with documents, PRs, Jira issues and links from Claude's replies, with made-up data](../docs/cc-sidecar.png)
+![The Changes tab on a pull request, the Info dashboard with permission checks, agents and background tasks, and Artifacts with documents, PRs, Jira issues and links from Claude's replies, with made-up data](../docs/rex-sidecar.png)
 
 The pane has three tabs, a [Tasks](#tasks) tab you can show, and any that
 [tab plugins](#tab-plugins) add, redrawn every 2 seconds, and every second while a
@@ -217,7 +217,7 @@ To set up Google Tasks yourself, once, in about 10 minutes:
 6. Store the file in the macOS Keychain, then delete it:
 
    ```sh
-   ~/.config/rex/extensions/cc-sidecar/providers/google-tasks import-client ~/Downloads/client_secret_XXX.json
+   ~/.config/rex/extensions/rex-sidecar/providers/google-tasks import-client ~/Downloads/client_secret_XXX.json
    rm ~/Downloads/client_secret_XXX.json
    ```
 
@@ -333,7 +333,7 @@ basis that the match is added to:
 }
 ```
 
-For a Claude in a directory, cc-sidecar takes that directory's patterns, then its
+For a Claude in a directory, rex-sidecar takes that directory's patterns, then its
 parent's, and so on up to `/`, and uses them all. When two set the same
 pattern, the nearer one wins. With the example, `PROJ-12` opens
 `https://acme-mobile.atlassian.net/browse/PROJ-12` under `acme/mobile`, and
@@ -453,18 +453,18 @@ lines. The other tabs keep working.
 
 ## Install
 
-Place this directory at `~/.config/rex/extensions/cc-sidecar/` and add to
+Place this directory at `~/.config/rex/extensions/rex-sidecar/` and add to
 your Rex `init.lua`:
 
 ```lua
-require("extensions.cc-sidecar")
+require("extensions.rex-sidecar")
 ```
 
 Then run `rex config reload`. To load a changed `watcher.lua`, stop the running
 watcher first:
 
 ```sh
-pkill -f 'cc-sidecar/watcher\.lua'; rex config reload
+pkill -f 'rex-sidecar/watcher\.lua'; rex config reload
 ```
 
 ## Palette actions
@@ -478,12 +478,12 @@ pkill -f 'cc-sidecar/watcher\.lua'; rex config reload
 | Rex View: Edit Link Patterns | Adds, edits and deletes [link patterns](#link-patterns) |
 | Tasks: List Open Tasks, Add Task, Report Task Done | The [task actions](#task-actions) |
 
-The choice is saved as `{"auto_show": false}` in `cc-sidecar/settings.json`,
+The choice is saved as `{"auto_show": false}` in `rex-sidecar/settings.json`,
 which git ignores. It applies from the next Claude that starts, so open panes
 stay. The palette shows whichever of Disable and Enable applies. For a key, bind
-`cc_sidecar_show` or `cc_sidecar_auto_show` with `rex.bind`. The Rex View
-actions are `cc_sidecar_view`, `cc_sidecar_view_editor` and
-`cc_sidecar_view_patterns`.
+`rex_sidecar_show` or `rex_sidecar_auto_show` with `rex.bind`. The Rex View
+actions are `rex_sidecar_view`, `rex_sidecar_view_editor` and
+`rex_sidecar_view_patterns`.
 
 ## Behavior
 
@@ -500,7 +500,7 @@ actions are `cc_sidecar_view`, `cc_sidecar_view_editor` and
 - When the watcher starts, it replaces leftover sidecar panes with new ones,
   including `Changes:` panes from before this extension was renamed.
 - rex-resume doesn't save sidecar panes; they come back with the resumed Claude.
-- Errors go to `~/.config/rex/state/cc-sidecar.log`; the pane shows its own.
+- Errors go to `~/.config/rex/state/rex-sidecar.log`; the pane shows its own.
 
 ## Files
 
@@ -524,7 +524,7 @@ actions are `cc_sidecar_view`, `cc_sidecar_view_editor` and
 ## Tests
 
 ```sh
-rex do ~/.config/rex/extensions/cc-sidecar/test.lua
+rex do ~/.config/rex/extensions/rex-sidecar/test.lua
 ```
 
 The tests mock Rex and use a made-up transcript and made-up tasks; they don't

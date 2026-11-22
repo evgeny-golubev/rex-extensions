@@ -25,7 +25,7 @@ Never print or ask for secrets:
 Run these checks first, in one Bash call, and change nothing:
 
 ```sh
-EXT=~/.config/rex/extensions/cc-sidecar
+EXT=~/.config/rex/extensions/rex-sidecar
 test -x "$EXT/providers/google-tasks" && echo "extension: present" || echo "extension: missing"
 echo "task actions: $(rex actions 2>/dev/null | grep -c '^tasks_')"
 order=$(plutil -extract tabs.order json -o - "$EXT/settings.json" 2>/dev/null)
@@ -40,7 +40,7 @@ Then, for the provider in use, or for Google when the client is stored, run
 the provider and keep only its exit code and its first error line:
 
 ```sh
-EXT=~/.config/rex/extensions/cc-sidecar
+EXT=~/.config/rex/extensions/rex-sidecar
 "$EXT/providers/google-tasks" tasks >/dev/null 2>"$TMPDIR/sidecar-tasks-check.txt"; echo "exit code: $?"
 head -1 "$TMPDIR/sidecar-tasks-check.txt"; rm -f "$TMPDIR/sidecar-tasks-check.txt"
 ```
@@ -51,7 +51,7 @@ Read the results:
 
 | Result | Meaning | Go to |
 | --- | --- | --- |
-| extension missing, or task actions not 3 | cc-sidecar is not installed or not loaded | 2 |
+| extension missing, or task actions not 3 | rex-sidecar is not installed or not loaded | 2 |
 | tab hidden | The Tasks tab is not shown yet | 3 |
 | provider none | No task source chosen | 4 |
 | exit code 0 | Set up and working | 7 |
@@ -64,11 +64,11 @@ Tell the user in one or two lines what is already done and what is left.
 When everything works, say that the Tasks tab is already set up, name the
 source, and stop. Do not change anything.
 
-## 2. Install cc-sidecar
+## 2. Install rex-sidecar
 
 Tell the user the steps in the Install section of
 `~/.config/rex/extensions/README.md`: the repository linked at
-`~/.config/rex/extensions`, `require("extensions.cc-sidecar")` in
+`~/.config/rex/extensions`, `require("extensions.rex-sidecar")` in
 `~/.config/rex/init.lua`, then `rex config reload`. Offer to run
 `rex config reload` once the line is there. Check again with
 `rex actions | grep -c '^tasks_'`, which prints 3.
@@ -145,7 +145,7 @@ has a project or a client from an earlier try, skip the steps they have done.
    Import it, and delete the file only when the import succeeds:
 
    ```sh
-   ~/.config/rex/extensions/cc-sidecar/providers/google-tasks import-client "<path>" && rm "<path>"
+   ~/.config/rex/extensions/rex-sidecar/providers/google-tasks import-client "<path>" && rm "<path>"
    ```
 
    It prints `client stored`. Tell the user the client is now in the macOS
@@ -174,7 +174,7 @@ Then run the sign-in. It waits up to 5 minutes, so give the Bash call a
 timeout of 330000 ms:
 
 ```sh
-~/.config/rex/extensions/cc-sidecar/providers/google-tasks login
+~/.config/rex/extensions/rex-sidecar/providers/google-tasks login
 ```
 
 It prints `signed in` on success. On failure, see "If something goes wrong".

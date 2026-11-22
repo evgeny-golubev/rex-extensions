@@ -9,7 +9,7 @@
 local dir = ...
 local providers = dofile(dir .. "task-providers.lua")
 --- The folder of tasks_state.json: a throwaway one in the tests.
-local state_dir = CC_SIDECAR_TEST_BASE or dir
+local state_dir = REX_SIDECAR_TEST_BASE or dir
 
 --- Runs the chosen provider with `args` and returns its decoded JSON output.
 local function provider(args)
