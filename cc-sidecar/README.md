@@ -7,7 +7,7 @@ in `~/.claude.json`.
 
 ![The Changes tab on a pull request, the Info dashboard with permission checks, agents and background tasks, and Artifacts with documents, PRs, Jira issues and links from Claude's replies, with made-up data](../docs/cc-sidecar.png)
 
-The pane has three tabs, redrawn every 2 seconds, and every second while a
+The pane has three tabs, and any that [tab plugins](#tab-plugins) add, redrawn every 2 seconds, and every second while a
 clock runs. Their look follows [Flightdeck](https://github.com/scasella/claude-flightdeck),
 a Claude Code mod: each section is a box in its own colour, gauges are cells, and
 an empty section takes no room. Below 36 columns, boxes become plain headings.
@@ -219,7 +219,7 @@ the pane focused:
 
 | Key | What it does |
 | --- | --- |
-| `1` `2` `3`, `Tab`, `←` `→` | Switch tabs |
+| `1` to `9`, `Tab`, `←` `→` | Switch tabs |
 | `s` | Next scope on Changes |
 | `f` `s` `o` | On Info, list the last file, shell or other permission checks |
 | `t` | List or tree; the choice is saved in `settings.json` |
@@ -228,12 +228,64 @@ the pane focused:
 | `Enter` | On Changes, open the selected file's diff, or the first file's, or fold the selected folder. On Info and Artifacts, fold the highlighted section |
 | `Space` `b`, `Page Down` `Page Up` | Scroll a page |
 | `g` | Back to the top |
+| `,` | Open the [tab settings](#tab-settings) |
 
 The wheel scrolls. The pane takes clicks and drags for itself, so a plain drag
 doesn't select text in it.
 
 Not a native Rex extension format: a config module launches a separate
 event-driven `rex do` watcher, like rex-resume.
+
+## Tab settings
+
+`,` opens the tab settings in the pane: each tab after Info, which always
+shows, with `✓` when it shows. `j` `k` select a tab, `Space` or a click
+shows or hides it, `J` `K` move it, and `Esc` or `,` closes the list. The
+choice is saved as `{"tabs": {"order": [...], "hidden": {"Artifacts": true}}}`
+in `settings.json` and applies to all sidecar panes within a couple of
+seconds. Tabs the order doesn't name, such as a new plugin's, follow it.
+
+## Tab plugins
+
+Changes and Artifacts are tab plugins, in this folder's `tabs/`. Each `*.lua`
+file there and then in `~/.config/rex/sidecar-tabs/` adds a tab, in file name
+order, and the [tab settings](#tab-settings) order them. The pane reads them
+when it starts. A file gets the panel module as its argument
+(`local sidecar = ...`) and returns a table:
+
+| Field | What it is |
+| --- | --- |
+| `name` | The tab's title, not one in use. Required |
+| `view(cols)` | Returns `{ lines, actions, pinned, hits, sections, selected }`. Required. See below |
+| `refresh()` | Runs as a background task when the pane starts, then every `interval` seconds while no key was pressed in the last second. A hidden tab doesn't refresh |
+| `interval` | Seconds between refreshes, 60 by default |
+| `activate()` | Runs when the tab opens. It must not wait for a command |
+| `badge()` | The count beside the tab's title, or nil |
+| `key(k)` | Gets each key while the tab is open, before the pane: a character, `up`, `down`, `left`, `right`, `pageup`, `pagedown` or `escape`. Returns true when it took the key |
+| `act(action)` | Runs for a click on a line or column with an action. Actions of kind `tab` and `fold` are the pane's |
+
+In a view, `actions[line]` is what a click on the line passes to `act`; an
+action with `ranges = { { from, to, action } }` acts by column. `pinned` lines
+stay above the others, and `hits[n]` holds the column ranges of pinned line
+`n`. `sections`, from `sidecar.section`, are the boxes that `n` `p` and
+`Enter` fold. `selected`, a line, is scrolled into view after a key.
+
+From the module, a plugin uses `sidecar.run(argv, limit)`, which runs a
+command and returns `{ ok, code, stdout }`, or nil after `limit` seconds (5 by
+default); `sidecar.spawn(name, fn)`, which runs `fn` as a background task
+unless one named `name` runs; and `sidecar.box`, `sidecar.clip`,
+`sidecar.width`, `sidecar.wrap` and `sidecar.colours` to draw. In a task,
+`run` waits without stopping the pane; elsewhere it stops the pane for up to
+5 seconds, so `view`, `key` and `act` never run commands themselves: they
+draw what the last refresh found, and start commands with `spawn`. A task
+must not call `run` inside `pcall`. Changes and Artifacts also use
+`sidecar.panel`, the pane's state, and the other fields the module lists for
+them.
+
+A file that doesn't load gets a tab, named after the file, that shows the
+error, and an error in `view` shows on its tab. An error in a task, `key` or
+`act` becomes the pane's notice, pinned on a tab whose view has no pinned
+lines. The other tabs keep working.
 
 ## Install
 
