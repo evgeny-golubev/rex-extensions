@@ -3,6 +3,13 @@
 Releases are tagged `vX.Y.Z` on GitHub. The skills keep their own versions,
 in each plugin's `plugin.json`.
 
+## v1.2.2 — 2026-11-22
+
+- **rex-sidecar:** Pi and OpenCode panes get colours of their own, like Codex
+  and agy. Pi runs from pink to orchid with blush subagents, OpenCode from
+  slate to silver with misty subagents.
+- **Docs:** the colours picture shows all four agents.
+
 ## v1.2.1 — 2026-11-22
 
 Two fixes to v1.2.0, and new pictures.

@@ -46,9 +46,10 @@ comes back whole and doesn't flicker.
 The main and turn boxes, the title and the effort bar take the agent's
 colours. Claude is coral with lavender subagents. Codex runs from blue to
 indigo, with periwinkle subagents. agy runs through Google's four colours,
-with light blue subagents. Pi and OpenCode use Claude's colours.
+with light blue subagents. Pi runs from pink to orchid, with blush
+subagents. OpenCode runs from slate to silver, with misty subagents.
 
-![Two Info tabs with made-up data: a Codex session in blue and indigo, and an agy session in Google's four colours, each with its subagent, open question, last turn and log](../docs/rex-sidecar-themes.png)
+![Four Info tabs with made-up data: a Codex session in blue and indigo, an agy session in Google's four colours, a Pi session in pink and an OpenCode session in silver, each with its subagent, open question, last turn and log](../docs/rex-sidecar-themes.png)
 
 ## Changes
 
