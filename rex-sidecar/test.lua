@@ -661,7 +661,7 @@ local ok2, err2 = pcall(function()
 	hasnt(plain(P.info_lines(P.new_state(), 40)), "5h", "no usage saved")
 	local limits = { five_hour = { used_percentage = 58, resets_at = 1300 }, seven_day = { used_percentage = 17, resets_at = 500 } }
 	local usage_state = P.new_state()
-	usage_state.model, usage_state.context, usage_state.effort, usage_state.mode, usage_state.requests = "claude-opus-5-5", 250000, "high", "auto", 12
+	usage_state.model, usage_state.context, usage_state.effort, usage_state.mode, usage_state.requests, usage_state.compactions = "claude-opus-5-5", 250000, "high", "auto", 12, 2
 	local usage = plain(P.info_lines(usage_state, 60, { now = 1000, status = {
 		rate_limits = limits, cost = { total_cost_usd = 3.456 }, context_window = { context_window_size = 1000000 } } }))
 	has(usage, "Opus 5.5 · main", "the model's name")
@@ -670,6 +670,7 @@ local ok2, err2 = pcall(function()
 	has(usage, "mode auto", "permission mode")
 	has(usage, "12 req", "requests")
 	has(usage, "ctx ▰▰▱▱▱▱▱▱ 25% 250k/1.0M", "context against the window")
+	has(usage, "⟲ 2", "compaction count separated from the icon")
 	hasnt(usage, "$", "no money")
 	has(usage, "5h ▰▰▰▱▱ 58% ↻5m", "5-hour window and its reset")
 	has(usage, "7d ▱▱▱▱▱ 0%", "a window that has reset")

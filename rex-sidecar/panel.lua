@@ -1013,7 +1013,7 @@ local function main_box(out, state, cols, o)
 			parts[#parts + 1] = "ctx " .. M.tokens(ctx)
 		end
 		if state.compactions > 0 then
-			parts[#parts + 1] = "⟲" .. state.compactions
+			parts[#parts + 1] = "⟲ " .. state.compactions
 		end
 		flow(out, parts, n)
 		parts = {}
