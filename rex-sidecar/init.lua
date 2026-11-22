@@ -9,25 +9,25 @@ local rex_binary = home
 rex.exec.start({
 	"/bin/sh",
 	"-c",
-	'mkdir -p ~/.config/rex/state; for i in 1 2 3 4 5 6 7 8 9 10; do "$@" && break; sleep 1; done 2>>~/.config/rex/state/cc-sidecar.log',
+	'mkdir -p ~/.config/rex/state; for i in 1 2 3 4 5 6 7 8 9 10; do "$@" && break; sleep 1; done 2>>~/.config/rex/state/rex-sidecar.log',
 	"sh",
 	rex_binary,
 	"--autostart=false",
 	"do",
 	"--all",
-	home .. "/.config/rex/extensions/cc-sidecar/watcher.lua",
+	home .. "/.config/rex/extensions/rex-sidecar/watcher.lua",
 }, { detach = true, stdout = false, stderr = false })
 
 -- Palette actions. The title names what the toggle will do, and Rex only reads
 -- titles when it loads this file, so the toggle reloads the config.
-local base = home .. "/.config/rex/extensions/cc-sidecar/"
+local base = home .. "/.config/rex/extensions/rex-sidecar/"
 local settings = dofile(base .. "settings.lua")
 
 -- tasks_list, tasks_add and tasks_report_done, for the Tasks tab's list.
 assert(loadfile(base .. "task-actions.lua"))(base)
 
 rex.action({
-	name = "cc_sidecar_show",
+	name = "rex_sidecar_show",
 	title = "Show Sidecar Pane",
 	category = "Claude Code",
 	run = function(ctx)
@@ -39,7 +39,7 @@ rex.action({
 })
 
 rex.action({
-	name = "cc_sidecar_auto_show",
+	name = "rex_sidecar_auto_show",
 	title = (settings.auto_show(base) and "Disable" or "Enable") .. " Sidecar Pane Auto-Show",
 	category = "Claude Code",
 	run = function()
@@ -139,7 +139,7 @@ local function current_window(ctx)
 end
 
 rex.action({
-	name = "cc_sidecar_view",
+	name = "rex_sidecar_view",
 	title = "Rex View: Search Panel",
 	description = "Lists the files, images and links in all of Claude's replies, to view, edit or open.",
 	category = "Claude Code",
@@ -155,7 +155,7 @@ rex.action({
 })
 
 rex.action({
-	name = "cc_sidecar_view_editor",
+	name = "rex_sidecar_view_editor",
 	title = "Rex View: Set Editor",
 	description = "Sets the command Rex View edits files with.",
 	category = "Claude Code",
@@ -165,7 +165,7 @@ rex.action({
 })
 
 rex.action({
-	name = "cc_sidecar_view_patterns",
+	name = "rex_sidecar_view_patterns",
 	title = "Rex View: Edit Link Patterns",
 	description = "Adds, edits and deletes the patterns that turn text such as Jira keys or PR numbers into links.",
 	category = "Claude Code",
@@ -179,4 +179,4 @@ rex.action({
 	end,
 })
 
-rex.bind("cmd+ctrl+alt+shift+o", "cc_sidecar_view")
+rex.bind("cmd+ctrl+alt+shift+o", "rex_sidecar_view")

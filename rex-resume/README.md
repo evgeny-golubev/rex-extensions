@@ -80,7 +80,7 @@ an argument with spaces in it comes back split in two.
 - A program comes back as it was started, not as it was left: nvim reopens
   its files but not its buffers or undo history.
 - Quitting a resumed program leaves the shell it was typed into.
-- cc-sidecar and cc-crab-pond panes aren't saved. They reopen when Claude
+- rex-sidecar and rex-crab-pond panes aren't saved. They reopen when Claude
   resumes.
 - State: `~/.config/rex/state/sessions.json`; launcher errors go to
   `~/.config/rex/state/sessions.log`.

@@ -1831,7 +1831,7 @@ function tab.view(cols)
 		local lines = {}
 		local text = {
 			'Ask Claude Code: "set up the sidecar Tasks tab". It checks what is done and walks you through the rest, one step at a time.',
-			"Or follow the Google Tasks steps in cc-sidecar/README.md.",
+			"Or follow the Google Tasks steps in rex-sidecar/README.md.",
 			"",
 			"L signs in once the client is stored · r checks again · W switches to Apple Reminders, which needs no setup",
 		}

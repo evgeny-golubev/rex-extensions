@@ -9,14 +9,14 @@ local dir = debug.getinfo(1, "S").source:match("^@?(.*/)")
 local settings = dofile(dir .. "settings.lua")
 local agents = dofile(dir .. "../agents/init.lua")
 --- Where settings.json lives; the tests point it elsewhere.
-local base = CC_CRAB_POND_TEST_BASE or dir
+local base = REX_CRAB_POND_TEST_BASE or dir
 local home = os.getenv("HOME") or ""
 local rex_binary = home
 	.. "/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
 
 --- Marks this script's server connection, so a second copy started by
 --- `rex config reload` sees the first one and quits.
-local client_label = "cc-crab-pond"
+local client_label = "rex-crab-pond"
 
 --- The crab pane's label; rex-resume skips panes with it.
 local label = "Crabs"

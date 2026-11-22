@@ -1,7 +1,7 @@
 {
   "name": "sidecar-task-list",
   "version": "0.1.0",
-  "description": "Set up the cc-sidecar Tasks tab step by step, and keep its task list in step with the work done in a Claude Code session",
+  "description": "Set up the rex-sidecar Tasks tab step by step, and keep its task list in step with the work done in a Claude Code session",
   "repository": "https://github.com/evgeny-golubev/rex-extensions",
   "license": "MIT"
 }

@@ -1,5 +1,5 @@
--- The coding agents the extensions know, behind one interface, so cc-sidecar
--- and cc-crab-pond work the same for each. Load with
+-- The coding agents the extensions know, behind one interface, so rex-sidecar
+-- and rex-crab-pond work the same for each. Load with
 --   local agents = dofile(<repo> .. "agents/init.lua")
 --
 -- Every adapter has:
@@ -15,7 +15,7 @@
 -- A subagent has id, transcript, type, description, finished, running, and
 -- when known model, started and updated.
 --
--- The transcript readers for the sidecar panel are in cc-sidecar/parsers/,
+-- The transcript readers for the sidecar panel are in rex-sidecar/parsers/,
 -- one per adapter ID.
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)") or "./"
 

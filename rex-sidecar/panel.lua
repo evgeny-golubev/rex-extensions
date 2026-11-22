@@ -3,7 +3,7 @@
 -- replies mention (Artifacts). The watcher
 -- passes the Claude pane's block ID and its directory (the repository root, in
 -- one) as `claude=` and `cwd=`. The session is read from Claude Code's own
--- files, so no Claude Code setting is needed. With CC_SIDECAR_TEST set, this
+-- files, so no Claude Code setting is needed. With REX_SIDECAR_TEST set, this
 -- file returns its functions instead of running.
 
 local M = {}
@@ -15,7 +15,7 @@ local settings = dofile(dir .. "settings.lua")
 local agents = dofile(dir .. "../agents/init.lua")
 local mentions = dofile(dir .. "mentions.lua")
 --- The folder of settings.json: a throwaway one in the tests.
-local settings_dir = CC_SIDECAR_TEST_BASE or dir
+local settings_dir = REX_SIDECAR_TEST_BASE or dir
 local rex_binary = home
 	.. "/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
 
@@ -537,7 +537,7 @@ function M.etime(text)
 end
 
 --- The shells Claude runs right now, from `ps -axo pid=,ppid=,etime=,comm=`,
---- newest first, as cc-crab-pond finds them. A process has only its program's
+--- newest first, as rex-crab-pond finds them. A process has only its program's
 --- name, never its arguments, which can hold secrets. A shell is a monitor
 --- Claude started when one was recorded within 10 seconds of its start and
 --- hasn't timed out; otherwise it's named by its program, "monitor" when it
@@ -2097,7 +2097,7 @@ M.open_float, M.diff_label, M.view_label = open_float, diff_label, view_label
 M.section, M.new_lines, M.fold_marks = section, new_lines, fold_marks
 arrange()
 
-if CC_SIDECAR_TEST then
+if REX_SIDECAR_TEST then
 	return M
 end
 

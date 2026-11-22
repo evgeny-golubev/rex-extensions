@@ -1,6 +1,6 @@
 # Agent adapters
 
-cc-sidecar and cc-crab-pond work with more than one coding agent. This folder
+rex-sidecar and rex-crab-pond work with more than one coding agent. This folder
 holds what differs between agents, behind one interface, so the extensions
 themselves don't name an agent. Two adapters ship: Claude Code and Codex.
 
@@ -39,13 +39,13 @@ A subagent has `id`, `transcript`, `type`, `description`, `finished`,
 `running`, and when known `model`, `started` and `updated`.
 
 The sidecar reads each agent's transcript with a parser of the same ID in
-[`cc-sidecar/parsers/`](../cc-sidecar/parsers). A parser writes the panel's
+[`rex-sidecar/parsers/`](../rex-sidecar/parsers). A parser writes the panel's
 shared state through its helpers (`add_prompt`, `reply`, `add_hunks`,
 `command_ran`, `log`, `gate_check`, …) and has `record`, `skip`,
 `agent_record` and `turns`.
 
 To add an agent, add an adapter here and to `A.list` in `init.lua`, and a
-parser with the same ID in `cc-sidecar/parsers/`, listed in `panel.lua`.
+parser with the same ID in `rex-sidecar/parsers/`, listed in `panel.lua`.
 
 ## Codex
 

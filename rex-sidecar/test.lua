@@ -1,4 +1,4 @@
--- Run: rex do ~/.config/rex/extensions/cc-sidecar/test.lua
+-- Run: rex do ~/.config/rex/extensions/rex-sidecar/test.lua
 -- Mocks the Rex API: it doesn't touch live sessions or panes.
 local real = rex
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)")
@@ -32,7 +32,7 @@ end
 
 -- settings.json in a throwaway folder, never the real one.
 local test_base = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "") .. "/"
-CC_SIDECAR_TEST_BASE = test_base
+REX_SIDECAR_TEST_BASE = test_base
 local S = dofile(dir .. "settings.lua")
 local poll
 
@@ -206,7 +206,7 @@ local ok, err = pcall(function()
 
 	-- A second copy quits.
 	reset()
-	clients = { { info = { label = "cc-sidecar" } } }
+	clients = { { info = { label = "rex-sidecar" } } }
 	run()
 	equal(stopped, true, "second copy stopped")
 	equal(#splits, 0, "second copy's panes")
@@ -264,16 +264,16 @@ local ok, err = pcall(function()
 end)
 rex = real
 real.exec({ "rm", "-rf", test_base })
-CC_SIDECAR_TEST_BASE = nil
+REX_SIDECAR_TEST_BASE = nil
 if not ok then
 	error(err, 0)
 end
 
 -- The viewer, on a made-up transcript, with settings.json in a throwaway folder.
 local panel_base = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "") .. "/"
-CC_SIDECAR_TEST, CC_SIDECAR_TEST_BASE = true, panel_base
+REX_SIDECAR_TEST, REX_SIDECAR_TEST_BASE = true, panel_base
 local P = dofile(dir .. "panel.lua")
-CC_SIDECAR_TEST, CC_SIDECAR_TEST_BASE = nil, nil
+REX_SIDECAR_TEST, REX_SIDECAR_TEST_BASE = nil, nil
 P.load_plugins(dir .. "tabs/")
 local C, A = P.plugins.Changes.tab, P.plugins.Artifacts.tab
 
@@ -1799,9 +1799,9 @@ do
 			return table.remove(answers, 1)
 		end,
 	}, { __index = real })
-	CC_SIDECAR_TEST_BASE = panel_base
+	REX_SIDECAR_TEST_BASE = panel_base
 	assert(loadfile(dir .. "task-actions.lua"))(dir)
-	CC_SIDECAR_TEST_BASE = nil
+	REX_SIDECAR_TEST_BASE = nil
 	local function fails(name, args, part)
 		local ok, err = pcall(actions[name].run, {}, args)
 		equal(ok, false, name .. " fails")
@@ -2046,4 +2046,4 @@ return {
 	end
 	real.exec({ "rm", "-rf", plugin_dir, panel_base })
 end
-return "cc-sidecar: all tests passed"
+return "rex-sidecar: all tests passed"

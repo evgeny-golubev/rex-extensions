@@ -4,13 +4,13 @@ Make the [Rex](https://www.superlogical.com) terminal a better home for
 [Claude Code](https://claude.com/claude-code) on macOS: see what each Claude
 changed and what you decided with it, watch your agents as pixel crabs, get your
 conversations and programs back after a restart, and let Claude show you files.
-cc-sidecar and cc-crab-pond work with [Codex](https://github.com/openai/codex)
+rex-sidecar and rex-crab-pond work with [Codex](https://github.com/openai/codex)
 too, through the adapters in [`agents/`](agents/README.md).
 
 | | Name | What you get | Runs as |
 | --- | --- | --- | --- |
-| Extension | [cc-sidecar](#cc-sidecar) | A side pane with what each Claude changed, by turn, uncommitted, branch or pull request, plus a dashboard of its context, limits, permission checks, subagents, running shells and a session log, and the documents, PRs, Jira issues, links and files Claude's replies mention | Pane beside Claude |
-| Extension | [cc-crab-pond](#cc-crab-pond) | Claudes, subagents and background jobs as animated crabs | Strip along the tab's bottom |
+| Extension | [rex-sidecar](#rex-sidecar) | A side pane with what each Claude changed, by turn, uncommitted, branch or pull request, plus a dashboard of its context, limits, permission checks, subagents, running shells and a session log, and the documents, PRs, Jira issues, links and files Claude's replies mention | Pane beside Claude |
+| Extension | [rex-crab-pond](#rex-crab-pond) | Claudes, subagents and background jobs as animated crabs | Strip along the tab's bottom |
 | Extension | [rex-resume](#rex-resume) | Claude Code conversations, and programs like nvim, resumed after the Rex server restarts | Background watcher |
 | Skill | [rex-view](#rex-view) | Claude shows images, Markdown and source code in a floating pane | Plugin, version 0.5.1 |
 | Skill | [sidecar-task-list](#sidecar-task-list) | Claude adds the work you start to your task list and reports it done for you to confirm | Plugin, version 0.1.0 |
@@ -24,13 +24,13 @@ too, through the adapters in [`agents/`](agents/README.md).
 
 Rex loads these from `init.lua`. Each one's README has the details.
 
-### cc-sidecar
+### rex-sidecar
 
 Answers "what did this Claude change, and what's still waiting on me?" A pane on
 the right, 30% of the tab, opens and closes with Claude and replaces Claude
 Code's own diff panel.
 
-![cc-sidecar's Changes tab on a pull request, the Info dashboard with permission checks, agents and background tasks, and Artifacts with documents, PRs, Jira issues and links from Claude's replies, with made-up data](docs/cc-sidecar.png)
+![rex-sidecar's Changes tab on a pull request, the Info dashboard with permission checks, agents and background tasks, and Artifacts with documents, PRs, Jira issues and links from Claude's replies, with made-up data](docs/rex-sidecar.png)
 
 **Changes** lists changed files for the last turn, the uncommitted work, or the
 branch or its open pull request, as a list or a tree; click one to read its diff in a floating pane.
@@ -47,9 +47,9 @@ Apple Reminders, rated A, B and C, with estimates, steps and a daily review.
 
 ![The Search Panel's float listing files, Jira keys, a pull request and links from Claude's replies, with made-up data](docs/rex-view.png)
 
-[Tabs, keys and limits →](cc-sidecar/README.md)
+[Tabs, keys and limits →](rex-sidecar/README.md)
 
-### cc-crab-pond
+### rex-crab-pond
 
 Shows everything running in a tab at a glance. A strip along the bottom 8% of
 each Claude tab draws one animated crab per Claude, subagent, background job and
@@ -57,10 +57,10 @@ program in the tab's other panes. Colour shows the kind of program, the hat show
 its job, and a failed command is on fire. Shown here with room for three rows and
 sample crabs:
 
-![cc-crab-pond](docs/cc-crab-pond.png)
+![rex-crab-pond](docs/rex-crab-pond.png)
 
 It needs one setup step: [saving Claude Code's status line input](#extensions-1).
-[How to read the crabs →](cc-crab-pond/README.md)
+[How to read the crabs →](rex-crab-pond/README.md)
 
 ### rex-resume
 
@@ -84,9 +84,9 @@ over Claude's tab, and `q` closes it. [Details →](plugins/rex-view/README.md)
 
 ### sidecar-task-list
 
-Claude adds the work you start with it to the task list in cc-sidecar's Tasks
+Claude adds the work you start with it to the task list in rex-sidecar's Tasks
 tab, or finds the task already there, and reports it done when the work is
-finished. You confirm the report in the tab. It needs cc-sidecar. Ask Claude
+finished. You confirm the report in the tab. It needs rex-sidecar. Ask Claude
 "set up the sidecar Tasks tab", and it walks you through the setup, one step at
 a time.
 [Details →](plugins/sidecar-task-list/README.md)
@@ -96,12 +96,12 @@ a time.
 | Needed for | What |
 | --- | --- |
 | Everything | macOS with [Rex](https://www.superlogical.com) and [Claude Code](https://claude.com/claude-code) |
-| cc-crab-pond | A terminal font with Unicode 16 octant characters (Rex draws them itself), and `jq` for the status line (`brew install jq`) |
-| cc-sidecar and rex-view colours, optional | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
-| cc-sidecar's highlighted diffs, optional | [`delta`](https://github.com/dandavison/delta) (`brew install git-delta`) |
-| cc-sidecar's context window and limits, optional | The status line step in [Install](#install), with `jq` |
-| cc-sidecar's Search Panel, optional | [`fzf`](https://github.com/junegunn/fzf) (`brew install fzf`), and `jq` for its settings |
-| cc-sidecar's PR scope and PR titles, optional | [`gh`](https://cli.github.com), signed in (`brew install gh`, `gh auth login`) |
+| rex-crab-pond | A terminal font with Unicode 16 octant characters (Rex draws them itself), and `jq` for the status line (`brew install jq`) |
+| rex-sidecar and rex-view colours, optional | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
+| rex-sidecar's highlighted diffs, optional | [`delta`](https://github.com/dandavison/delta) (`brew install git-delta`) |
+| rex-sidecar's context window and limits, optional | The status line step in [Install](#install), with `jq` |
+| rex-sidecar's Search Panel, optional | [`fzf`](https://github.com/junegunn/fzf) (`brew install fzf`), and `jq` for its settings |
+| rex-sidecar's PR scope and PR titles, optional | [`gh`](https://cli.github.com), signed in (`brew install gh`, `gh auth login`) |
 | rex-view formatted Markdown, optional | [`glow`](https://github.com/charmbracelet/glow) (`brew install glow`) |
 
 ## Install
@@ -119,8 +119,8 @@ a time.
 
    ```lua
    require("extensions.rex-resume")
-   require("extensions.cc-sidecar")
-   require("extensions.cc-crab-pond")
+   require("extensions.rex-sidecar")
+   require("extensions.rex-crab-pond")
    ```
 
 3. Load them:
@@ -129,10 +129,10 @@ a time.
    rex config reload
    ```
 
-4. For cc-sidecar, turn off Claude Code's own diff panel by setting
+4. For rex-sidecar, turn off Claude Code's own diff panel by setting
    `"diffSidebarOpen": false` in `~/.claude.json`.
 
-5. For cc-crab-pond and cc-sidecar's main box, have Claude Code's status
+5. For rex-crab-pond and rex-sidecar's main box, have Claude Code's status
    line command save its input, which gives the crabs their names, models,
    outfits and subagents, and the sidecar the context window and your usage
    limits. Add these lines
@@ -144,7 +144,7 @@ a time.
    ```
 
    No status line yet? See
-   [cc-crab-pond's setup](cc-crab-pond/README.md#claude-code-status-line) for a
+   [rex-crab-pond's setup](rex-crab-pond/README.md#claude-code-status-line) for a
    complete script and the `settings.json` entry.
 
 ### Skills
@@ -166,10 +166,12 @@ git -C ~/.config/rex/extensions pull
 pkill -f 'extensions/.*/watcher\.lua'; rex config reload
 ```
 
-cc-pane is now cc-sidecar. If your `init.lua` has `require("extensions.cc-pane")`,
-change it to `require("extensions.cc-sidecar")` before you reload, and stop the old
-watcher: the command above matches it too. Open `Changes:` panes are replaced by
-new ones.
+Renamed extensions: cc-sidecar (earlier cc-pane) is now rex-sidecar,
+cc-crab-pond is now rex-crab-pond and cc-resume is now rex-resume. Change the
+`require` lines in your `init.lua` to the new names before you reload; the
+command above stops the old watchers too. Your settings move with the folder.
+Key bindings to the sidecar's and crabs' actions need the new names:
+`cc_sidecar_view` is now `rex_sidecar_view`, and so on.
 
 Skills:
 
@@ -183,10 +185,10 @@ claude plugin update sidecar-task-list@rex-extensions
 
 ```text
 .claude-plugin/marketplace.json   the plugin marketplace
-agents/                           Claude Code and Codex adapters for cc-sidecar and cc-crab-pond
+agents/                           Claude Code and Codex adapters for rex-sidecar and rex-crab-pond
 rex-resume/                       extension
-cc-sidecar/                       extension
-cc-crab-pond/                     extension
+rex-sidecar/                       extension
+rex-crab-pond/                     extension
 plugins/rex-view/                 skill, as a plugin
 plugins/sidecar-task-list/        skills, as a plugin
 docs/                             pictures
@@ -194,8 +196,8 @@ docs/                             pictures
 
 ## Privacy
 
-Everything reads Claude Code's and Codex's own files and the process list on your machine (rex-resume, and cc-sidecar and cc-crab-pond for a Codex, also read the command lines of programs).
-No AI is involved. Nothing is sent anywhere, except by cc-sidecar's Tasks tab
+Everything reads Claude Code's and Codex's own files and the process list on your machine (rex-resume, and rex-sidecar and rex-crab-pond for a Codex, also read the command lines of programs).
+No AI is involved. Nothing is sent anywhere, except by rex-sidecar's Tasks tab
 once you choose Google Tasks: it then reads and changes your tasks through
 Google's Tasks API.
 
@@ -204,8 +206,8 @@ Google's Tasks API.
 ```sh
 rex do ~/.config/rex/extensions/agents/test.lua
 rex do ~/.config/rex/extensions/rex-resume/test.lua
-rex do ~/.config/rex/extensions/cc-sidecar/test.lua
-rex do ~/.config/rex/extensions/cc-crab-pond/test.lua
+rex do ~/.config/rex/extensions/rex-sidecar/test.lua
+rex do ~/.config/rex/extensions/rex-crab-pond/test.lua
 rex do ~/.config/rex/extensions/plugins/rex-view/test.lua
 ```
 

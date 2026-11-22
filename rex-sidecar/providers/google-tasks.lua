@@ -56,7 +56,7 @@ end
 local function setup_required()
 	io.write(rex.json.encode({ error = "setup_required" }), "\n")
 	fail('Google Tasks is not set up yet: no OAuth client is stored. Ask Claude Code "set up the sidecar Tasks tab",'
-		.. " or follow the Google Tasks steps in cc-sidecar/README.md.", 4)
+		.. " or follow the Google Tasks steps in rex-sidecar/README.md.", 4)
 end
 
 local function exec(argv, stdin, timeout)

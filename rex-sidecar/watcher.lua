@@ -10,14 +10,14 @@ local viewer = dir .. "panel.lua"
 local settings = dofile(dir .. "settings.lua")
 local agents = dofile(dir .. "../agents/init.lua")
 --- Where settings.json lives; the tests point it elsewhere.
-local base = CC_SIDECAR_TEST_BASE or dir
+local base = REX_SIDECAR_TEST_BASE or dir
 local home = os.getenv("HOME") or ""
 local rex_binary = home
 	.. "/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
 
 --- Marks this script's server connection, so a second copy started by
 --- `rex config reload` sees the first one and quits.
-local client_label = "cc-sidecar"
+local client_label = "rex-sidecar"
 
 --- Every sidecar pane's label starts with this; rex-resume skips them.
 local label_prefix = "Sidecar: "

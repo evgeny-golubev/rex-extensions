@@ -9,22 +9,22 @@ local rex_binary = home
 rex.exec.start({
 	"/bin/sh",
 	"-c",
-	'mkdir -p ~/.config/rex/state; for i in 1 2 3 4 5 6 7 8 9 10; do "$@" && break; sleep 1; done 2>>~/.config/rex/state/cc-crab-pond.log',
+	'mkdir -p ~/.config/rex/state; for i in 1 2 3 4 5 6 7 8 9 10; do "$@" && break; sleep 1; done 2>>~/.config/rex/state/rex-crab-pond.log',
 	"sh",
 	rex_binary,
 	"--autostart=false",
 	"do",
 	"--all",
-	home .. "/.config/rex/extensions/cc-crab-pond/watcher.lua",
+	home .. "/.config/rex/extensions/rex-crab-pond/watcher.lua",
 }, { detach = true, stdout = false, stderr = false })
 
 -- Palette actions. The title names what the toggle will do, and Rex only reads
 -- titles when it loads this file, so the toggle reloads the config.
-local base = home .. "/.config/rex/extensions/cc-crab-pond/"
+local base = home .. "/.config/rex/extensions/rex-crab-pond/"
 local settings = dofile(base .. "settings.lua")
 
 rex.action({
-	name = "cc_crab_pond_show",
+	name = "rex_crab_pond_show",
 	title = "Show Crabs Pane",
 	category = "Claude Code",
 	run = function(ctx)
@@ -36,7 +36,7 @@ rex.action({
 })
 
 rex.action({
-	name = "cc_crab_pond_auto_show",
+	name = "rex_crab_pond_auto_show",
 	title = (settings.auto_show(base) and "Disable" or "Enable") .. " Crabs Pane Auto-Show",
 	category = "Claude Code",
 	run = function()
