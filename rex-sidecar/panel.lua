@@ -1317,11 +1317,64 @@ local function receipt_box(out, state, cols, o)
 	end)
 end
 
-local log_colours = { main = orange, agent = lavender, gate = mint, advisor = purple }
+--- Formats a file path as a compact parent/filename with dimmed parent and
+--- category-coloured basename so edits pop without filling the line with prefixes.
+local function style_log_path(path, colour, budget)
+	local parts = {}
+	for part in path:gmatch("[^/]+") do
+		parts[#parts + 1] = part
+	end
+	local base = parts[#parts] or path
+	local parent = #parts >= 2 and parts[#parts - 1] or nil
+	if parent and M.width(parent) + 1 + M.width(base) <= budget then
+		return dim .. parent .. "/" .. reset .. colour .. base .. reset
+	end
+	return colour .. base .. reset
+end
 
---- The session log, newest at the bottom: as many of the latest events as the
---- rows under the other boxes hold, or, when those fill the screen, a screen
---- of them to scroll down to.
+--- Turns a raw log entry into a 1-col category icon, coloured body, and accent colour.
+local function format_log_entry(e, theme, budget)
+	local text = tostring(e.text or "")
+	local who = e.who
+	if who == "gate" then
+		return red .. "✗" .. reset, red .. text:gsub("^✗%s*", "") .. reset, red
+	elseif who == "advisor" then
+		return purple .. "◆" .. reset, purple .. text .. reset, purple
+	elseif who == "agent" then
+		return theme.agent .. "✦" .. reset, theme.agent .. text .. reset, theme.agent
+	end
+	local prompt = text:match("^›%s*(.+)$")
+	if prompt then
+		return theme.accent .. bold .. "›" .. reset, bold .. prompt .. reset, theme.accent
+	end
+	local err = text:match("^✗%s*(.+)$")
+	if err then
+		return red .. "✗" .. reset, red .. bold .. err .. reset, red
+	end
+	local verb, rest = text:match("^([%a]+)%s*→%s*(.+)$")
+	if verb then
+		local v = verb:lower()
+		if v == "write" or v == "create" then
+			return mint .. "+" .. reset, style_log_path(rest, mint, budget), mint
+		elseif v == "delete" or v == "remove" then
+			return red .. "-" .. reset, style_log_path(rest, red, budget), red
+		elseif v == "edit" or v == "replace" or v == "update" or v == "multiedit" then
+			return gold .. "✎" .. reset, style_log_path(rest, gold, budget), gold
+		elseif v == "workflow" then
+			return teal .. "▸" .. reset, teal .. rest .. reset, teal
+		elseif v == "agent" then
+			return theme.agent .. "✦" .. reset, theme.agent .. rest .. reset, theme.agent
+		end
+		return theme.accent .. "•" .. reset, style_log_path(rest, theme.accent, budget), theme.accent
+	end
+	if text == "Compacted context" or text == "interrupted" then
+		return grey .. "⟲" .. reset, dim .. text .. reset, grey
+	end
+	return theme.accent .. "•" .. reset, text, theme.accent
+end
+
+--- The session log, newest at the bottom: collapses consecutive identical
+--- non-prompt entries (×N), groups HH:MM timestamps, and colour-codes categories.
 local function log_box(out, state, cols, o)
 	local log = state.log
 	if #log == 0 then
@@ -1333,13 +1386,33 @@ local function log_box(out, state, cols, o)
 	if room < 3 then
 		room = math.max(3, rows - frame)
 	end
+	local grouped = {}
+	for i = 1, #log do
+		local e = log[i]
+		local prev = grouped[#grouped]
+		local is_prompt = tostring(e.text or ""):match("^›") ~= nil
+		if not is_prompt and prev and prev.who == e.who and prev.text == e.text then
+			prev.count = prev.count + 1
+			prev.at = e.at or prev.at
+		else
+			grouped[#grouped + 1] = { at = e.at, who = e.who, text = e.text, count = 1 }
+		end
+	end
 	local theme = theme_of(state)
 	section(out, cols, "Log", { colour = grey, title = "LOG", right = tostring(#log) }, function(n)
-		for i = math.max(1, #log - room + 1), #log do
-			local e = log[i]
-			local when = e.at and os.date("%H:%M:%S", e.at) or "--:--:--"
-			local who_c = e.who == "main" and theme.accent or e.who == "agent" and theme.agent or log_colours[e.who] or grey
-			out[#out + 1] = dim .. when .. reset .. " " .. pad(who_c .. e.who, 8) .. e.text
+		local last_hm
+		for i = math.max(1, #grouped - room + 1), #grouped do
+			local e = grouped[i]
+			local hm = e.at and os.date("%H:%M", e.at) or "--:--"
+			local when = hm ~= last_hm and (dim .. hm .. reset) or "     "
+			last_hm = hm
+			local suffix = e.count > 1 and (" ×" .. e.count) or ""
+			local budget = math.max(8, n - 8 - M.width(suffix))
+			local icon, body, badge_c = format_log_entry(e, theme, budget)
+			if suffix ~= "" then
+				body = M.clip(body, budget) .. reset .. dim .. badge_c .. suffix .. reset
+			end
+			out[#out + 1] = when .. " " .. icon .. " " .. body
 		end
 	end)
 end
