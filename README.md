@@ -43,7 +43,7 @@ Answers two questions: what did the agent change, and what's still waiting on
 you? The pane opens on the right of every Claude Code, Codex, agy, Pi or OpenCode pane and closes
 when the agent exits.
 
-![rex-sidecar with made-up data. Info: the time and date, the model, context, limits, permission checks, subagents, running shells, open questions and the last turn. Changes: the files changed on a pull request. Artifacts: documents, PRs, Jira issues, links and files from the agent's replies. Reminders: the day's tasks, rated A, B and C.](docs/rex-sidecar.png)
+![rex-sidecar with made-up data. Info: the time and date, the model, context, limits, permission checks, subagents, running shells, open questions, the last turn and the log. Changes: the files changed on a pull request. Artifacts: documents, PRs, Jira issues, links and files from the agent's replies. Reminders: the day's tasks, rated A, B and C.](docs/rex-sidecar.png)
 
 | Tab | What it shows |
 | --- | --- |
@@ -63,7 +63,7 @@ tab draws one crab for each agent, subagent, background job and program. The
 colour shows what kind of program it is, the hat shows its job, and a failed
 command sets it on fire.
 
-![rex-crab-pond with sample crabs](docs/rex-crab-pond.png)
+![The crab pond with made-up crabs: Claude and its subagents, Codex, agy, Pi and OpenCode with their subagents, and programs from other panes such as bun, nvim, lazygit, docker, ssh and a failed command](docs/rex-crab-pond.png)
 
 For full agent details (outfits and status), see [Agent setup](#agent-setup).
 [How to read the crabs →](rex-crab-pond/README.md)
@@ -77,7 +77,7 @@ for Pi, `opencode --session` for OpenCode, and the original
 command for programs like
 nvim. It has nothing on screen.
 
-![rex-resume: a tab's panes before a restart, the saved snapshot, and the same panes after the restart with their commands typed back in, with made-up data](docs/rex-resume.png)
+![rex-resume: a tab's claude, codex, agy, pi, opencode and nvim panes before a restart, the saved snapshot, and the same panes after the restart with their commands typed back in, with made-up data](docs/rex-resume.png)
 
 [Settings and limits →](rex-resume/README.md)
 
@@ -143,7 +143,7 @@ effort outfits or exact session tracking):
 | --- | --- | --- |
 | **Claude Code** | Set `"diffSidebarOpen": false` in `~/.claude.json` (for sidecar), and save status line JSON (`jq`). [Full setup →](agents/README.md#claude-code) | Hides Claude's duplicate diff panel; adds context %, 5h/7d limits, pond outfits and monitor descriptions |
 | **Codex** | None | Works out of the box using macOS `sqlite3`. [Details →](agents/README.md#codex) |
-| **Antigravity CLI (`agy`)** | Add `agy-statusline.sh` to `~/.gemini/antigravity-cli/settings.json` (`jq`). [Full setup →](agents/README.md#antigravity-cli-agy) | Model effort, context %, 5h/7d usage quota bars and pond outfits |
+| **Antigravity CLI (`agy`)** | Add `agy-statusline.sh` to `~/.gemini/antigravity-cli/settings.json` (`jq`). [Full setup →](agents/README.md#antigravity-cli-agy) | 5h/7d usage quota bars and permission mode; context % for non-Gemini models and effort for models without an effort suffix |
 | **Pi** | Link `pi-rex-status.ts` into `~/.pi/agent/extensions/` and restart Pi. [Full setup →](agents/README.md#pi) | Exact session tracking (including `--session` / `/resume`), context % and thinking level |
 | **OpenCode** | None | Works out of the box with OpenCode 2.x using macOS `sqlite3`. [Details →](agents/README.md#opencode) |
 
@@ -229,7 +229,7 @@ Claude Code plugins.
 | Feature | Claude Code | Codex | Antigravity CLI (`agy`) | Pi | OpenCode |
 | --- | --- | --- | --- | --- | --- |
 | Sidecar: Changes, Info and Artifacts | Yes | Yes, with the limits below | Yes, from its conversation transcript | Yes, from its session file | Yes, from its database |
-| Crab pond: agent panes | Yes | Yes | Yes | Yes, with subagents | Yes, with subagents |
+| Crab pond: agent panes | Yes | Yes | Yes, with subagents | Yes, with subagents | Yes, with subagents |
 | Resume conversations | `claude --resume` | `codex resume` | `agy --conversation` | `pi --session` | `opencode --session` |
 | rex-view and rex-sidecar-task-list plugins | Yes | Not packaged for this agent | Not packaged for this agent | Not packaged for this agent | Not packaged for this agent |
 
@@ -245,12 +245,12 @@ limits](agents/README.md) for session discovery and agent-specific behavior.
 | --- | --- |
 | Claude panes and plugins | [Claude Code](https://claude.com/claude-code) |
 | Codex panes | The [Codex](https://github.com/openai/codex) CLI. Its sessions are read with the `sqlite3` that comes with macOS |
-| agy panes | The Antigravity CLI. Its conversation is found with the `lsof` that comes with macOS |
+| agy panes | The Antigravity CLI. Its conversation is found with the `lsof` that comes with macOS, and its title and subagents are read with `sqlite3` (read only) |
 | Pi panes | The [Pi](https://github.com/badlogic/pi-mono) CLI; optional [Pi extension](agents/README.md#pi) for exact session tracking and context % |
 | OpenCode panes | [OpenCode](https://opencode.ai) 2.x. Its sessions are read with the `sqlite3` that comes with macOS |
 | rex-crab-pond graphics | Unicode 16 octant characters (Rex draws them itself) |
 | Claude context and limits, and status line details in the pond | The [Claude status line setup](agents/README.md#claude-code), with `jq` (`brew install jq`) |
-| agy model, effort, context and usage quota | The [bundled agy status line script](agents/README.md#antigravity-cli-agy), with `jq` |
+| agy usage quota, permission mode, and context and effort for models whose ID doesn't give them | The [bundled agy status line script](agents/README.md#antigravity-cli-agy), with `jq` |
 | Diffs, Markdown, pictures and documents in a reader | [`leaf`](https://leaf.dipxsy.app) (`brew install deepanshumishraa/tap/leaf`); the sidecar offers to install it |
 | Highlighted diffs without leaf | [`delta`](https://github.com/dandavison/delta) (`brew install git-delta`); without it, [`bat`](https://github.com/sharkdp/bat) colours them |
 | Colours in rex-view | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
@@ -324,7 +324,7 @@ your Google Tasks and Apple Reminders remain with their providers.
 ## Privacy
 
 Everything runs on your Mac and reads local files: Claude Code's, Codex's and agy's
-own files, Pi's session files, OpenCode's database (read only) and the list
+own files, Pi's session files, OpenCode's and agy's databases (read only) and the list
 of running programs. rex-resume, and rex-sidecar and
 rex-crab-pond for Codex and OpenCode, also read the command lines of programs, and the
 sidecar reads which files an agy process has open, to find its conversation.

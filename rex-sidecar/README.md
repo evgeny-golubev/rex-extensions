@@ -25,14 +25,14 @@ pane opens by itself.
 [Tab plugins](#tab-plugins) · [Install](#install) ·
 [Troubleshooting](#troubleshooting) · [Files](#files) · [Tests](#tests)
 
-![Four sidecar panes with made-up data: Info with the time and date, the model, permission checks, agents and running processes; Changes on a pull request; Artifacts with documents, PRs, Jira issues and links; and Reminders with the next task, today's list and a report waiting for confirmation](../docs/rex-sidecar.png)
+![Four sidecar panes with made-up data: Info with the time and date, the model, permission checks, agents, running processes and the log; Changes on a pull request; Artifacts with documents, PRs, Jira issues and links; and Reminders with the next task, today's list and a report waiting for confirmation](../docs/rex-sidecar.png)
 
 If you use Claude Code, turn off its own diff panel with
 `"diffSidebarOpen": false` in `~/.claude.json`.
 
 The Changes and Artifacts tabs work with all five agents. Info only shows
 fields the agent records: Codex, agy, Pi and OpenCode have no GATE approval
-history or per-pane background process list, and agy has no subagents. See the
+history or per-pane background process list. See the
 [agent compatibility table](../README.md#agent-compatibility) and
 [adapter details](../agents/README.md).
 
@@ -40,7 +40,15 @@ The pane redraws every 2 seconds, and every second while a clock runs. Its
 look follows [Flightdeck](https://github.com/scasella/claude-flightdeck), a
 Claude Code mod. Each section is a box in its own colour, and gauges are
 cells. An empty section takes no room. Below 36 columns, boxes become plain
-headings.
+headings. Each frame is drawn in one go, so a pane resized in a background tab
+comes back whole and doesn't flicker.
+
+The main and turn boxes, the title and the effort bar take the agent's
+colours. Claude is coral with lavender subagents. Codex runs from blue to
+indigo, with periwinkle subagents. agy runs through Google's four colours,
+with light blue subagents. Pi and OpenCode use Claude's colours.
+
+![Two Info tabs with made-up data: a Codex session in blue and indigo, and an agy session in Google's four colours, each with its subagent, open question, last turn and log](../docs/rex-sidecar-themes.png)
 
 ## Changes
 
@@ -102,7 +110,7 @@ Info opens first. Its top line shows the time and date, such as
 | **PROCESSES** | Claude's background tasks running right now, newest first, as Claude Code's own list shows them: a monitor by its description, a shell by its command. Green for a shell, blue for a monitor, with how long it has run. Hidden while none run |
 | **OPEN** | Questions and plans waiting for your answer, questions at the end of Claude's last reply, and unfinished tasks |
 | **Receipt** | The running turn, or the last one: how long it took, the agents it started, its edits and errors. Then tests and failed commands; click either to list the latest 8. A command counts as a test when it's `pytest`, `npm test`, `go test`, or a script named test or spec |
-| **LOG** | Your prompts, agents starting and finishing, edits, failed commands, denied checks and advisor consults, each with its time. It fills the space below the other boxes, or a screen of its own when they fill the screen |
+| **LOG** | Your prompts, file writes and edits, agents starting and finishing, workflows, failed commands, denied checks, advisor consults and compactions. Each row has an icon and a colour for its kind: `›` prompt, `+` new file, `✎` edit, `-` delete, `▸` workflow, `✦` agent, `◆` advisor, `✗` error or denial, `⟲` compaction or interrupt, `•` anything else. Times are `HH:MM`, shown once per minute. Paths are cut to `folder/file`, and the same event in a row folds into one line with `×N` (prompts never fold). It fills the space below the other boxes, or a screen of its own when they fill the screen |
 
 - Context and usage limits depend on the agent: Claude Code and agy need their
   optional status line setup; Pi needs its extension for context % (no usage
@@ -571,7 +579,7 @@ unlock extra Info fields or improve session matching:
 | --- | --- | --- |
 | **Claude Code** | Set `"diffSidebarOpen": false` in `~/.claude.json`; save status line input (`jq`). [Setup →](../agents/README.md#claude-code) | Hides Claude's built-in diff sidebar; adds context % and 5h/7d usage limits |
 | **Codex** | None | Works out of the box (sessions and limits read via macOS `sqlite3` and rollouts). [Details →](../agents/README.md#codex) |
-| **Antigravity CLI (`agy`)** | Configure `agy-statusline.sh` (`jq`). [Setup →](../agents/README.md#antigravity-cli-agy) | Model effort, context % and 5h/7d usage quota bars |
+| **Antigravity CLI (`agy`)** | Configure `agy-statusline.sh` (`jq`). [Setup →](../agents/README.md#antigravity-cli-agy) | 5h/7d usage quota bars and permission mode; context % for non-Gemini models and effort for models without an effort suffix |
 | **Pi** | Link `pi-rex-status.ts` into Pi's extensions. [Setup →](../agents/README.md#pi) | Exact session matching (including `--session` / `/resume`), context % and thinking level |
 | **OpenCode** | None | Works out of the box with OpenCode 2.x. [Details →](../agents/README.md#opencode) |
 

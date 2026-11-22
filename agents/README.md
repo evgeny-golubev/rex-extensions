@@ -40,7 +40,7 @@ exact session tracking):
 | --- | --- | --- | --- |
 | [Claude Code](#claude-code) | None | Save status line input (`jq`); set `"diffSidebarOpen": false` for sidecar | Context %, 5h/7d usage limits, pond outfits and monitor descriptions; hides Claude's duplicate diff panel |
 | [Codex](#codex) | None (uses macOS `sqlite3`) | None | — |
-| [Antigravity CLI (`agy`)](#antigravity-cli-agy) | None (uses macOS `lsof`) | Configure `agy-statusline.sh` (`jq`) | Effort, context %, 5h/7d usage quota bars and pond outfits |
+| [Antigravity CLI (`agy`)](#antigravity-cli-agy) | None (uses macOS `lsof` and `sqlite3`) | Configure `agy-statusline.sh` (`jq`) | 5h/7d usage quota bars and permission mode; context % for non-Gemini models and effort for models without an effort suffix |
 | [Pi](#pi) | None | Link `pi-rex-status.ts` into Pi's extensions | Exact session matching (including `--session` / `/resume`), context % and thinking level |
 | [OpenCode](#opencode) | None (OpenCode 2.x + macOS `sqlite3`) | None | — |
 
@@ -164,8 +164,10 @@ pane:
 ### Setup
 
 Conversation discovery needs no setup (it uses the `lsof` that comes with
-macOS). For model effort, context percentage, usage quota bars and pond
-outfits, configure the bundled status line script in
+macOS, and `sqlite3` for titles and subagents). For the usage quota bars, the
+permission mode, the exact context window (Gemini models otherwise count as
+1M, others show no context %) and the effort of models without an effort
+suffix, configure the bundled status line script in
 `~/.gemini/antigravity-cli/settings.json`, then restart `agy`:
 
 ```json
@@ -196,11 +198,23 @@ tell two agy panes in one folder apart.
 - `GENERIC`: each tool's result, in the order of the calls. A command's result
   ends with "exited with code N".
 
+- `CHECKPOINT`: a context compaction, counted next to the context (⟲).
+
 An edit is any tool call whose name has write, replace, edit or create in it
 and whose arguments name a file (`TargetFile`, `AbsolutePath`, `FilePath`,
-`File` or `Path`). Its lines come from `CodeContent`, or from
-`TargetContent` and `ReplacementContent`. agy doesn't log line numbers, so
-Last Turn's diffs show the changed lines without their place in the file.
+`File` or `Path`). Its lines come from `CodeContent` or `Content` (agy's
+`write_file`), or from `TargetContent` and `ReplacementContent`, or `Target`
+and `Replacement` (agy's `edit_file`). agy doesn't log line numbers, so Last
+Turn's diffs show the changed lines without their place in the file.
+
+`run_workflow` runs count as tests when their script is a test command, and
+a tool still running in the background (`RUNNING`) isn't an error.
+
+**Title and subagents.** The conversation's title and its subagents come from
+`conversation_summaries.db`, read with the `sqlite3` that comes with macOS
+(`-readonly`). A subagent is a conversation whose parent is the pane's
+conversation; it shows as a lane in AGENTS, and as a light blue crab while it
+runs. `invoke_subagent` calls give the lanes their roles.
 
 **Model, effort, context and usage.** agy hands its status line command a
 JSON summary: the model, its effort, the context window and the usage quota.
@@ -208,12 +222,14 @@ JSON summary: the model, its effort, the context window and the usage quota.
 the adapter reads it. The quota comes in buckets of the fraction left and a
 reset time: `gemini-5h` and `gemini-weekly` for Gemini models, `3p-5h` and
 `3p-weekly` for others. They show as the 5h and 7d bars, like Claude's.
-Without the script, the model comes from the transcript and there are no
-usage bars or effort outfits.
+Without the script, the model comes from the transcript, its effort from the
+model ID's suffix (`gemini-4-neon-high` is high), the context window is 1M for
+Gemini models, and there are no usage bars or permission mode. Model names are shown readable:
+`gemini-4-neon-high` as Gemini 4 Neon.
 
 **What an agy pane doesn't show:** GATE (no permission decisions are logged),
-PROCESSES and background job crabs, and subagents. `ask_question` shows in
-OPEN until you answer.
+PROCESSES and background job crabs. `ask_question` shows in OPEN until you
+answer.
 
 rex-resume brings an agy pane back with `agy --conversation <conversation>`.
 

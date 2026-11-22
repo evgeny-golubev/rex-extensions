@@ -3,6 +3,19 @@
 Releases are tagged `vX.Y.Z` on GitHub. The skills keep their own versions,
 in each plugin's `plugin.json`.
 
+## v1.2.1 — 2026-11-22
+
+Two fixes to v1.2.0, and new pictures.
+
+- **rex-crab-pond:** running agy subagents get their light blue crabs. The
+  adapter never marked them as running, so the pond left them out.
+- **rex-sidecar:** a file Codex adds shows as `+` in the LOG box, like the
+  other agents', instead of `•`.
+- **Docs:** new pictures of the sidecar (with the LOG box), the Codex and agy
+  colours, the crab pond with agy, Pi and OpenCode, and rex-resume with all
+  five agents. The agy docs cover subagents, effort from the model ID and the
+  new edit tools.
+
 ## v1.2.0 — 2026-11-22
 
 Pi and OpenCode support, leaf as the viewer, agy at par with the other

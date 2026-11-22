@@ -17,7 +17,7 @@ run `rex config reload`, and start a supported agent. For model and effort
 outfits (Claude, agy, Pi), see [Agent setup](#agent-setup).
 [Full install →](#install)
 
-![The crab pond along the bottom of a tab, with sample crabs](../docs/rex-crab-pond.png)
+![The crab pond with made-up crabs: Claude and its subagents, Codex, agy, Pi and OpenCode with their subagents, and programs from other panes such as bun, nvim, lazygit, docker, ssh and a failed command](../docs/rex-crab-pond.png)
 
 **On this page:** [Reading a crab](#reading-a-crab) · [Claude and other agents](#claude-and-other-agents) ·
 [Subagents](#subagents) · [Programs](#programs-and-background-jobs) ·
@@ -71,9 +71,10 @@ A Codex is green and named after its thread. Its outfit shows its reasoning
 effort: a scientist for high or xhigh, a ninja for low or minimal, and a robot
 otherwise.
 
-An agy (Antigravity CLI) crab is Google blue. With agy's status line script
-set up, its outfit shows its effort as a Codex's does; without it, it's a
-robot.
+An agy (Antigravity CLI) crab is Google blue, and its outfit shows its effort
+as a Codex's does. The effort comes from the model ID (`gemini-4-neon-high`),
+or from agy's status line script when the ID has none; without either, it's a
+robot. Each running agy subagent gets a light blue crab of its own.
 
 A Pi crab is pink, and its outfit shows its thinking level as a Codex's does.
 Each pi-subagents run gets a light pink crab of its own.
@@ -138,9 +139,8 @@ A build crab's hard hat takes its program's brand colour: gopher blue for
 full list is in `pond.lua` (`program_accents`).
 
 Codex runs its commands under its app-server, not its own process. So a Codex
-has no background shell crabs. agy also has no background job or subagent
-crabs, and Pi and OpenCode have no background job crabs; programs in separate
-panes still appear. See [adapter limits](../agents/README.md).
+has no background shell crabs. agy, Pi and OpenCode have no background job
+crabs either; programs in separate panes still appear. See [adapter limits](../agents/README.md).
 
 ## Where the data comes from
 
@@ -187,7 +187,7 @@ per-agent setup unlocks outfits and exact session tracking:
 | --- | --- | --- |
 | **Claude Code** | Save status line input (`jq`). [Setup →](../agents/README.md#claude-code) | Model and effort outfits, session name, and monitor descriptions |
 | **Codex** | None | Thread name, effort outfits and subagent crabs work out of the box. [Details →](../agents/README.md#codex) |
-| **Antigravity CLI (`agy`)** | Configure `agy-statusline.sh` (`jq`). [Setup →](../agents/README.md#antigravity-cli-agy) | Effort outfits (without it, agy wears a robot outfit) |
+| **Antigravity CLI (`agy`)** | Configure `agy-statusline.sh` (`jq`). [Setup →](../agents/README.md#antigravity-cli-agy) | Effort outfits for models without an effort suffix in their ID |
 | **Pi** | Link `pi-rex-status.ts` into Pi's extensions. [Setup →](../agents/README.md#pi) | Exact session matching (including `--session` / `/resume`) and thinking-level outfits |
 | **OpenCode** | None | Model variant outfits and subagent crabs work out of the box (OpenCode 2.x). [Details →](../agents/README.md#opencode) |
 
@@ -239,7 +239,7 @@ Clawd, Claude Code's mascot by Anthropic.
 | --- | --- |
 | No pond opens | Start a supported agent, or run **Show Crabs Pane** from the palette. Check auto-show if you want new agent tabs to open it automatically. |
 | Claude has no model or effort outfit | Check `jq`, the [Claude status line setup](../agents/README.md#claude-code) and the saved session JSON. Wait for the next agent reply to refresh it. |
-| An agy crab always wears a robot outfit | Configure `agy-statusline.sh` with `jq` and restart agy; see [agy setup](../agents/README.md#antigravity-cli-agy). |
+| An agy crab always wears a robot outfit | Its model ID has no effort suffix. Configure `agy-statusline.sh` with `jq` and restart agy; see [agy setup](../agents/README.md#antigravity-cli-agy). |
 | A Pi crab shows the wrong session or generic agent crab | Link `pi-rex-status.ts` and restart Pi; see [Pi setup](../agents/README.md#pi). |
 | A Codex crab has the wrong title | Give threads in the same folder distinct names; see [Codex discovery](../agents/README.md#codex). |
 | An OpenCode crab shows as a generic agent crab | Send the first prompt and check that OpenCode 2.x's database exists; see [OpenCode discovery](../agents/README.md#opencode). |
