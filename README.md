@@ -65,7 +65,7 @@ command sets it on fire.
 
 ![rex-crab-pond with sample crabs](docs/rex-crab-pond.png)
 
-For Claude Code details, [save its status line input](#install).
+For full agent details (outfits and status), see [Agent setup](#agent-setup).
 [How to read the crabs →](rex-crab-pond/README.md)
 
 ### rex-resume
@@ -133,42 +133,44 @@ Reminders tabs. To set it up, ask Claude "set up the sidecar Tasks tab".
    rex config reload
    ```
 
-4. If you use Claude Code with rex-sidecar, turn off its own diff panel. Set
-   `"diffSidebarOpen": false` in `~/.claude.json`.
+### Agent setup
 
-5. For Claude Code details in rex-crab-pond and context and limits in rex-sidecar: make
-   Claude Code's status line save its input. Add these lines to your status
-   line script, after it reads its input into `$input`:
+All five agents work out of the box after steps 1–3. Follow the optional step
+for the agent(s) you use to unlock extra fields (context %, usage limits,
+effort outfits or exact session tracking):
 
-   ```bash
-   sid=$(echo "$input" | jq -r '.session_id // empty')
-   [ -n "$sid" ] && mkdir -p ~/.claude/state/statusline && printf '%s' "$input" > ~/.claude/state/statusline/"$sid".json
-   ```
+| Agent | Optional setup | What it adds |
+| --- | --- | --- |
+| **Claude Code** | Set `"diffSidebarOpen": false` in `~/.claude.json` (for sidecar), and save status line JSON (`jq`). [Full setup →](agents/README.md#claude-code) | Hides Claude's duplicate diff panel; adds context %, 5h/7d limits, pond outfits and monitor descriptions |
+| **Codex** | None | Works out of the box using macOS `sqlite3`. [Details →](agents/README.md#codex) |
+| **Antigravity CLI (`agy`)** | Add `agy-statusline.sh` to `~/.gemini/antigravity-cli/settings.json` (`jq`). [Full setup →](agents/README.md#antigravity-cli-agy) | Model effort, context %, 5h/7d usage quota bars and pond outfits |
+| **Pi** | Link `pi-rex-status.ts` into `~/.pi/agent/extensions/` and restart Pi. [Full setup →](agents/README.md#pi) | Exact session tracking (including `--session` / `/resume`), context % and thinking level |
+| **OpenCode** | None | Works out of the box with OpenCode 2.x using macOS `sqlite3`. [Details →](agents/README.md#opencode) |
 
-   No status line yet? [rex-crab-pond's setup](rex-crab-pond/README.md#claude-code-status-line)
-   has a complete script and the `settings.json` entry.
+Quick commands for the three optional setups:
 
-6. For agy's model, effort, context and usage quota in rex-sidecar and
-   rex-crab-pond: use the status line script that comes with the repository.
-   Add this to `~/.gemini/antigravity-cli/settings.json`, then restart agy:
+- **Claude Code:** Add these two lines to your status line script after reading
+  stdin into `$input` (or copy the complete script in
+  [agents/README.md](agents/README.md#claude-code)):
 
-   ```json
-   "statusLine": { "type": "command", "command": "~/.config/rex/extensions/agents/agy-statusline.sh" }
-   ```
+  ```bash
+  sid=$(echo "$input" | jq -r '.session_id // empty')
+  [ -n "$sid" ] && mkdir -p ~/.claude/state/statusline && printf '%s' "$input" > ~/.claude/state/statusline/"$sid".json
+  ```
 
-   Use the full path to your home folder in place of `~`. The script needs
-   `jq`, and shows the model and how full the context is.
+- **agy:** Add to `~/.gemini/antigravity-cli/settings.json` (replace `/Users/you`
+  with your home path; needs `jq`), then restart `agy`:
 
-7. For Pi: link the small extension that comes with the repository into Pi's
-   extensions, then restart Pi. It records which session each `pi` writes,
-   with its model, context window and thinking level:
+  ```json
+  "statusLine": { "type": "command", "command": "/Users/you/.config/rex/extensions/agents/agy-statusline.sh" }
+  ```
 
-   ```sh
-   ln -s ~/.config/rex/extensions/agents/pi-rex-status.ts ~/.pi/agent/extensions/rex-status.ts
-   ```
+- **Pi:** Link the bundled extension and restart `pi`:
 
-   Without it, a Pi pane's session is the folder's newest one since that `pi`
-   started, and the context has no percentage. OpenCode needs no setup.
+  ```sh
+  mkdir -p ~/.pi/agent/extensions
+  ln -s ~/.config/rex/extensions/agents/pi-rex-status.ts ~/.pi/agent/extensions/rex-status.ts
+  ```
 
 ### Skills
 
@@ -243,9 +245,11 @@ limits](agents/README.md) for session discovery and agent-specific behavior.
 | Claude panes and plugins | [Claude Code](https://claude.com/claude-code) |
 | Codex panes | The [Codex](https://github.com/openai/codex) CLI. Its sessions are read with the `sqlite3` that comes with macOS |
 | agy panes | The Antigravity CLI. Its conversation is found with the `lsof` that comes with macOS |
+| Pi panes | The [Pi](https://github.com/badlogic/pi-mono) CLI; optional [Pi extension](agents/README.md#pi) for exact session tracking and context % |
+| OpenCode panes | [OpenCode](https://opencode.ai) 2.x. Its sessions are read with the `sqlite3` that comes with macOS |
 | rex-crab-pond graphics | Unicode 16 octant characters (Rex draws them itself) |
-| Claude context and limits, and status line details in the pond | The Claude status line step above, with `jq` (`brew install jq`) |
-| agy model, effort, context and usage quota | The bundled agy status line script configured above, with `jq` |
+| Claude context and limits, and status line details in the pond | The [Claude status line setup](agents/README.md#claude-code), with `jq` (`brew install jq`) |
+| agy model, effort, context and usage quota | The [bundled agy status line script](agents/README.md#antigravity-cli-agy), with `jq` |
 | Diffs, Markdown, pictures and documents in a reader | [`leaf`](https://leaf.dipxsy.app) (`brew install deepanshumishraa/tap/leaf`); the sidecar offers to install it |
 | Highlighted diffs without leaf | [`delta`](https://github.com/dandavison/delta) (`brew install git-delta`); without it, [`bat`](https://github.com/sharkdp/bat) colours them |
 | Colours in rex-view | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
@@ -262,8 +266,8 @@ the named features; you can leave out tools for features you don't need.
 | --- | --- |
 | No sidecar or pond appears | Check the `require` lines in `~/.config/rex/init.lua`, run `rex config reload`, and start `claude`, `codex`, `agy`, `pi` or `opencode` in a pane. If you closed the sidecar, run **Show Sidecar Pane** from the palette. Check that auto-show is enabled if you want it to open automatically. |
 | An update has no effect | Config reload does not replace an already running watcher. Run the watcher restart command under [Update](#update). |
-| Claude context or limits are missing | Check that the status line writes `~/.claude/state/statusline/<session-id>.json` (under `$CLAUDE_CONFIG_DIR` if set), and that `jq` is installed. See the [complete status line setup](rex-crab-pond/README.md#claude-code-status-line). |
-| A Codex, agy, Pi or OpenCode pane has no conversation yet | Send the first prompt so the agent creates its conversation. For Pi, link the [Pi extension](#install) so a session opened with `--session` or `/resume` is found too. For Codex panes in the same folder with identical thread names, rename one. See [session discovery](agents/README.md). |
+| Claude context or limits are missing | Check that the status line writes `~/.claude/state/statusline/<session-id>.json` (under `$CLAUDE_CONFIG_DIR` if set), and that `jq` is installed. See the [complete Claude setup](agents/README.md#claude-code). |
+| A Codex, agy, Pi or OpenCode pane has no conversation yet | Send the first prompt so the agent creates its conversation. For Pi, link the [Pi extension](agents/README.md#pi) so a session opened with `--session` or `/resume` is found too. For Codex panes in the same folder with identical thread names, rename one. See [session discovery](agents/README.md). |
 | Google Tasks or Reminders is missing | Both tabs are hidden initially. Enable the tab in [Tab settings](rex-sidecar/README.md#tab-settings), then follow the [Google Tasks](rex-sidecar/README.md#google-tasks) or [Reminders](rex-sidecar/README.md#reminders) setup. |
 
 For sidecar errors, inspect the last 50 log lines:

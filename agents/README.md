@@ -2,12 +2,13 @@
 
 **One sidecar, one pond, any coding agent.** rex-sidecar and rex-crab-pond ask
 this folder which agent a pane runs and where its session is, so they never
-name an agent themselves. rex-resume uses it to find a Codex or agy pane's
-conversation. Five adapters ship today: Claude Code, Codex, the
+name an agent themselves. rex-resume uses it to find a Codex, agy, Pi or
+OpenCode pane's conversation. Five adapters ship today: Claude Code, Codex, the
 Antigravity CLI (`agy`), Pi and OpenCode. Adding another takes
 [one adapter and one parser](#adding-an-agent).
 
-**On this page:** [What ships](#what-ships) · [Claude Code](#claude-code) ·
+**On this page:** [What ships](#what-ships) ·
+[Setup at a glance](#setup-at-a-glance) · [Claude Code](#claude-code) ·
 [Codex](#codex) · [agy](#antigravity-cli-agy) · [Pi](#pi) · [OpenCode](#opencode) ·
 [Troubleshooting](#troubleshooting) · [Interface](#interface) ·
 [Adding an agent](#adding-an-agent) · [Tests](#tests)
@@ -29,22 +30,86 @@ folders when installing. See the [repository install guide](../README.md#install
 An agent counts whether it runs in the pane's foreground or as the parent of
 the foreground command, so `claude` running `git` still counts.
 
+## Setup at a glance
+
+All five agents work out of the box once the extensions are installed. Optional
+per-agent setup unlocks extra fields (context usage, limits, effort outfits or
+exact session tracking):
+
+| Agent | Required setup | Optional setup | What optional setup adds |
+| --- | --- | --- | --- |
+| [Claude Code](#claude-code) | None | Save status line input (`jq`); set `"diffSidebarOpen": false` for sidecar | Context %, 5h/7d usage limits, pond outfits and monitor descriptions; hides Claude's duplicate diff panel |
+| [Codex](#codex) | None (uses macOS `sqlite3`) | None | — |
+| [Antigravity CLI (`agy`)](#antigravity-cli-agy) | None (uses macOS `lsof`) | Configure `agy-statusline.sh` (`jq`) | Effort, context %, 5h/7d usage quota bars and pond outfits |
+| [Pi](#pi) | None | Link `pi-rex-status.ts` into Pi's extensions | Exact session matching (including `--session` / `/resume`), context % and thinking level |
+| [OpenCode](#opencode) | None (OpenCode 2.x + macOS `sqlite3`) | None | — |
+
 ## Claude Code
+
+### Setup
+
+Session discovery and transcripts need no setup. For model, effort, context
+capacity, 5h/7d usage limits, pond outfits and monitor descriptions, save
+Claude Code's status line JSON input (`jq` is required: `brew install jq`):
+
+If you already have a status line script (`"statusLine"` in
+`~/.claude/settings.json`), add the save lines after it reads stdin into
+`$input` (read stdin only once):
+
+```bash
+# Read JSON input from stdin
+input=$(cat)
+
+# Save the input for rex-sidecar and rex-crab-pond
+sid=$(echo "$input" | jq -r '.session_id // empty')
+[ -n "$sid" ] && mkdir -p ~/.claude/state/statusline && printf '%s' "$input" > ~/.claude/state/statusline/"$sid".json
+```
+
+If you have no status line script yet, save this as
+`~/.claude/statusline-command.sh`:
+
+```bash
+#!/bin/bash
+input=$(cat)
+sid=$(echo "$input" | jq -r '.session_id // empty')
+[ -n "$sid" ] && mkdir -p ~/.claude/state/statusline && printf '%s' "$input" > ~/.claude/state/statusline/"$sid".json
+echo "$input" | jq -r '.model.display_name'
+```
+
+Then merge this into `~/.claude/settings.json`:
+
+```json
+{
+  "statusLine": { "type": "command", "command": "bash ~/.claude/statusline-command.sh" }
+}
+```
+
+If you use `$CLAUDE_CONFIG_DIR`, use that directory in place of `~/.claude` for
+the settings, script and saved status line files. Claude Code runs the command
+as the session updates, so a running session picks it up after its next reply.
+Delete `~/.claude/state/statusline/` any time to clear saved files.
+
+If you use `rex-sidecar`, also disable Claude Code's built-in diff panel so you
+don't get two sidebars: set `"diffSidebarOpen": false` in `~/.claude.json`.
+
+### How it works
 
 The adapter checks `$CLAUDE_CONFIG_DIR` first, then `~/.claude`. The running
 process's session file supplies the conversation ID and working directory;
 the transcript supplies replies, edits and subagents. A saved status line
 adds model, effort, context capacity and usage limits.
 
-The status line is optional for session discovery. To enable its extra
-fields, follow the [status line setup](../rex-crab-pond/README.md#claude-code-status-line).
-Save its JSON under the same config directory as the session files.
-
 rex-resume has its own Claude session lookup and currently only reads
 `~/.claude/sessions/`; the adapter's custom-directory support does not extend
 to Claude restoration.
 
 ## Codex
+
+### Setup
+
+No extra setup is needed. Codex sessions are read from its local SQLite state
+database using the `sqlite3` that comes with macOS (under `$CODEX_HOME` if set,
+otherwise `~/.codex`).
 
 ### How a pane's thread is found
 
@@ -96,6 +161,24 @@ pane:
 
 ## Antigravity CLI (agy)
 
+### Setup
+
+Conversation discovery needs no setup (it uses the `lsof` that comes with
+macOS). For model effort, context percentage, usage quota bars and pond
+outfits, configure the bundled status line script in
+`~/.gemini/antigravity-cli/settings.json`, then restart `agy`:
+
+```json
+"statusLine": { "type": "command", "command": "/Users/you/.config/rex/extensions/agents/agy-statusline.sh" }
+```
+
+Use the full path to your home folder in place of `/Users/you` (don't use `~`).
+The script needs `jq` (`brew install jq`), saves the JSON to
+`~/.gemini/antigravity-cli/state/statusline/<conversation>.json`, and displays
+the model name and context percentage.
+
+### How it works
+
 agy keeps each conversation under `~/.gemini/antigravity-cli/`.
 
 **Finding a pane's conversation.** While agy has a conversation open, its
@@ -126,7 +209,7 @@ the adapter reads it. The quota comes in buckets of the fraction left and a
 reset time: `gemini-5h` and `gemini-weekly` for Gemini models, `3p-5h` and
 `3p-weekly` for others. They show as the 5h and 7d bars, like Claude's.
 Without the script, the model comes from the transcript and there are no
-usage bars. See the [root install guide](../README.md#install) for the setting.
+usage bars or effort outfits.
 
 **What an agy pane doesn't show:** GATE (no permission decisions are logged),
 PROCESSES and background job crabs, and subagents. `ask_question` shows in
@@ -135,6 +218,23 @@ OPEN until you answer.
 rex-resume brings an agy pane back with `agy --conversation <conversation>`.
 
 ## Pi
+
+### Setup
+
+Basic discovery needs no setup, but linking the bundled Pi extension is
+recommended so `rex-sidecar`, `rex-crab-pond` and `rex-resume` always know each
+pane's exact session (including `--session` and `/resume`), context window
+percentage and thinking level:
+
+```sh
+mkdir -p ~/.pi/agent/extensions
+ln -s ~/.config/rex/extensions/agents/pi-rex-status.ts ~/.pi/agent/extensions/rex-status.ts
+```
+
+Then restart Pi. If you set `PI_CODING_AGENT_DIR`, link into
+`$PI_CODING_AGENT_DIR/extensions/` instead.
+
+### How it works
 
 [Pi](https://github.com/badlogic/pi-mono) keeps each session as a JSONL file
 in `~/.pi/agent/sessions/`, in a folder named after the directory with `/` as
@@ -149,9 +249,6 @@ file open. So:
    `state/rex/<pid>.json`: its session file, model, context window, thinking
    level and whether it's working. It updates on start, `/new`, `/resume`,
    `/fork`, a model change and every turn, and removes the file when Pi exits.
-   Install it with
-   `ln -s ~/.config/rex/extensions/agents/pi-rex-status.ts ~/.pi/agent/extensions/rex-status.ts`
-   and restart Pi.
 2. Without it, the session is the folder's newest file that changed since
    this `pi` started. A `pi` that hasn't saved a message yet has none, and a
    session file kept elsewhere with `--session` isn't found.
@@ -178,6 +275,14 @@ no percentage, as the transcript doesn't record the model's window.
 rex-resume brings a Pi pane back with `pi --session <file>`.
 
 ## OpenCode
+
+### Setup
+
+No extra setup is needed. Requires OpenCode 2.x; sessions are read with the
+`sqlite3` that comes with macOS (from `$OPENCODE_DB`, `$XDG_DATA_HOME`, or
+`~/.local/share/opencode/opencode.db`).
+
+### How it works
 
 [OpenCode](https://opencode.ai) 2.x keeps its sessions in a SQLite
 database, `~/.local/share/opencode/opencode.db` (or `$OPENCODE_DB`, or under
@@ -217,7 +322,7 @@ rex-resume brings an OpenCode pane back with `opencode --session <session>`.
 
 | Symptom | What to check |
 | --- | --- |
-| An agent is recognised but its session is empty | Wait for Claude to write its session file, or send the first prompt in Codex or agy. Process recognition alone does not identify a conversation. |
+| An agent is recognised but its session is empty | Wait for Claude to write its session file, or send the first prompt in Codex, agy, Pi or OpenCode. Process recognition alone does not identify a conversation. |
 | Codex shows the wrong thread | Give threads in the same folder distinct names. Check that `$CODEX_HOME` points to the intended profile and that `sqlite3` is available. |
 | agy shows the wrong conversation | The folder fallback cannot distinguish panes in the same folder. Check that `lsof` can read the agy process's open presence lock. |
 | A Pi pane shows the wrong session, or none | Install the Pi extension and restart Pi. Without it, only the folder's newest session since `pi` started is found. |

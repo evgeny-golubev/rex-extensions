@@ -53,7 +53,7 @@ ignores. The file is read on every save, so an edit applies straight away.
 ```json
 {
   "mode": "allow_full",
-  "programs": ["nvim", "vim", "less", "htop", "codex", "agy"]
+  "programs": ["nvim", "vim", "less", "htop", "codex", "agy", "pi", "opencode"]
 }
 ```
 
@@ -106,10 +106,12 @@ thread is found as [agents/README.md](../agents/README.md#codex) describes.
 <conversation>`. The conversation is found as
 [agents/README.md](../agents/README.md#antigravity-cli-agy) describes.
 
-**Pi** comes back with `pi --session <file>`, and **OpenCode** with
-`opencode --session <session>`, found as
-[agents/README.md](../agents/README.md#pi) describes. For Pi, the Pi extension
-makes sure the session is the pane's own.
+**Pi** comes back with `pi --session <file>`, found as
+[agents/README.md](../agents/README.md#pi) describes. Linking the bundled Pi
+extension makes sure the session is the pane's own.
+
+**OpenCode** comes back with `opencode --session <session>`, found as
+[agents/README.md](../agents/README.md#opencode) describes.
 
 They all take a moment before they can be saved. Claude writes its session
 file a few seconds after it starts, and the others only have a session after
@@ -142,6 +144,16 @@ programs.
    ```
 
 3. Run `rex config reload`.
+
+### Agent setup
+
+| Agent | Setup for rex-resume | Notes |
+| --- | --- | --- |
+| **Claude Code** | None | Always restored regardless of `mode` or `programs`. Only reads `~/.claude/sessions/` (not `$CLAUDE_CONFIG_DIR`) |
+| **Codex** | None | Included in default `programs`. Send one prompt so a thread exists. [Details →](../agents/README.md#codex) |
+| **Antigravity CLI (`agy`)** | None | Included in default `programs`. Send one prompt so a conversation exists. [Details →](../agents/README.md#antigravity-cli-agy) |
+| **Pi** | Optional: link `pi-rex-status.ts`. [Setup →](../agents/README.md#pi) | Included in default `programs`. Recommended so `--session`, `/resume` and multiple panes in one folder restore the right session |
+| **OpenCode** | None | Included in default `programs`. Requires OpenCode 2.x; send one prompt so a session exists. [Details →](../agents/README.md#opencode) |
 
 It isn't a native Rex extension: the config line starts a separate `rex do`
 watcher that reacts to Rex's events. Every config load starts one, and a new

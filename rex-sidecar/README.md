@@ -104,8 +104,11 @@ Info opens first. Its top line shows the time and date, such as
 | **Receipt** | The running turn, or the last one: how long it took, the agents it started, its edits and errors. Then tests and failed commands; click either to list the latest 8. A command counts as a test when it's `pytest`, `npm test`, `go test`, or a script named test or spec |
 | **LOG** | Your prompts, agents starting and finishing, edits, failed commands, denied checks and advisor consults, each with its time. It fills the space below the other boxes, or a screen of its own when they fill the screen |
 
-- Context and limits need the status line step in the
-  [main README](../README.md#install). Without it they're left out.
+- Context and usage limits depend on the agent: Claude Code and agy need their
+  optional status line setup; Pi needs its extension for context % (no usage
+  limits); Codex reads limits from its rollouts with no setup; OpenCode reads
+  context from its cache with no setup (no usage limits). See
+  [Agent setup](#agent-setup).
 - A background task stays listed until the transcript says it ended, a
   monitor's timeout passes, or no shell of Claude's that started with it is
   left. Only program names are read from `ps`, never arguments.
@@ -279,7 +282,7 @@ Click a view's name, or press `V`, to switch.
 
 - a report from an agent that a task is done, to confirm with `y` or reject
   with `n` (see [Task actions](#task-actions));
-- the daily review, once you've pressed a key in the tab or prompted Claude
+- the daily review, once you've pressed a key in the tab or prompted the agent
   today;
 - an A task that's 3 days past due, or was moved 3 times;
 - a day with more than 6 hours of work, or more than 6 hours of A work. A task
@@ -559,11 +562,20 @@ require("extensions.rex-sidecar")
 
 Then run `rex config reload`.
 
-Claude context and limits need the [status line setup](../rex-crab-pond/README.md#claude-code-status-line).
-agy's extra status fields need the [bundled status line command](../README.md#install).
-Pi's exact session, model window and thinking level need the
-[Pi extension](../README.md#install).
-Neither is required to open a pane. See [dependencies by feature](../README.md#dependencies-by-feature)
+### Agent setup
+
+None of these optional steps are required to open a sidecar pane, but they
+unlock extra Info fields or improve session matching:
+
+| Agent | Optional setup for rex-sidecar | What it adds |
+| --- | --- | --- |
+| **Claude Code** | Set `"diffSidebarOpen": false` in `~/.claude.json`; save status line input (`jq`). [Setup →](../agents/README.md#claude-code) | Hides Claude's built-in diff sidebar; adds context % and 5h/7d usage limits |
+| **Codex** | None | Works out of the box (sessions and limits read via macOS `sqlite3` and rollouts). [Details →](../agents/README.md#codex) |
+| **Antigravity CLI (`agy`)** | Configure `agy-statusline.sh` (`jq`). [Setup →](../agents/README.md#antigravity-cli-agy) | Model effort, context % and 5h/7d usage quota bars |
+| **Pi** | Link `pi-rex-status.ts` into Pi's extensions. [Setup →](../agents/README.md#pi) | Exact session matching (including `--session` / `/resume`), context % and thinking level |
+| **OpenCode** | None | Works out of the box with OpenCode 2.x. [Details →](../agents/README.md#opencode) |
+
+See [dependencies by feature](../README.md#dependencies-by-feature)
 for optional diff, Markdown and search tools. The Search Panel uses bundled
 rex-view scripts without requiring the Claude Code plugin to be installed.
 

@@ -20,7 +20,7 @@ claude plugin install rex-view@rex-extensions
 Version 0.5.1. It's a Claude Code skill, so it needs no line in `init.lua`.
 
 Requires macOS, Rex and Claude Code. The sidecar extension is optional.
-The sidecar also uses these viewer scripts for Codex and agy, but this
+The sidecar also uses these viewer scripts for Codex, agy, Pi and OpenCode, but this
 plugin's automatic skill integration is packaged for Claude Code.
 
 **On this page:** [What you see](#what-you-see) · [Keys](#keys) ·
