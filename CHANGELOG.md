@@ -5,6 +5,19 @@ in each plugin's `plugin.json`.
 
 ## Unreleased
 
+### Antigravity CLI (agy)
+
+- rex-sidecar, rex-crab-pond and rex-resume work with `agy`, through a new
+  adapter, `agents/agy.lua`, and a sidecar parser, `parsers/agy.lua`.
+- A pane's conversation is the one whose lock file its `agy` process holds
+  open (read with `lsof`), or else the folder's last conversation.
+- The sidecar shows the model, context, prompts, replies, commands, tests,
+  edits and open questions. GATE, PROCESSES, limits and subagents stay empty,
+  as agy doesn't log them.
+- The crab is Google blue, with a robot outfit.
+- rex-resume brings agy back with `agy --conversation <conversation>`, and
+  `agy` is on its default program list.
+
 ### rex-sidecar: two task tabs
 
 The Tasks tab is now two tabs, **Google Tasks** and **Reminders**, which you

@@ -2,8 +2,9 @@
 
 **One sidecar, one pond, any coding agent.** rex-sidecar and rex-crab-pond ask
 this folder which agent a pane runs and where its session is, so they never
-name an agent themselves. rex-resume uses it to find a Codex pane's thread.
-Two adapters ship today, Claude Code and Codex. Adding another takes
+name an agent themselves. rex-resume uses it to find a Codex or agy pane's
+conversation. Three adapters ship today: Claude Code, Codex and the
+Antigravity CLI (`agy`). Adding another takes
 [one adapter and one parser](#adding-an-agent).
 
 ## What ships
@@ -12,6 +13,7 @@ Two adapters ship today, Claude Code and Codex. Adding another takes
 | --- | --- | --- | --- |
 | `claude.lua` | Program name `claude`, in any case | `~/.claude/sessions/<pid>.json` (or under `$CLAUDE_CONFIG_DIR`), plus the saved status line input | `projects/<project>/<session>.jsonl` |
 | `codex.lua` | Program name `codex`, in any case | The `threads` table of Codex's state database, `~/.codex/state_<n>.sqlite` (or under `$CODEX_HOME`) | The thread's `rollout_path` |
+| `agy.lua` | Program name `agy`, in any case | The conversation lock the process holds open in `~/.gemini/antigravity-cli/presence/`, else the folder's last conversation | `brain/<conversation>/.system_generated/logs/transcript_full.jsonl` |
 
 An agent counts whether it runs in the pane's foreground or as the parent of
 the foreground command, so `claude` running `git` still counts.
@@ -65,6 +67,37 @@ pane:
   be mixed up. Renaming one thread tells them apart.
 - Rex reports only a program's name. So any `codex` command in a pane, such as
   `codex login`, counts as a Codex until it exits.
+
+## Antigravity CLI (agy)
+
+agy keeps each conversation under `~/.gemini/antigravity-cli/`.
+
+**Finding a pane's conversation.** While agy has a conversation open, its
+process holds `presence/<conversation>.lock` open. The adapter reads the
+process's open files with `lsof` (file paths only, not its command line) and
+takes the conversation from that lock. If that fails, it takes the folder's
+last conversation from `cache/last_conversations.json`. That fallback can't
+tell two agy panes in one folder apart.
+
+**What the sidecar reads.** The transcript is one JSON step per line:
+
+- `USER_INPUT`: your prompt, inside `<USER_REQUEST>`;
+- `PLANNER_RESPONSE`: a model step with the model, token counts, a reply and
+  tool calls;
+- `GENERIC`: each tool's result, in the order of the calls. A command's result
+  ends with "exited with code N".
+
+An edit is any tool call whose name has write, replace, edit or create in it
+and whose arguments name a file (`TargetFile`, `AbsolutePath`, `FilePath`,
+`File` or `Path`). Its lines come from `CodeContent`, or from
+`TargetContent` and `ReplacementContent`. agy doesn't log line numbers, so
+Last Turn's diffs show the changed lines without their place in the file.
+
+**What an agy pane doesn't show:** GATE (no permission decisions are logged),
+PROCESSES and background job crabs, usage limits and the context window's
+size, and subagents. `ask_question` shows in OPEN until you answer.
+
+rex-resume brings an agy pane back with `agy --conversation <conversation>`.
 
 ## Interface
 

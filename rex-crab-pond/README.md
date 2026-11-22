@@ -3,7 +3,7 @@
 **Everything running in your tab, as a pond of pixel crabs.** Glance down and
 you know who's thinking, who's building, and who just caught fire.
 
-- **One crab per thing:** each Claude or Codex, subagent, background job and
+- **One crab per thing:** each Claude, Codex or agy, subagent, background job and
   program in the tab's other panes.
 - **Read it at a glance:** colour shows the kind of program, the hat shows its
   job, movement shows its state, and a failed command sets it on fire.
@@ -18,7 +18,7 @@ run `rex config reload`, and do the one-time
 
 ![The crab pond along the bottom of a tab, with sample crabs](../docs/rex-crab-pond.png)
 
-**On this page:** [Reading a crab](#reading-a-crab) · [Claude and Codex](#claude-and-codex) ·
+**On this page:** [Reading a crab](#reading-a-crab) · [Claude, Codex and agy](#claude-codex-and-agy) ·
 [Subagents](#subagents) · [Programs](#programs-and-background-jobs) ·
 [Install](#install) · [Palette actions](#palette-actions) · [Behavior](#behavior)
 
@@ -46,11 +46,11 @@ such as `docker ×2` or `waiting ×3`, and show the longest uptime. Waiting crab
 go last. A taller pane wraps the crabs onto more rows. If they still don't
 fit, a plain grey crab with `+N` counts the rest.
 
-## Claude and Codex
+## Claude, Codex and agy
 
 The first crab is the tab's main agent: the focused agent pane, or the last
 one that was. It shows the session's name, model and uptime. Other Claudes and
-Codexes in the tab get crabs of their own.
+Codexes and agys in the tab get crabs of their own.
 
 A Claude's outfit shows its model and effort:
 
@@ -68,6 +68,9 @@ A Claude's outfit shows its model and effort:
 A Codex is green and named after its thread. Its outfit shows its reasoning
 effort: a scientist for high or xhigh, a ninja for low or minimal, and a robot
 otherwise.
+
+An agy (Antigravity CLI) crab is Google blue and wears a robot outfit: agy's
+effort is only on its command line, which the pond doesn't read.
 
 Agents are found by program name, in any case: `claude`, `Claude` and
 `CLAUDE` all count. The details come from [`../agents/`](../agents/README.md).
@@ -117,7 +120,7 @@ panes, are coloured by what the program does:
 | Yellow | Build or test | Hard hat and wrench | go, cargo, make, npm, bun, node, python, pytest, xcodebuild |
 | Violet | Server | Server rack | docker, kubectl, psql, redis, nginx, terraform |
 | Purple | Remote | Diving mask | ssh, mosh, scp, rsync, tailscale |
-| Teal | Agent CLI | Robot antenna | codex, gemini, aider, opencode, goose |
+| Teal | Agent CLI | Robot antenna | codex, agy, gemini, aider, opencode, goose |
 | Green | Anything else | None | |
 | Grey | Shell | Nightcap | zsh, bash, fish |
 

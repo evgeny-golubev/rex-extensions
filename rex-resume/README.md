@@ -9,6 +9,7 @@ crash, every pane comes back running what it ran before.
 | --- | --- |
 | Claude Code | `claude --resume <session>`: the same conversation, in the same folder |
 | Codex | `codex resume <thread>`: the same conversation, in the thread's folder |
+| Antigravity CLI | `agy --conversation <conversation>`: the same conversation, in its folder |
 | nvim, less, htop, ssh and others | The same command, such as `nvim src/app.lua`, as your [settings](#settings) allow |
 | A shell | A shell in the same folder |
 
@@ -58,7 +59,7 @@ ignores. The file is read on every save, so an edit applies straight away.
 | `any_full` | Any program that isn't a shell, with its arguments. `programs` is ignored |
 
 Without `programs`, the list is: nvim, vim, vi, nano, less, man, htop, btop,
-top, watch, lazygit, tig, k9s, ssh and codex.
+top, watch, lazygit, tig, k9s, ssh, codex and agy.
 
 Claude Code always comes back, whatever the mode or the list.
 
@@ -73,7 +74,7 @@ and they're saved as plain text in the snapshot.
   command line ends up in the snapshot too.
 - `ps` drops quotes, so an argument with a space in it comes back as two.
 
-## Claude Code and Codex
+## Claude Code, Codex and agy
 
 **Claude Code** is found through `~/.claude/sessions/<pid>.json`. Its original
 flags, such as the model or the permission mode, aren't known, so it resumes
@@ -82,13 +83,18 @@ with the defaults.
 **Codex** comes back with `codex resume <thread>`, in the thread's folder. The
 thread is found as [agents/README.md](../agents/README.md#codex) describes.
 
-Both take a moment before they can be saved. Claude writes its session file
-a few seconds after it starts, and Codex only has a thread after your first
-prompt. Until then, the save is tried again every 5 seconds, up to 6 times.
-For Codex, its own command is saved in the meantime.
+**agy**, the Antigravity CLI, comes back with `agy --conversation
+<conversation>`. The conversation is found as
+[agents/README.md](../agents/README.md#antigravity-cli-agy) describes.
 
-To have Codex panes come back as plain shells, leave `codex` out of
-`programs`.
+All three take a moment before they can be saved. Claude writes its session
+file a few seconds after it starts, and Codex and agy only have a
+conversation after your first prompt. Until then, the save is tried again
+every 5 seconds, up to 6 times. For Codex and agy, their own command is saved
+in the meantime.
+
+To have Codex or agy panes come back as plain shells, leave `codex` or `agy`
+out of `programs`.
 
 ## Limits
 

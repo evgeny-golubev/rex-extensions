@@ -3,7 +3,8 @@
 Tools that make the [Rex](https://www.superlogical.com) terminal a better home
 for coding agents on macOS. They work with
 [Claude Code](https://claude.com/claude-code), and the extensions work with
-[Codex](https://github.com/openai/codex) too.
+[Codex](https://github.com/openai/codex) and the
+Antigravity CLI (`agy`) too.
 
 - **See what your agent did.** A side pane shows the files it changed, a live
   dashboard of its work, and every link and document it mentioned.
@@ -20,7 +21,7 @@ for coding agents on macOS. They work with
 | --- | --- | --- | --- |
 | Extension | [rex-sidecar](#rex-sidecar) | What the agent changed, a dashboard of its work, what its replies mention, and your tasks | A pane beside the agent |
 | Extension | [rex-crab-pond](#rex-crab-pond) | Agents, subagents and programs as animated crabs | A strip along the tab's bottom |
-| Extension | [rex-resume](#rex-resume) | Claude Code and Codex conversations, and programs like nvim, back after a restart | A background watcher |
+| Extension | [rex-resume](#rex-resume) | Claude Code, Codex and agy conversations, and programs like nvim, back after a restart | A background watcher |
 | Skill | [rex-view](#rex-view) | Claude shows pictures, Markdown and code in a floating pane | Plugin 0.5.1 |
 | Skill | [rex-sidecar-task-list](#rex-sidecar-task-list) | Claude keeps your task list in step with the work you do together | Plugin 0.2.0 |
 
@@ -37,7 +38,7 @@ details.
 ### rex-sidecar
 
 Answers two questions: what did the agent change, and what's still waiting on
-you? The pane opens on the right of every Claude Code or Codex pane and closes
+you? The pane opens on the right of every Claude Code, Codex or agy pane and closes
 when the agent exits.
 
 ![rex-sidecar with made-up data. Info: the model, context, limits, permission checks, subagents, running shells, open questions and the last turn. Changes: the files changed on a pull request. Artifacts: documents, PRs, Jira issues, links and files from the agent's replies. Reminders: the day's tasks, rated A, B and C.](docs/rex-sidecar.png)
@@ -69,7 +70,8 @@ It needs one setup step: [saving Claude Code's status line input](#install).
 
 Rex brings back your sessions, tabs and splits after a restart, but not the
 programs in them. rex-resume types them back in: `claude --resume` for Claude
-Code, `codex resume` for Codex, and the original command for programs like
+Code, `codex resume` for Codex, `agy --conversation` for agy, and the original
+command for programs like
 nvim. It has nothing on screen.
 
 ![rex-resume: a tab's panes before a restart, the saved snapshot, and the same panes after the restart with their commands typed back in, with made-up data](docs/rex-resume.png)
@@ -187,6 +189,7 @@ claude plugin update rex-sidecar-task-list@rex-extensions
 | --- | --- |
 | Everything | macOS, [Rex](https://www.superlogical.com) and [Claude Code](https://claude.com/claude-code) |
 | Codex panes | The [Codex](https://github.com/openai/codex) CLI. Its sessions are read with the `sqlite3` that comes with macOS |
+| agy panes | The Antigravity CLI. Its conversation is found with the `lsof` that comes with macOS |
 | rex-crab-pond | A terminal font with Unicode 16 octant characters (Rex draws them itself), and `jq` (`brew install jq`) |
 | Context and limits in rex-sidecar | The status line step above, with `jq` |
 | Highlighted diffs | [`delta`](https://github.com/dandavison/delta) (`brew install git-delta`); without it, [`bat`](https://github.com/sharkdp/bat) colours them |
@@ -200,9 +203,11 @@ left out without it.
 
 ## Privacy
 
-Everything runs on your Mac and reads local files: Claude Code's and Codex's
+Everything runs on your Mac and reads local files: Claude Code's, Codex's and agy's
 own files and the list of running programs. rex-resume, and rex-sidecar and
-rex-crab-pond for Codex, also read the command lines of programs. No AI is
+rex-crab-pond for Codex, also read the command lines of programs, and the
+sidecar reads which files an agy process has open, to find its conversation.
+No AI is
 involved.
 
 Nothing is sent anywhere, with two exceptions you choose: the Google Tasks tab
@@ -213,7 +218,7 @@ talks to Google's Tasks API, and the PR scope and titles ask GitHub through
 
 ```text
 .claude-plugin/marketplace.json   the plugin marketplace
-agents/                           Claude Code and Codex adapters
+agents/                           Claude Code, Codex and agy adapters
 rex-sidecar/                      extension
 rex-crab-pond/                    extension
 rex-resume/                       extension

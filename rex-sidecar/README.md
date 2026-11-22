@@ -12,12 +12,12 @@ pane opens by itself.
   titled and one click away. The Search Panel finds the rest.
 - **Google Tasks** and **Reminders**: the day's work from Google Tasks or
   Apple Reminders. The agent can report a task done, and you confirm it.
-- **Works with Claude Code and Codex.** A `Sidecar: <folder>` pane opens to the
+- **Works with Claude Code, Codex and agy** (the Antigravity CLI). A `Sidecar: <folder>` pane opens to the
   right of every agent pane and closes when the agent exits.
 
 **Try it in 30 seconds:** add `require("extensions.rex-sidecar")` to
-`~/.config/rex/init.lua`, run `rex config reload`, and start `claude` or `codex`
-in a tab. [Full install →](#install)
+`~/.config/rex/init.lua`, run `rex config reload`, and start `claude`, `codex`
+or `agy` in a tab. [Full install →](#install)
 
 **On this page:** [Changes](#changes) · [Info](#info) · [Artifacts](#artifacts) ·
 [Search Panel](#search-panel) · [Task tabs](#task-tabs) ·
@@ -29,8 +29,9 @@ in a tab. [Full install →](#install)
 The sidecar replaces Claude Code's own diff panel. Turn that one off with
 `"diffSidebarOpen": false` in `~/.claude.json`.
 
-This page says "Claude". A Codex pane works the same way, except for what
-[Codex doesn't record](../agents/README.md#codex).
+This page says "Claude". A Codex or agy pane works the same way, except for
+what [Codex](../agents/README.md#codex) and
+[agy](../agents/README.md#antigravity-cli-agy) don't record.
 
 The pane redraws every 2 seconds, and every second while a clock runs. Its
 look follows [Flightdeck](https://github.com/scasella/claude-flightdeck), a
@@ -570,8 +571,8 @@ pkill -f 'rex-sidecar/watcher\.lua'; rex config reload
 
 ## Behavior
 
-- Claude is recognised by its program name, `claude`, and Codex by `codex`, in
-  any case, in the foreground or as the parent of the foreground command. A
+- Claude is recognised by its program name, `claude`, Codex by `codex` and
+  the Antigravity CLI by `agy`, in any case, in the foreground or as the parent of the foreground command. A
   pane started as `rex split -- claude` is found by a second look a second
   after its shell starts.
 - The pane takes 30% of the width. Focus stays on the Claude pane.
@@ -609,6 +610,10 @@ For Codex, the session is its thread in `~/.codex/state_<n>.sqlite`, found as
 thread's rollout. Subagents are the threads it spawned, and usage limits come
 from the rollout that changed last.
 
+For agy, the session is the conversation whose lock its process holds open,
+found as [agents/README.md](../agents/README.md#antigravity-cli-agy)
+describes. The transcript is the conversation's `transcript_full.jsonl`.
+
 ## Files
 
 - `init.lua` starts the watcher, adds the palette actions and binds the Search
@@ -622,7 +627,8 @@ from the rollout that changed last.
   and state files, and moves the old Tasks tab's settings.
 - `task-actions.lua` defines the task actions.
 - `../agents/` finds a pane's agent, its session and its subagents.
-- `parsers/claude.lua` and `parsers/codex.lua` read each agent's transcript.
+- `parsers/claude.lua`, `parsers/codex.lua` and `parsers/agy.lua` read each
+  agent's transcript.
 - `settings.lua` reads and writes `settings.json`, and passes Show requests to
   the watcher through `show-request.json`.
 - `diff-view` draws one diff in the floating pane.
