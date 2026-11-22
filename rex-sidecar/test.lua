@@ -1493,7 +1493,9 @@ do
 	equal(#a.hunks .. " " .. a.added .. " " .. a.removed, "2 2 1", "pi's diff as hunks")
 	equal(a.hunks[1].oldStart .. " " .. a.hunks[1].newStart .. " " .. a.hunks[2].newStart, "9 9 40", "pi's line numbers")
 	equal(px.turn.files["/src/pi/b.md"].created, true, "a written file")
-	has(plain(P.info_lines(px, 60, { now = os.time() })), "Keep the old API?", "pi's question waits in Open")
+	local pi_out = P.info_lines(px, 60, { now = os.time() })
+	has(plain(pi_out), "Keep the old API?", "pi's question waits in Open")
+	has(table.concat(pi_out, "\n"), P.themes.pi.accent, "pi uses its own palette")
 	P.record(px, msg({ role = "user", content = { { type = "text", text = '<skill name="review" location="/x">body</skill>' } } }))
 	equal(next(px.waiting), nil, "an answer ends the question")
 	equal(px.prompts[#px.prompts].text, "/skill:review", "a skill by its name")
@@ -1533,7 +1535,9 @@ do
 	local f = ox.turn.files["/src/oc/a.go"]
 	equal(f.added .. " " .. f.removed, "1 1", "opencode's patch as hunks")
 	equal(ox.turn.files["/src/oc/n.md"].created, true, "a written file")
-	has(plain(P.info_lines(ox, 60, { now = os.time() })), "Colour?", "opencode's question waits in Open")
+	local oc_out = P.info_lines(ox, 60, { now = os.time() })
+	has(plain(oc_out), "Colour?", "opencode's question waits in Open")
+	has(table.concat(oc_out, "\n"), P.themes.opencode.accent, "opencode uses its own palette")
 	P.record(ox, { type = "user", seq = 3, data = { text = "blue" }, parts = {} })
 	equal(next(ox.waiting), nil, "an answer ends the question")
 	P.record(ox, { type = "assistant", seq = 4, data = { model = { id = "big" }, time = { created = 1, completed = 2 } },

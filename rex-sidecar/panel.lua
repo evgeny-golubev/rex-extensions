@@ -698,11 +698,25 @@ local google_gradient = {
 	{ 251, 188, 5 }, -- Google Yellow #FBBC05
 	{ 52, 168, 83 }, -- Google Green  #34A853
 }
+local pi_pink, pi_blush, pi_rose = rgb(224, 108, 159), rgb(238, 155, 192), rgb(244, 114, 182)
+local pi_gradient = {
+	{ 224, 108, 159 }, -- Pi Pink     #E06C9F
+	{ 244, 114, 182 }, -- Pi Rose     #F472B6
+	{ 192, 132, 252 }, -- Soft Orchid #C084FC
+}
+local opencode_silver, opencode_mist, opencode_slate = rgb(201, 209, 217), rgb(228, 232, 236), rgb(148, 163, 184)
+local opencode_gradient = {
+	{ 148, 163, 184 }, -- Slate  #94A3B8
+	{ 201, 209, 217 }, -- Silver #C9D1D9
+	{ 228, 232, 236 }, -- Mist   #E4E8EC
+}
 
 M.themes = {
 	claude = { accent = orange, agent = lavender, clock = teal },
 	codex = { accent = codex_blue, agent = codex_periwinkle, clock = codex_sky, gradient = codex_gradient },
 	agy = { accent = google_blue, agent = google_light_blue, clock = google_blue, gradient = google_gradient },
+	pi = { accent = pi_pink, agent = pi_blush, clock = pi_rose, gradient = pi_gradient },
+	opencode = { accent = opencode_silver, agent = opencode_mist, clock = opencode_slate, gradient = opencode_gradient },
 }
 
 local function theme_of(state)
