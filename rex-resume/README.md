@@ -1,13 +1,25 @@
 # Rex Resume
 
-Brings back Claude Code and other programs after the Rex server restarts
-(reboot, update, crash). Rex brings back sessions, tabs and splits itself, but
-not the programs in them. This extension types `claude --resume <session>` into
-each pane that ran Claude Code, so the conversation continues in the same
-directory. It also types back the commands of other programs, such as
-`nvim src/app.lua`, as [its settings](#settings) allow. It saves every
-session's tabs, splits, labels and directories, so a session Rex didn't bring
-back is recreated too.
+**Reboot without losing your place.** After a restart, a Rex update or a
+crash, every pane comes back running what it ran before.
+
+| Was running | Comes back as |
+| --- | --- |
+| Claude Code | `claude --resume <session>`: the same conversation, same folder |
+| Codex | `codex resume <thread>`: the same conversation, in the thread's folder |
+| nvim, less, htop, ssh, … | The same command, such as `nvim src/app.lua`, as [its settings](#settings) allow |
+| A shell | A shell in the same folder |
+
+There's nothing on screen and nothing to click. It saves a snapshot a second
+after anything changes, and puts it back once after the server restarts.
+
+**Try it:** add `require("extensions.rex-resume")` to `~/.config/rex/init.lua`
+and run `rex config reload`. [Full install →](#install)
+
+Rex brings back sessions, tabs and splits itself, but not the programs in
+them, so this extension types each pane's command back in. It also saves
+every session's tabs, splits, labels and folders, so a session Rex didn't
+bring back is recreated too.
 
 Not a native Rex extension format: a config module launches a separate
 event-driven `rex do` watcher.

@@ -1,8 +1,30 @@
 # Rex Sidecar
 
-Opens a `Sidecar: <folder>` pane to the right of every pane that runs Claude
-Code or Codex, and closes it when the agent exits or its pane closes. It stands
-in for Claude Code's own diff panel; turn that one off with
+**Your coding agent's flight deck, docked right beside it.** What changed,
+what it's doing now, and what's still waiting on you, in a pane you never
+have to open.
+
+- **Changes**: the files touched in the last turn, the uncommitted work, or
+  the whole branch or pull request. Click one for a highlighted diff.
+- **Info**: a live dashboard covering context and limits, every permission
+  check, subagents on a timeline, running shells, open questions and a
+  session log.
+- **Artifacts**: every doc, PR, Jira issue and link the agent mentioned,
+  titled and one click away. The fzf Search Panel finds the rest.
+- **Tasks**: the day's work from Google Tasks or Apple Reminders, with the
+  agent reporting what's done.
+- **Works with Claude Code and Codex.** A `Sidecar: <folder>` pane opens to the
+  right of every agent pane and closes when the agent exits.
+
+**Try it in 30 seconds:** add `require("extensions.rex-sidecar")` to
+`~/.config/rex/init.lua`, run `rex config reload`, and start `claude` or `codex`
+in a tab. [Full install →](#install)
+
+**On this page:** [Changes](#changes) · [Info](#info) · [Artifacts](#artifacts) ·
+[Tasks](#tasks) · [Search Panel](#search-panel) · [Keys and mouse](#keys-and-mouse) ·
+[Tab plugins](#tab-plugins) · [Install](#install) · [Files](#files) · [Tests](#tests)
+
+It stands in for Claude Code's own diff panel; turn that one off with
 `"diffSidebarOpen": false` in `~/.claude.json`. This page says Claude; a Codex
 pane works the same, except for what [Codex doesn't
 record](../agents/README.md#codex).

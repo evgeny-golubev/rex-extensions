@@ -1,8 +1,9 @@
 # Agent adapters
 
-rex-sidecar and rex-crab-pond work with more than one coding agent. This folder
-holds what differs between agents, behind one interface, so the extensions
-themselves don't name an agent. Two adapters ship: Claude Code and Codex.
+**One sidecar, one pond, any coding agent.** rex-sidecar and rex-crab-pond ask
+this folder which agent a pane runs and where its session is, so they never
+name an agent themselves; rex-resume uses it to find a Codex pane's thread. Two adapters ship today, Claude Code
+and Codex, and adding another takes [one adapter and one parser](#interface).
 
 | Adapter | Recognised by | Session from | Transcript |
 | --- | --- | --- | --- |

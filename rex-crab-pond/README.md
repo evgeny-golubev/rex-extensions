@@ -1,8 +1,23 @@
 # Rex Crab Pond
 
-Opens a `Crabs` pane along the bottom 8% of every Rex tab that runs Claude
-Code or Codex, and closes it when the last of them in the tab exits. The pane shows what
-runs in that tab as animated pixel crabs:
+**Everything running in your tab, as a pond of pixel crabs.** Glance down and
+you know who's thinking, who's building, and who just caught fire.
+
+- **One crab per thing:** each Claude or Codex, subagent, background job and
+  program in the tab's other panes.
+- **Read it at a glance:** colour shows the kind of program, the hat shows its
+  job, movement shows its state, and a failed command sets it on fire.
+- **Dressed for the part:** a Claude's outfit shows its model and effort, from
+  a Fable wizard to a Haiku gardener.
+- **Out of the way:** a strip along the bottom 8% of the tab that opens with
+  your first agent and closes after the last.
+
+**Try it:** add `require("extensions.rex-crab-pond")` to `~/.config/rex/init.lua`,
+run `rex config reload`, and do the one-time
+[status line step](#claude-code-status-line). [Full install →](#install)
+
+The `Crabs` pane opens along the bottom of every Rex tab that runs Claude Code
+or Codex, and closes when the last of them in the tab exits:
 
 ![rex-crab-pond](../docs/rex-crab-pond.png)
 

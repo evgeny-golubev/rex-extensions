@@ -1,9 +1,19 @@
-# Rex View for Claude Code
+# Rex View
 
-Version 0.5.1. A Claude Code skill that shows a file in a floating pane over the
-tab Claude is running in. Ask Claude to "show me that picture" or "open the
-README in a pane". Claude also opens one unasked when it wants to show you a picture, a
-report it wrote or a place in the code.
+**Let Claude show you things, not just tell you.** Screenshots, Markdown
+reports and code open in a floating pane right over Claude's tab, and `q`
+closes it.
+
+- **Just ask:** "show me that screenshot", "open the README in a pane".
+- **Or don't:** Claude opens one by itself when it wants to show you a
+  picture, a report it wrote, or the line of code it's talking about.
+- **Looks right:** images scaled to fit, Markdown formatted by `glow` across
+  the full width, and code with line numbers and colours from `bat`.
+
+**Try it:** `claude plugin marketplace add evgeny-golubev/rex-extensions`, then
+`claude plugin install rex-view@rex-extensions`. [Details →](#install)
+
+Version 0.5.1, a Claude Code skill.
 
 | File | Shown as |
 |---|---|

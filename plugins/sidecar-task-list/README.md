@@ -1,7 +1,22 @@
-# Sidecar task list for Claude Code
+# Sidecar Task List
 
-Version 0.1.0. Two Claude Code skills for the rex-sidecar
-[Tasks tab](../../rex-sidecar/README.md#tasks).
+**Your to-do list, kept up to date by the agent doing the work.** Start
+something with Claude and it lands on your list; finish it and Claude reports
+it done, for you to confirm with one key.
+
+- **No bookkeeping:** new work is added to your Google Tasks or Apple
+  Reminders, or matched to a task already there.
+- **You stay in charge:** Claude only reports a task done. You press `y` to
+  confirm or `n` to keep it open, in the rex-sidecar
+  [Tasks tab](../../rex-sidecar/README.md#tasks).
+- **Guided setup:** ask Claude "set up the sidecar Tasks tab", and it walks you
+  through it one step at a time. It never asks you to paste a secret into the
+  chat.
+
+**Try it:** `claude plugin install sidecar-task-list@rex-extensions`, then ask
+Claude "set up the sidecar Tasks tab". [Details →](#install)
+
+Version 0.1.0: two Claude Code skills, for setup and for keeping the list.
 
 ## Setup
 
