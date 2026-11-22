@@ -205,6 +205,7 @@ return function(U)
 						description = desc,
 						transcript = transcript,
 						finished = row.status ~= "CASCADE_RUN_STATUS_RUNNING",
+						running = row.status == "CASCADE_RUN_STATUS_RUNNING",
 					}
 				end
 			end

@@ -103,7 +103,7 @@ return function(P)
 			local f = P.add_hunks(state, shown, hunks, kind == "add")
 			f.deleted = kind == "delete" or nil
 			state.turn.edits = state.turn.edits + 1
-			local verb = kind == "add" and "Add" or kind == "delete" and "Delete" or "Edit"
+			local verb = kind == "add" and "Write" or kind == "delete" and "Delete" or "Edit"
 			P.log(state, "main", verb .. " → " .. P.short_path(shown, state.root))
 		end
 	end

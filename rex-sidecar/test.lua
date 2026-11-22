@@ -1276,6 +1276,11 @@ do
 	equal(cx.responses[1].text, "Fixed it. See https://example.com/pr/1", "the last message is the response")
 	equal(cx.requests, 1, "usage records count requests")
 	equal(cx.compactions, 1, "codex compactions")
+	local written
+	for _, e in ipairs(cx.log) do
+		written = written or (e.text == "Write → b.lua")
+	end
+	equal(written, true, "a new codex file logs as a write")
 	equal(cx.claude_ms, 65000, "codex working time")
 	equal(P.running(cx), false, "idle after the turn completes")
 	equal(cx.context, 50000, "codex context")
