@@ -1320,7 +1320,7 @@ end
 -- The Tasks tab, on made-up tasks, with its state file beside the throwaway
 -- settings.json. No provider runs: the writes stay queued.
 do
-	local tab = P.plugins.Tasks.tab
+	local tab = P.plugins["Google Tasks"].tab
 	local lib, state = tab.lib, tab.state
 	local state_file = panel_base .. "tasks_state.json"
 	local spawn, run = P.spawn, P.run
@@ -1334,7 +1334,8 @@ do
 		f:close()
 		tab.activate()
 	end
-	equal(P.panel.hidden_tabs.Tasks, true, "Tasks is hidden by default")
+	equal(P.panel.hidden_tabs["Google Tasks"], true, "Google Tasks is hidden by default")
+	equal(P.panel.hidden_tabs.Reminders, true, "Reminders is hidden by default")
 	write_state({ provider = "google" })
 
 	local today = "2026-11-21"
@@ -1684,7 +1685,7 @@ do
 			local text = shown(cols)
 			has(text, "Google Tasks is not set up", "the tab names the missing setup")
 			has(text:gsub("\n", " "), "set up the sidecar Tasks tab", "the tab names what to ask Claude Code")
-			has(text:gsub("\n", " "), "Apple Reminders, which needs no setup", "the tab offers Apple Reminders")
+			has(text:gsub("\n", " "), "the Reminders tab needs no setup", "the tab points to Reminders")
 		end
 		equal(tab.badge(), nil, "no badge while not set up")
 		local missing = { ok = false, code = 4, stdout = '{"error":"setup_required"}\n',
@@ -1718,23 +1719,36 @@ do
 		P.spawn, P.run = function() return true end, function() end
 	end
 
-	-- Without a provider chosen, the tab asks where the tasks are.
+	-- The settings of the single Tasks tab of earlier versions move to the tab
+	-- of the provider it used.
 	do
-		local lists = state.lists
-		write_state({})
-		local asked = strip(table.concat(tab.view(47).lines, "\n"))
-		equal(asked:find("Where are your tasks?", 1, true) ~= nil, true, "the tab asks for the provider")
-		equal(asked:find("Apple Reminders", 1, true) ~= nil, true, "Apple Reminders offered")
-		equal(tab.key("r"), true, "r chooses Apple Reminders")
-		local f = io.open(state_file, "rb")
-		equal(rex.json.decode(f:read("*a")).provider, "apple", "the choice is saved")
-		f:close()
-		tab.key("W")
-		equal(state.choosing, true, "W asks again")
-		tab.key("g")
-		equal(tab.state.saved.provider, "google", "g chooses Google Tasks")
-		equal(state.choosing, false, "the question closes")
-		state.lists = lists
+		local base = (assert(real.exec({ "/usr/bin/mktemp", "-d" })).stdout:gsub("%s+$", "")) .. "/"
+		local providers = dofile(dir .. "task-providers.lua")
+		local settings = dofile(dir .. "settings.lua")
+		local function put(file, value)
+			local f = assert(io.open(base .. file, "wb"))
+			f:write(rex.json.encode(value))
+			f:close()
+		end
+		put("tasks_state.json", { provider = "apple", review = { last = "2026-11-20", streak = 4 } })
+		put("settings.json", { tabs = { order = { "Changes", "Tasks", "Artifacts" }, hidden = {} } })
+		providers.migrate(base, settings)
+		equal(providers.read_state(base, "reminders_state.json").review.streak, 4, "Apple's state moves to the Reminders tab")
+		equal(io.open(base .. "tasks_state.json", "rb"), nil, "and leaves Google's file free")
+		local order, hidden = settings.tabs(base)
+		equal(table.concat(order, " "), "Changes Reminders Artifacts", "Reminders takes the Tasks tab's place")
+		equal(hidden.Reminders, nil, "and stays shown")
+		providers.migrate(base, settings)
+		equal(table.concat((settings.tabs(base)), " "), "Changes Reminders Artifacts", "a second run changes nothing")
+
+		put("tasks_state.json", { provider = "google" })
+		put("settings.json", { tabs = { order = { "Tasks" }, hidden = { Tasks = true } } })
+		providers.migrate(base, settings)
+		order, hidden = settings.tabs(base)
+		equal(order[1], "Google Tasks", "Google Tasks takes the Tasks tab's place")
+		equal(hidden["Google Tasks"], true, "hidden as the Tasks tab was")
+		equal(providers.read_state(base).provider, "google", "Google's state stays")
+		real.exec({ "/bin/rm", "-rf", base })
 	end
 
 	-- Claude's report that a task is done waits in Attention for y or n.
@@ -2032,12 +2046,12 @@ return {
 	local saved = rex.json.decode(f:read("*a"))
 	f:close()
 	equal(saved.tabs.hidden.Artifacts, true, "the hidden tab, saved")
-	equal(saved.tabs.order[2], "Tasks", "the order, saved")
-	equal(saved.tabs.hidden.Tasks, true, "a tab hidden by default, saved hidden")
+	equal(saved.tabs.order[2], "Google Tasks", "the order, saved")
+	equal(saved.tabs.hidden["Google Tasks"], true, "a tab hidden by default, saved hidden")
 	P.key(",")
 	P.key("j")
 	P.key(" ")
-	equal(P.tabs[3], "Tasks", "a tab hidden by default, shown")
+	equal(P.tabs[3], "Google Tasks", "a tab hidden by default, shown")
 	P.key(" ")
 	P.key("escape")
 	P.key("1")

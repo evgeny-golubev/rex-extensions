@@ -1,10 +1,14 @@
--- The Tasks tab: the day's work from a task provider, ordered by A, B and C
--- ratings, with a daily review. Loaded as a tab plugin and hidden until shown
--- in the tab settings; see the README.
+-- The task tabs' shared core: the day's work from a task provider, ordered by
+-- A, B and C ratings, with a daily review. tabs/google-tasks.lua and
+-- tabs/reminders.lua load it with the sidecar module and a config:
+--   name        the tab's name.
+--   provider    the provider's name in task-providers.lua.
+--   state_file  the state file's name, beside settings.json.
+--   steps       true when the provider has subtasks.
+-- Each tab is hidden until shown in the tab settings; see the README.
 --
 -- Provider contract. A provider is a command in providers/, named in
--- task-providers.lua. The tab asks for one on first use and saves the choice
--- in its state file; W changes it.
+-- task-providers.lua.
 --   tasks [--completed-since DATE]
 --       Prints JSON: [{ id, title, tasks = [{ id, title, due, notes, parent,
 --       status, completed, recurring }] }]. due is YYYY-MM-DD or "". parent is
@@ -31,13 +35,16 @@
 --   Steps        subtasks, one level deep.
 -- A task is recurring when its title, without rating and estimate, is among
 -- the completed tasks twice, or once while a task with that title is open.
--- The provider, the review date and streak, snoozes, due-date changes and
--- reports from the task actions are kept in tasks_state.json beside
--- settings.json, which every sidecar pane shares.
-local sidecar = ...
+-- The review date and streak, snoozes, due-date changes and reports from the
+-- task actions are kept in the tab's state file beside settings.json, which
+-- every sidecar pane shares.
+local sidecar, config = ...
 local c = sidecar.colours
 local width, clip = sidecar.width, sidecar.clip
 local providers = dofile(sidecar.dir .. "task-providers.lua")
+--- Whether the provider has subtasks, which the tab shows as steps.
+local STEPS = config.steps == true
+pcall(providers.migrate, sidecar.settings_dir, sidecar.settings)
 
 --- Minutes of planned work that fit in one day.
 local CAPACITY = 360
@@ -382,7 +389,7 @@ end
 --- True when a one-off task without steps is too large for one day: estimated
 --- above SPLIT_MINUTES, or without estimate and SPLIT_DAYS past due.
 function lib.too_large(m, it)
-	if it.recurring or it.step_of or (m.steps[it.id] and #m.steps[it.id] > 0) then
+	if not STEPS or it.recurring or it.step_of or (m.steps[it.id] and #m.steps[it.id] > 0) then
 		return false
 	end
 	if it.estimate then
@@ -442,7 +449,7 @@ function lib.attention(m, review_due, snoozed, proposals)
 	for _, it in ipairs(open) do
 		if lib.slipping(m, it) then
 			local why = it.late >= SLIP_DAYS and (it.late .. "d past") or ("moved " .. it.moves .. " times")
-			local ask = lib.too_large(m, it) and "Split it into steps." or "Split it into steps or set a new date."
+			local ask = not STEPS and "Set a new date." or lib.too_large(m, it) and "Split it into steps." or "Split it into steps or set a new date."
 			add("slip " .. it.id, it.name .. ": " .. why .. ". " .. ask, it.id)
 		end
 	end
@@ -532,8 +539,6 @@ local state = {
 	attention = 1,
 	--- The day a key was last pressed in this tab.
 	key_day = nil,
-	--- True while the tab asks where the tasks come from.
-	choosing = false,
 	--- The contents of the state file as last read or written.
 	saved = nil,
 	--- The state file's changed_at at the last fetch, and the time of that fetch.
@@ -550,7 +555,7 @@ local function today()
 end
 
 local function read_state()
-	return providers.read_state(sidecar.settings_dir)
+	return providers.read_state(sidecar.settings_dir, config.state_file)
 end
 
 --- Reads the state file, applies `change` and writes it back. The file is
@@ -558,7 +563,7 @@ end
 local function change_state(change)
 	local s = read_state()
 	change(s)
-	providers.write_state(sidecar.settings_dir, s)
+	providers.write_state(sidecar.settings_dir, s, config.state_file)
 	state.saved = s
 end
 
@@ -571,11 +576,9 @@ local function model()
 	return lib.model(state.lists, today(), saved().moves)
 end
 
---- The provider chosen in this tab and saved in the state file, or nil
---- until one is chosen.
+--- The tab's provider.
 local function provider()
-	local name = saved().provider
-	return providers.names[name] and name or nil
+	return config.provider
 end
 
 --- The day of the last prompt in the Claude transcript the pane follows.
@@ -678,9 +681,6 @@ local queue = {}
 --- Fetches the lists. A fetch that a write overtook is discarded, as the
 --- write's own fetch follows.
 local function fetch()
-	if not provider() then
-		return
-	end
 	local generation = state.generation
 	local r = client_run(30, "tasks", "--completed-since", lib.add_days(today(), -HISTORY_DAYS))
 	local ok, data = pcall(rex.json.decode, r and r.stdout or "")
@@ -1132,7 +1132,7 @@ local function task_key(k, it, m)
 	elseif k == "e" then
 		open_input("estimate", it)
 		return true
-	elseif k == "s" then
+	elseif k == "s" and STEPS then
 		open_input("steps", it.step_of or it)
 		return true
 	else
@@ -1182,40 +1182,12 @@ local function review_key(k, m)
 	return false
 end
 
-local tab = { name = "Tasks", interval = 5, hidden = true, lib = lib, state = state }
+local tab = { name = config.name, interval = 5, hidden = true, lib = lib, state = state }
 
 tab.refresh = refresh_all
 
 function tab.activate()
 	state.saved = read_state()
-end
-
---- Saves the provider for every pane, forgets the other provider's tasks and
---- fetches the new one's.
-local function choose(name)
-	change_state(function(s)
-		s.provider = name
-	end)
-	state.choosing, state.lists, state.signed_out, state.setup_needed, state.selected = false, nil, false, false, nil
-	state.fetch_notice, state.write_notice, state.review, state.view = nil, nil, nil, "now"
-	-- A fetch from the provider before is discarded.
-	state.fetched_at, state.generation = nil, state.generation + 1
-	sidecar.spawn("tasks refresh", refresh_all)
-end
-
---- Keys while the provider is chosen: g Google Tasks, r Apple Reminders, and
---- Escape to keep the one in use.
-local function choose_key(k)
-	if k == "g" then
-		choose("google")
-	elseif k == "r" then
-		choose("apple")
-	elseif k == "escape" and provider() then
-		state.choosing = false
-	else
-		return false
-	end
-	return true
 end
 
 local function handle(k)
@@ -1227,15 +1199,9 @@ local function handle(k)
 	if state.input then
 		return input_key(k)
 	end
-	if state.choosing or not provider() then
-		return choose_key(k)
-	end
 	if k == "r" then
 		state.fetched_at = nil
 		sidecar.spawn("tasks refresh", refresh_all)
-		return true
-	elseif k == "W" then
-		state.choosing = true
 		return true
 	end
 	if state.signed_out or state.setup_needed then
@@ -1293,10 +1259,10 @@ end
 --- The keys this tab uses somewhere; one that does nothing on the screen
 --- shown gets a notice instead of no answer.
 local tab_keys = {}
-for k in ("xtdesaABCvVz]yn-LWrjk"):gmatch(".") do
+for k in ((STEPS and "s" or "") .. "xtdeaABCvVz]yn-Lrjk"):gmatch(".") do
 	tab_keys[k] = true
 end
-local task_keys = { x = true, t = true, d = true, e = true, s = true, A = true, B = true, C = true }
+local task_keys = { x = true, t = true, d = true, e = true, s = STEPS or nil, A = true, B = true, C = true }
 local unused_notices = {
 	z = "z hides warnings; use d to move a task to a later date.",
 	["]"] = "] shows the next warning; there is no other one here.",
@@ -1322,7 +1288,7 @@ function tab.key(k)
 	if handle(k) then
 		return true
 	end
-	if not (tab_keys[k] and state.lists and provider() and not state.choosing and not state.signed_out and not state.setup_needed) then
+	if not (tab_keys[k] and state.lists and not state.signed_out and not state.setup_needed) then
 		return false
 	end
 	state.key_notice = unused_notice(k)
@@ -1336,8 +1302,6 @@ function tab.act(action)
 		state.selected = action.id
 	elseif action.kind == "done" then
 		complete_row(action.id)
-	elseif action.kind == "provider" then
-		choose(action.name)
 	end
 end
 
@@ -1746,8 +1710,11 @@ local function key_groups(m)
 	end
 	local task_list = task and {
 		{ "x", "mark the task done" }, { "t", "plan it for today" }, { "d", "give it a new date" },
-		{ "e", "estimate how long it takes" }, { "A B C", "rate it A, B or C" }, { "s", "split it into steps" },
+		{ "e", "estimate how long it takes" }, { "A B C", "rate it A, B or C" },
 	} or {}
+	if task and STEPS then
+		task_list[#task_list + 1] = { "s", "split it into steps" }
+	end
 	if r and r.stage == "late" then
 		if task then
 			task_list[#task_list + 1] = { "-", "drop it: complete it with a note" }
@@ -1778,7 +1745,6 @@ local function key_groups(m)
 	end
 	local views_list = r and {} or { { "V", "switch between Now, Today and All" }, { "v", "start the daily review" } }
 	views_list[#views_list + 1] = { "r", "fetch the tasks now" }
-	views_list[#views_list + 1] = { "W", "choose where tasks come from" }
 	views_list[#views_list + 1] = { "?", "close this list" }
 	group("Views", views_list)
 	return groups
@@ -1802,29 +1768,8 @@ local function help_box(v, m)
 	end)
 end
 
---- The question where the tasks come from, each answer clickable.
-local function choose_view(cols)
-	local v = new_view()
-	v.cols = cols
-	local current = provider()
-	v.box(c.cyan, "Tasks source", nil, function(n)
-		v.add("Where are your tasks?")
-		v.add("")
-		for _, choice in ipairs({ { "g", "google" }, { "r", "apple" } }) do
-			local mark = choice[2] == current and (c.dim .. "  in use" .. c.reset) or ""
-			v.add(c.bold .. choice[1] .. c.reset .. "  " .. providers.names[choice[2]] .. mark, { kind = "provider", name = choice[2] })
-		end
-		v.add("")
-		v.hints(current and { "W changes this later", "Esc keeps " .. providers.names[current] } or { "W changes this later" }, n)
-	end)
-	return { lines = v.lines, actions = v.actions, pinned = {} }
-end
-
 function tab.view(cols)
 	local pinned, hits = {}, {}
-	if state.choosing or not provider() then
-		return choose_view(cols)
-	end
 	local notice = state.key_notice or state.write_notice or state.fetch_notice or (sidecar.panel and sidecar.panel.notice)
 	if state.setup_needed then
 		pinned[1] = c.orange .. providers.names[provider()] .. " is not set up" .. c.reset
@@ -1833,7 +1778,7 @@ function tab.view(cols)
 			'Ask Claude Code: "set up the sidecar Tasks tab". It checks what is done and walks you through the rest, one step at a time.',
 			"Or follow the Google Tasks steps in rex-sidecar/README.md.",
 			"",
-			"L signs in once the client is stored · r checks again · W switches to Apple Reminders, which needs no setup",
+			"L signs in once the client is stored · r checks again · the Reminders tab needs no setup",
 		}
 		if notice then
 			text[#text + 1] = ""
