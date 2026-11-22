@@ -27,6 +27,7 @@ Antigravity CLI (`agy`) too.
 
 **Contents:** [Extensions](#extensions) · [Skills](#skills) ·
 [Install](#install) · [Update](#update) · [Requirements](#requirements) ·
+[Troubleshooting](#troubleshooting) · [Uninstall](#uninstall) ·
 [Privacy](#privacy) · [Repository layout](#repository-layout) ·
 [Tests](#tests) · [Changelog](CHANGELOG.md) · [License](#license)
 
@@ -63,7 +64,7 @@ command sets it on fire.
 
 ![rex-crab-pond with sample crabs](docs/rex-crab-pond.png)
 
-It needs one setup step: [saving Claude Code's status line input](#install).
+For Claude Code details, [save its status line input](#install).
 [How to read the crabs →](rex-crab-pond/README.md)
 
 ### rex-resume
@@ -123,10 +124,10 @@ Reminders tabs. To set it up, ask Claude "set up the sidecar Tasks tab".
    rex config reload
    ```
 
-4. For rex-sidecar: turn off Claude Code's own diff panel. Set
+4. If you use Claude Code with rex-sidecar, turn off its own diff panel. Set
    `"diffSidebarOpen": false` in `~/.claude.json`.
 
-5. For rex-crab-pond, and for the context and limits in rex-sidecar: make
+5. For Claude Code details in rex-crab-pond and context and limits in rex-sidecar: make
    Claude Code's status line save its input. Add these lines to your status
    line script, after it reads its input into `$input`:
 
@@ -196,21 +197,99 @@ claude plugin update rex-sidecar-task-list@rex-extensions
 
 ## Requirements
 
+The extensions need macOS and [Rex](https://www.superlogical.com). Install the
+agent CLI you use; Claude Code is only required for Claude panes and the
+Claude Code plugins.
+
+### Agent compatibility
+
+| Feature | Claude Code | Codex | Antigravity CLI (`agy`) |
+| --- | --- | --- | --- |
+| Sidecar: Changes, Info and Artifacts | Yes | Yes, with the limits below | Yes, from its conversation transcript |
+| Crab pond: agent panes | Yes | Yes | Yes |
+| Resume conversations | `claude --resume` | `codex resume` | `agy --conversation` |
+| rex-view and rex-sidecar-task-list plugins | Yes | Not packaged for this agent | Not packaged for this agent |
+
+The Info fields depend on what each agent records. Codex has no GATE approval
+history or per-pane background process list, and its OPEN box only shows
+questions from the last reply. See the [adapter details and known
+limits](agents/README.md) for session discovery and agent-specific behavior.
+
+### Dependencies by feature
+
 | For | You need |
 | --- | --- |
-| Everything | macOS, [Rex](https://www.superlogical.com) and [Claude Code](https://claude.com/claude-code) |
+| Claude panes and plugins | [Claude Code](https://claude.com/claude-code) |
 | Codex panes | The [Codex](https://github.com/openai/codex) CLI. Its sessions are read with the `sqlite3` that comes with macOS |
 | agy panes | The Antigravity CLI. Its conversation is found with the `lsof` that comes with macOS |
-| rex-crab-pond | A terminal font with Unicode 16 octant characters (Rex draws them itself), and `jq` (`brew install jq`) |
-| Context and limits in rex-sidecar | The status line step above, with `jq` |
+| rex-crab-pond graphics | Unicode 16 octant characters (Rex draws them itself) |
+| Claude context and limits, and status line details in the pond | The Claude status line step above, with `jq` (`brew install jq`) |
+| agy model, effort, context and usage quota | The bundled agy status line script configured above, with `jq` |
 | Highlighted diffs | [`delta`](https://github.com/dandavison/delta) (`brew install git-delta`); without it, [`bat`](https://github.com/sharkdp/bat) colours them |
 | Colours in rex-view | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
 | Formatted Markdown in rex-view | [`glow`](https://github.com/charmbracelet/glow) (`brew install glow`) |
 | The Search Panel | [`fzf`](https://github.com/junegunn/fzf) (`brew install fzf`), and `jq` |
 | PR scope and PR titles | [`gh`](https://cli.github.com), signed in (`brew install gh`, `gh auth login`) |
 
-Everything except the first two rows is optional; the feature it powers is
-left out without it.
+Install the CLI for each agent you use. The remaining dependencies apply to
+the named features; you can leave out tools for features you don't need.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| No sidecar or pond appears | Check the `require` lines in `~/.config/rex/init.lua`, run `rex config reload`, and start `claude`, `codex` or `agy` in a pane. If you closed the sidecar, run **Show Sidecar Pane** from the palette. Check that auto-show is enabled if you want it to open automatically. |
+| An update has no effect | Config reload does not replace an already running watcher. Run the watcher restart command under [Update](#update). |
+| Claude context or limits are missing | Check that the status line writes `~/.claude/state/statusline/<session-id>.json` (under `$CLAUDE_CONFIG_DIR` if set), and that `jq` is installed. See the [complete status line setup](rex-crab-pond/README.md#claude-code-status-line). |
+| A Codex or agy pane has no conversation yet | Send the first prompt so the agent creates its conversation. For Codex panes in the same folder with identical thread names, rename one. See [session discovery](agents/README.md). |
+| Google Tasks or Reminders is missing | Both tabs are hidden initially. Enable the tab in [Tab settings](rex-sidecar/README.md#tab-settings), then follow the [Google Tasks](rex-sidecar/README.md#google-tasks) or [Reminders](rex-sidecar/README.md#reminders) setup. |
+
+For sidecar errors, inspect the last 50 log lines:
+
+```sh
+tail -n 50 ~/.config/rex/state/rex-sidecar.log
+```
+
+The pond's startup errors go to
+`~/.config/rex/state/rex-crab-pond.log`. A missing log can mean the extension
+has not been loaded yet. Errors inside a sidecar tab also appear in the pane.
+
+## Uninstall
+
+### Extensions
+
+1. Remove the corresponding `require("extensions.rex-...")` lines from
+   `~/.config/rex/init.lua`, along with any custom bindings to their actions.
+2. Stop the watchers, then reload the config:
+
+   ```sh
+   pkill -f 'extensions/.*/watcher\.lua'; rex config reload
+   ```
+
+   This stops all three extension watchers. To remove just one extension,
+   use its name in the pattern, for example
+   `pkill -f 'rex-sidecar/watcher\.lua'`, then run `rex config reload`.
+3. Close any remaining sidecar or pond panes manually.
+
+Keep the clone and `~/.config/rex/extensions` link to preserve the extensions'
+local `settings.json` files, task state and resume snapshots. Removing the
+`require` lines disables the extensions without deleting that data. To enable
+them again, add the lines back and reload the config.
+
+If you added the bundled agy status line command, remove that `statusLine`
+entry from agy's settings before moving or deleting the clone. For Claude,
+remove only the status line snippet that saves the input if you no longer
+need it. You can also revert `diffSidebarOpen` if you changed it during setup.
+
+### Skills
+
+```sh
+claude plugin uninstall rex-view@rex-extensions
+claude plugin uninstall rex-sidecar-task-list@rex-extensions
+```
+
+Restart Claude Code, or run `/reload-plugins`. This removes the plugins;
+your Google Tasks and Apple Reminders remain with their providers.
 
 ## Privacy
 

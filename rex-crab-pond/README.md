@@ -13,14 +13,16 @@ you know who's thinking, who's building, and who just caught fire.
   first agent and closes after the last.
 
 **Try it:** add `require("extensions.rex-crab-pond")` to `~/.config/rex/init.lua`,
-run `rex config reload`, and do the one-time
-[status line step](#claude-code-status-line). [Full install →](#install)
+run `rex config reload`, and start a supported agent. For Claude model and
+effort details, do the [status line step](#claude-code-status-line).
+[Full install →](#install)
 
 ![The crab pond along the bottom of a tab, with sample crabs](../docs/rex-crab-pond.png)
 
 **On this page:** [Reading a crab](#reading-a-crab) · [Claude, Codex and agy](#claude-codex-and-agy) ·
 [Subagents](#subagents) · [Programs](#programs-and-background-jobs) ·
-[Install](#install) · [Palette actions](#palette-actions) · [Behavior](#behavior)
+[Install](#install) · [Palette actions](#palette-actions) · [Behavior](#behavior) ·
+[Troubleshooting](#troubleshooting) · [Tests](#tests)
 
 ## Reading a crab
 
@@ -130,7 +132,8 @@ A build crab's hard hat takes its program's brand colour: gopher blue for
 full list is in `pond.lua` (`program_accents`).
 
 Codex runs its commands under its app-server, not its own process. So a Codex
-has no background shell crabs.
+has no background shell crabs. agy also has no background job or subagent
+crabs; programs in separate panes still appear. See [adapter limits](../agents/README.md).
 
 ## Where the data comes from
 
@@ -140,22 +143,28 @@ has no background shell crabs.
 - **A Claude's session name, model and effort** come from Claude Code's status
   line input, saved by your status line command (see
   [Claude Code status line](#claude-code-status-line)). It also names the
-  transcript, which the subagents need. Without it, Claude crabs are plain and
-  there are no subagent crabs.
+  transcript. The adapter can also find the session and transcript through
+  Claude's session file, so subagent discovery does not require a status line.
+  Without the saved input, model and effort details may be missing.
 - **Subagent uptimes** come from the start of their transcripts.
 
 Nothing is sent anywhere.
 
 ## Install
 
-Put this folder at `~/.config/rex/extensions/rex-crab-pond/` and add this line to
-`~/.config/rex/init.lua`:
+Requires macOS, Rex and the CLI for the agent you use. Claude Code is optional
+for Codex or agy panes. Follow the [repository install guide](../README.md#install),
+keeping `agents/` beside this folder under `~/.config/rex/extensions/`, and add
+this line to `~/.config/rex/init.lua`:
 
 ```lua
 require("extensions.rex-crab-pond")
 ```
 
-Run `rex config reload`, then save Claude Code's status line input as below.
+Run `rex config reload`. For Claude model and effort details, save its status
+line input as below. For agy model, effort and usage data, configure the
+[bundled agy status line script](../README.md#install). Codex details come from
+its state database and rollout, with no status line setup.
 
 To load a changed `watcher.lua`, stop the running watcher first. The crab panes
 reopen with the new `pond.lua`:
@@ -175,7 +184,8 @@ transcript path) to its status line command as JSON. The pond reads a copy
 saved for each session. It needs `jq` (`brew install jq`).
 
 If you already have a status line script (`"statusLine"` in
-`~/.claude/settings.json`), add this after the line that reads the input:
+`~/.claude/settings.json`), add the save lines after its existing input read.
+Read stdin only once; the snippet below includes that read for context:
 
 ```bash
 # Read JSON input from stdin
@@ -206,6 +216,10 @@ Then point Claude Code at it in `~/.claude/settings.json`:
   "statusLine": { "type": "command", "command": "bash ~/.claude/statusline-command.sh" }
 }
 ```
+
+Merge the `statusLine` entry into your existing settings; keep other keys.
+If you use `$CLAUDE_CONFIG_DIR`, use that directory in place of `~/.claude`
+for the settings, script and saved status line files.
 
 Claude Code runs the command as the session updates, so a running session
 shows up after its next reply. The saved files are small. Delete
@@ -241,6 +255,20 @@ bind a key, use `rex.bind` with `rex_crab_pond_show` or `rex_crab_pond_auto_show
 The crab art is redrawn at half size after
 [crab-band](https://github.com/MaxHarfen/crab-band) (MIT), whose crab follows
 Clawd, Claude Code's mascot by Anthropic.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| No pond opens | Start a supported agent, or run **Show Crabs Pane** from the palette. Check auto-show if you want new agent tabs to open it automatically. |
+| Claude has no model or effort outfit | Check `jq`, the status line setting and the saved session JSON. Wait for the next agent reply to refresh it. |
+| A Codex crab has the wrong title | Give threads in the same folder distinct names; see [Codex discovery](../agents/README.md#codex). |
+| A crab says `+N` | More crabs exist than fit in the pane. Make it taller to show more rows. |
+| Updated art or watcher code does not appear | Run the watcher restart command under Install so the crab panes reopen. |
+
+Inspect watcher errors with `tail -n 50 ~/.config/rex/state/rex-crab-pond.log`.
+Pane errors appear in the pane itself. See [uninstall](../README.md#uninstall)
+to disable the pond while preserving its settings.
 
 ## Files
 

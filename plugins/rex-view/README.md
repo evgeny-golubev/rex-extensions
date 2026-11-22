@@ -19,6 +19,15 @@ claude plugin install rex-view@rex-extensions
 
 Version 0.5.1. It's a Claude Code skill, so it needs no line in `init.lua`.
 
+Requires macOS, Rex and Claude Code. The sidecar extension is optional.
+The sidecar also uses these viewer scripts for Codex and agy, but this
+plugin's automatic skill integration is packaged for Claude Code.
+
+**On this page:** [What you see](#what-you-see) · [Keys](#keys) ·
+[Optional tools](#optional-tools) · [Safety](#safety) ·
+[Install and update](#install-and-update) · [Manual use](#manual-use) ·
+[Troubleshooting](#troubleshooting) · [Uninstall](#uninstall) · [Tests](#tests)
+
 ## What you see
 
 | File | How it's shown |
@@ -72,12 +81,33 @@ claude plugin update rex-view@rex-extensions
 
 ## Manual use
 
-From a clone of this repository, show a file, or a file at a line:
+From the root of a clone of this repository, inside a Rex terminal pane,
+show a file, or a file at a line:
 
 ```sh
 plugins/rex-view/skills/rex-view/scripts/show docs/rex-sidecar.png
 plugins/rex-view/skills/rex-view/scripts/show README.md 120
 ```
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| Claude does not find the skill after install | Restart Claude Code or run `/reload-plugins`. |
+| Manual use cannot find the target pane | Run it from a Rex terminal pane so the viewer can use the Rex session and block environment. |
+| Markdown appears as source | Install `glow`; requests for a specific line intentionally use the code viewer. |
+| Text has no colours or line numbers | Install `bat`; the viewer falls back to plain text without it. |
+| A GIF does not animate | Only its first frame is displayed. |
+
+## Uninstall
+
+```sh
+claude plugin uninstall rex-view@rex-extensions
+```
+
+Restart Claude Code or run `/reload-plugins`, and close any open float with
+`q`. Keep the repository's viewer scripts if you still use the sidecar's
+Search Panel or Artifacts viewer.
 
 ## Tests
 

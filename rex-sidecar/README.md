@@ -15,23 +15,26 @@ pane opens by itself.
 - **Works with Claude Code, Codex and agy** (the Antigravity CLI). A `Sidecar: <folder>` pane opens to the
   right of every agent pane and closes when the agent exits.
 
-**Try it in 30 seconds:** add `require("extensions.rex-sidecar")` to
+**Once installed:** add `require("extensions.rex-sidecar")` to
 `~/.config/rex/init.lua`, run `rex config reload`, and start `claude`, `codex`
 or `agy` in a tab. [Full install →](#install)
 
 **On this page:** [Changes](#changes) · [Info](#info) · [Artifacts](#artifacts) ·
 [Search Panel](#search-panel) · [Task tabs](#task-tabs) ·
 [Keys and mouse](#keys-and-mouse) · [Tab settings](#tab-settings) ·
-[Tab plugins](#tab-plugins) · [Install](#install) · [Files](#files) · [Tests](#tests)
+[Tab plugins](#tab-plugins) · [Install](#install) ·
+[Troubleshooting](#troubleshooting) · [Files](#files) · [Tests](#tests)
 
 ![Four sidecar panes with made-up data: Info with the time and date, the model, permission checks, agents and running processes; Changes on a pull request; Artifacts with documents, PRs, Jira issues and links; and Reminders with the next task, today's list and a report waiting for confirmation](../docs/rex-sidecar.png)
 
-The sidecar replaces Claude Code's own diff panel. Turn that one off with
+If you use Claude Code, turn off its own diff panel with
 `"diffSidebarOpen": false` in `~/.claude.json`.
 
-This page says "Claude". A Codex or agy pane works the same way, except for
-what [Codex](../agents/README.md#codex) and
-[agy](../agents/README.md#antigravity-cli-agy) don't record.
+The Changes and Artifacts tabs work with all three agents. Info only shows
+fields the agent records: Codex and agy have no GATE approval history or
+per-pane background process list, and agy has no subagents. See the
+[agent compatibility table](../README.md#agent-compatibility) and
+[adapter details](../agents/README.md).
 
 The pane redraws every 2 seconds, and every second while a clock runs. Its
 look follows [Flightdeck](https://github.com/scasella/claude-flightdeck), a
@@ -47,7 +50,7 @@ scopes:
 
 | Scope | What it lists | Where it comes from |
 | --- | --- | --- |
-| **Last Turn** | Files Claude edited since your last prompt | Claude's transcript |
+| **Last Turn** | Files the agent edited since your last prompt | The agent's transcript |
 | **Uncommitted** | Staged and unstaged files. The tree shows them together | `git status`, `git diff` |
 | **PR** | Everything since the branch left the base of its open GitHub pull request, uncommitted work included. Replaces Branch | `gh pr view`, then `git diff` against `origin/<base>`, or `<base>` |
 | **Branch** | Everything since the branch left `main`, uncommitted work included | `git diff` against `origin/HEAD`, or `main` or `master` |
@@ -71,10 +74,12 @@ the added and removed lines.
 `Enter`, to fold it. A folded folder shows how many files it holds. Folds are
 saved in `settings.json`, per repository.
 
-**Limits.** Last Turn only sees Claude's Edit and Write tools, so a file
-changed through Bash (`sed`, a formatter) doesn't show there. Outside a git
-repository, Last Turn is the only scope. Claude Code's transcript format isn't
-documented, so a Claude Code update can empty Last Turn, Info and Artifacts.
+**Limits.** Last Turn depends on recorded edit tools: Claude's Edit and Write,
+Codex's file-change events, or agy's file-edit calls. A file changed only
+through a shell command (`sed`, a formatter) may not show there; use
+Uncommitted to see git changes. Outside a git repository, Last Turn is the
+only scope. An agent update that changes its transcript format can empty
+Last Turn, Info or Artifacts.
 
 ## Info
 
@@ -103,8 +108,8 @@ Info opens first. Its top line shows the time and date, such as
 
 ## Artifacts
 
-Everything Claude's replies in this session mention, newest first. A reply is
-Claude's final message after one of your prompts; text written between tool
+Everything the agent's replies in this session mention, newest first. A reply is
+the agent's final message after one of your prompts; text written between tool
 calls doesn't count. **Search Panel**, pinned at the top, opens the
 [Search Panel](#search-panel).
 
@@ -141,21 +146,21 @@ a Markdown link's text, words in brackets (`SHOP-12 (Cart rounding)`), text
 after a colon or dash, or the next table cell. Nothing is looked up, so an
 issue without a title in any reply shows its key and site.
 
-Each reply is read once, as it arrives. All of them are read again when Claude
+Each reply is read once, as it arrives. All of them are read again when the agent
 changes directory or you change the link patterns.
 
 ## Search Panel
 
 Press `Cmd+Ctrl+Alt+Shift+O`, run **Rex View: Search Panel** from the palette,
-or click **Search Panel** on Artifacts. A float lists everything Claude's
+or click **Search Panel** on Artifacts. A float lists everything the agent's
 replies mention, as Artifacts does, with the category after each row. It reads
-the focused pane's Claude, or the first Claude in the tab.
+the focused pane's agent, or the first supported agent in the tab.
 
 ![The Search Panel float listing files, Jira keys, a pull request and links, with made-up data](../docs/rex-view.png)
 
 | Row | `Enter` | `Ctrl+E` |
 | --- | --- | --- |
-| A text file that exists: absolute, `~/`, or relative to Claude's folder, with an optional `:line` | Views it in the [rex-view](../plugins/rex-view/README.md) viewer, at the line | Edits it in your editor, in the float |
+| A text file that exists: absolute, `~/`, or relative to the agent's folder, with an optional `:line` | Views it in the [rex-view](../plugins/rex-view/README.md) viewer, at the line | Edits it in your editor, in the float |
 | An image: png, jpg, gif or webp | Views it | Views it |
 | An `http` or `https` link | Opens it in your browser | Opens it |
 | Text a link pattern matches | Opens the link it makes | Opens it |
@@ -179,7 +184,7 @@ request number. There are none until you add some.
 
 **Rex View: Edit Link Patterns** lists them by folder. `Enter` edits one,
 `Ctrl+A` adds one, and `Ctrl+D` deletes one. A new one starts with the folder
-of the tab's Claude. They're saved in `settings.json`: the folder, then a
+of the tab's agent. They're saved in `settings.json`: the folder, then a
 [Lua pattern](https://www.lua.org/manual/5.1/manual.html#5.4.1), then the link
 the match is added to.
 
@@ -201,9 +206,9 @@ the match is added to.
 }
 ```
 
-**Which patterns apply.** A pattern applies to Claudes working in its folder
+**Which patterns apply.** A pattern applies to agents working in its folder
 or below it; `/` means every project. The sidecar uses the patterns of
-Claude's folder, its parent, and so on up to `/`. If two folders set the same
+the agent's folder, its parent, and so on up to `/`. If two folders set the same
 pattern, the nearer one wins. Folders match whole path parts, so `acme` doesn't
 cover `acme-old`.
 
@@ -535,14 +540,22 @@ the error. An error in `view` shows on its tab. An error in a task, `key` or
 
 ## Install
 
-Place this folder at `~/.config/rex/extensions/rex-sidecar/` and add this to
-your Rex `init.lua`:
+Requires macOS, Rex and at least one supported agent CLI. Follow the
+[repository install guide](../README.md#install) to keep this folder,
+`agents/` and the bundled viewer scripts together under
+`~/.config/rex/extensions/`, then add this to your Rex `init.lua`:
 
 ```lua
 require("extensions.rex-sidecar")
 ```
 
 Then run `rex config reload`.
+
+Claude context and limits need the [status line setup](../rex-crab-pond/README.md#claude-code-status-line).
+agy's extra status fields need the [bundled status line command](../README.md#install).
+Neither is required to open a pane. See [dependencies by feature](../README.md#dependencies-by-feature)
+for optional diff, Markdown and search tools. The Search Panel uses bundled
+rex-view scripts without requiring the Claude Code plugin to be installed.
 
 This isn't a native Rex extension format: a config module starts a separate,
 event-driven `rex do` watcher. To load a changed `watcher.lua`, stop the
@@ -556,15 +569,15 @@ pkill -f 'rex-sidecar/watcher\.lua'; rex config reload
 
 | Action | What it does |
 | --- | --- |
-| Show Sidecar Pane | Opens the pane beside the focused Claude, or another Claude in the tab that has none |
-| Disable / Enable Sidecar Pane Auto-Show | Whether a pane opens by itself when Claude starts. On by default |
+| Show Sidecar Pane | Opens the pane beside the focused supported agent, or another agent in the tab that has none |
+| Disable / Enable Sidecar Pane Auto-Show | Whether a pane opens by itself when a supported agent starts. On by default |
 | Rex View: Search Panel | The [Search Panel](#search-panel); also `Cmd+Ctrl+Alt+Shift+O` |
 | Rex View: Set Editor | The command that [edits files](#editor) |
 | Rex View: Edit Link Patterns | Adds, edits and deletes [link patterns](#link-patterns) |
 | Tasks: List Open Tasks, Add Task, Report Task Done | The [task actions](#task-actions) |
 
 - Auto-show is saved as `{"auto_show": false}` in `settings.json`. It applies
-  from the next Claude that starts; open panes stay. The palette shows
+  from the next agent that starts; open panes stay. The palette shows
   whichever of Disable and Enable applies.
 - To bind keys with `rex.bind`, the action names are `rex_sidecar_show`,
   `rex_sidecar_auto_show`, `rex_sidecar_view`, `rex_sidecar_view_editor` and
@@ -576,22 +589,23 @@ pkill -f 'rex-sidecar/watcher\.lua'; rex config reload
   the Antigravity CLI by `agy`, in any case, in the foreground or as the parent of the foreground command. A
   pane started as `rex split -- claude` is found by a second look a second
   after its shell starts.
-- The pane takes 30% of the width. Focus stays on the Claude pane.
-- The pane follows Claude's folder. After `/cd`, the scopes and the pane's
+- The pane takes 30% of the width. Focus stays on the agent pane.
+- The pane follows the agent's folder. After `/cd`, the scopes and the pane's
   label switch to the new folder's repository within a couple of seconds. They
-  cover the whole repository, not only Claude's folder.
-- A pane you close stays closed until Claude starts again in that pane, or you
+  cover the whole repository, not only the agent's folder.
+- A pane you close stays closed until an agent starts again in that pane, or you
   run Show Sidecar Pane.
 - When the watcher starts, it replaces leftover sidecar panes with new ones,
   including `Changes:` panes from before this extension was renamed.
 - rex-resume doesn't save sidecar panes. They come back with the resumed
-  Claude.
+  agent.
 - Errors go to `~/.config/rex/state/rex-sidecar.log`. The pane shows its own.
 
 ## Where Info and Artifacts get their data
 
-Both tabs read Claude Code's own files. They need no Claude Code setting, hook
-or prompt.
+Both tabs read the agent's local session files and transcript. Basic parsing
+needs no hook or prompt; optional status line data adds the fields described
+below. For Claude Code:
 
 - Claude's session file (`~/.claude/sessions/<pid>.json`, or under
   `$CLAUDE_CONFIG_DIR`) names its transcript
@@ -603,8 +617,9 @@ or prompt.
 - Claude's live shells come from `ps`, by program name only.
 - PR titles come from `gh`.
 
-Nothing else is sent anywhere, and no AI is involved. So only what Claude Code
-records as data shows: a decision made in plain conversation doesn't.
+Only events the agent records as data can be shown: a decision made in plain
+conversation does not become an approval event. Parsing uses no AI. For
+network access by task providers and GitHub lookups, see [Privacy](../README.md#privacy).
 
 For Codex, the session is its thread in `~/.codex/state_<n>.sqlite`, found as
 [agents/README.md](../agents/README.md#codex) describes. The transcript is the
@@ -614,6 +629,22 @@ from the rollout that changed last.
 For agy, the session is the conversation whose lock its process holds open,
 found as [agents/README.md](../agents/README.md#antigravity-cli-agy)
 describes. The transcript is the conversation's `transcript_full.jsonl`.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| The pane stays closed | Run **Show Sidecar Pane** with an agent tab focused. A manually closed pane stays closed until the agent restarts; check auto-show for new panes. |
+| Last Turn is empty but files changed | Shell edits may not produce file-change events. Use Uncommitted inside a git repository. |
+| Info is missing boxes | Empty boxes are hidden. Check the agent-specific limits above and status line setup before treating this as a parsing failure. |
+| Search Panel cannot open a viewer | Keep `plugins/rex-view/` in the checkout even if you do not install its Claude Code plugin. |
+| Task tabs are absent | Press `,` and show Google Tasks or Reminders. Follow that provider's setup above. |
+| New watcher code is not loaded | Stop the watcher with the command under Install, then reload config. |
+
+Inspect watcher errors with `tail -n 50 ~/.config/rex/state/rex-sidecar.log`.
+Tab errors also appear in the pane. Settings and task review state live in
+this folder; see [uninstall](../README.md#uninstall) to disable the extension
+without deleting them.
 
 ## Files
 
@@ -633,7 +664,7 @@ describes. The transcript is the conversation's `transcript_full.jsonl`.
 - `settings.lua` reads and writes `settings.json`, and passes Show requests to
   the watcher through `show-request.json`.
 - `diff-view` draws one diff in the floating pane.
-- `mentions.lua` finds the files, images and links in Claude's replies.
+- `mentions.lua` finds the files, images and links in the agent's replies.
   `view-collect.lua` writes them as the Search Panel's list, and `view-picker`
   shows it.
 - `view-settings` asks for the editor and edits the link patterns.

@@ -1,7 +1,7 @@
 # Rex Resume
 
 **Reboot without losing your place.** After a restart, a Rex update or a
-crash, every pane comes back running what it ran before.
+crash, supported conversations and allowed programs come back in their panes.
 
 ![A tab before a restart with claude, codex, nvim and agy panes; the saved sessions.json snapshot and settings.json; the same panes after the restart with claude --resume, codex resume, nvim src/cart/total.ts and agy --conversation typed back in; made-up data](../docs/rex-resume.png)
 
@@ -17,6 +17,11 @@ There's nothing on screen and nothing to click.
 
 **Try it:** add `require("extensions.rex-resume")` to `~/.config/rex/init.lua`
 and run `rex config reload`. [Full install →](#install)
+
+**On this page:** [How it works](#how-it-works) · [Settings](#settings) ·
+[Agent restoration](#claude-code-codex-and-agy) · [Limits](#limits) ·
+[Install](#install) · [Troubleshooting](#troubleshooting) · [Files](#files) ·
+[Manual use](#manual-use) · [Tests](#tests)
 
 ## How it works
 
@@ -46,7 +51,7 @@ ignores. The file is read on every save, so an edit applies straight away.
 ```json
 {
   "mode": "allow_full",
-  "programs": ["nvim", "vim", "less", "htop"]
+  "programs": ["nvim", "vim", "less", "htop", "codex", "agy"]
 }
 ```
 
@@ -63,22 +68,34 @@ top, watch, lazygit, tig, k9s, ssh, codex and agy.
 
 Claude Code always comes back, whatever the mode or the list.
 
+An explicit `programs` array replaces the default list. Omit it to keep all
+defaults, or use `[]` to restore only Claude conversations. In `any_full`,
+the list is ignored. Known Codex and agy conversation IDs use their resume
+commands even in `allow_name`; that mode's name-only behavior applies to
+ordinary programs and agents whose conversation has not been found.
+
 ### Arguments and privacy
 
 Rex only tells the extension a program's name. The arguments come from `ps`,
 and they're saved as plain text in the snapshot.
 
-- In `allow_full` and `allow_name`, arguments are read only for programs on
-  your list.
+- In `allow_full`, ordinary program arguments are read only for programs on
+  your list. In `allow_name`, ordinary programs are saved by name only.
 - In `any_full`, every program's arguments are saved. A token passed on a
   command line ends up in the snapshot too.
 - `ps` drops quotes, so an argument with a space in it comes back as two.
+
+Agent discovery is separate: the Codex adapter can read its process command
+line to find a resumed thread ID, even in `allow_name`.
 
 ## Claude Code, Codex and agy
 
 **Claude Code** is found through `~/.claude/sessions/<pid>.json`. Its original
 flags, such as the model or the permission mode, aren't known, so it resumes
 with the defaults.
+
+This restoration lookup only reads `~/.claude/sessions/`; it does not use
+`$CLAUDE_CONFIG_DIR`, even though the sidecar and pond adapters support it.
 
 **Codex** comes back with `codex resume <thread>`, in the thread's folder. The
 thread is found as [agents/README.md](../agents/README.md#codex) describes.
@@ -93,8 +110,8 @@ conversation after your first prompt. Until then, the save is tried again
 every 5 seconds, up to 6 times. For Codex and agy, their own command is saved
 in the meantime.
 
-To have Codex or agy panes come back as plain shells, leave `codex` or `agy`
-out of `programs`.
+To have Codex or agy panes come back as plain shells, use `allow_full` or
+`allow_name` and leave `codex` or `agy` out of `programs`.
 
 ## Limits
 
@@ -102,11 +119,15 @@ out of `programs`.
   its file, but not its buffers or undo history.
 - Quitting a resumed program leaves you in the shell it was typed into.
 - rex-sidecar and rex-crab-pond panes aren't saved. They reopen by themselves
-  when Claude resumes.
+  when a supported agent resumes, if those extensions are enabled.
 
 ## Install
 
-1. Put this folder at `~/.config/rex/extensions/rex-resume/`.
+Requires macOS, Rex and the CLI for each agent you want to resume. Claude
+Code is optional when you only use Codex, agy or ordinary programs.
+
+1. Follow the [repository install guide](../README.md#install), keeping
+   `agents/` beside this folder at `~/.config/rex/extensions/`.
 2. Add this line to `~/.config/rex/init.lua`:
 
    ```lua
@@ -134,6 +155,20 @@ pkill -f 'cc-resume/watcher\.lua'; rex config reload
 ```
 
 The snapshot stays where it was, so nothing is lost.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| Reloading config does not restore programs | Restoration happens once after a Rex server restart. Config reload starts the watcher but does not replay the snapshot in the current server. |
+| A program returns as a shell | Check `mode` and `programs`. A custom array replaces the defaults, and shells themselves have no command to replay. |
+| Codex or agy starts a new conversation | Send a first prompt before restarting Rex so its conversation ID can be saved. Check [agent discovery](../agents/README.md) if the ID is still missing. |
+| Claude does not resume with a custom config directory | The restoration lookup currently only reads `~/.claude/sessions/`. |
+| The watcher does not start | Inspect `tail -n 50 ~/.config/rex/state/sessions.log` and verify the install path and `require` line. |
+
+Keep `sessions.json` and `sessions.json.prev` when diagnosing restoration;
+the latter is the snapshot used on the last restore. See [uninstall](../README.md#uninstall)
+to disable the extension while preserving both snapshots and your settings.
 
 ## Files
 

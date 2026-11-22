@@ -15,14 +15,25 @@ reports it done for you to confirm with one key.
 **Try it:**
 
 ```sh
+claude plugin marketplace add evgeny-golubev/rex-extensions
 claude plugin install rex-sidecar-task-list@rex-extensions
 ```
 
-Then ask Claude "set up the sidecar Tasks tab".
+Restart Claude Code or run `/reload-plugins`, then ask Claude
+"set up the sidecar Tasks tab".
 
 Version 0.2.0. It has two Claude Code skills, one for setup and one for
 keeping the list. It works with the rex-sidecar extension's
 [Google Tasks and Reminders tabs](../../rex-sidecar/README.md#task-tabs).
+
+Requires macOS, Rex, Claude Code and the loaded rex-sidecar extension. This
+plugin is packaged for Claude Code; the underlying Rex task actions can
+also be called by other agents. Installing the plugin does not install or
+enable the extension.
+
+**On this page:** [Setup](#setup) · [Keeping the list](#keeping-the-list) ·
+[Install](#install) · [Update](#update) · [Troubleshooting](#troubleshooting) ·
+[Uninstall](#uninstall)
 
 ## Setup
 
@@ -100,6 +111,43 @@ claude plugin install rex-sidecar-task-list@rex-extensions
 Link the two skill folders into Claude Code's skills folder:
 
 ```sh
+mkdir -p ~/.claude/skills
 ln -s ~/.config/rex/extensions/plugins/rex-sidecar-task-list/skills/rex-sidecar-task-list ~/.claude/skills/rex-sidecar-task-list
 ln -s ~/.config/rex/extensions/plugins/rex-sidecar-task-list/skills/rex-sidecar-tasks-setup ~/.claude/skills/rex-sidecar-tasks-setup
 ```
+
+Use your configured skills directory instead if you set `$CLAUDE_CONFIG_DIR`.
+Choose the marketplace install or these links so each skill has one copy.
+
+## Update
+
+```sh
+claude plugin marketplace update rex-extensions
+claude plugin update rex-sidecar-task-list@rex-extensions
+```
+
+Restart Claude Code or run `/reload-plugins`. For a manual linked install,
+pull the clone instead; the links continue to point to its skill folders.
+Update the extension separately using the [repository update guide](../../README.md#update).
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| Rex cannot find `tasks_list` or `tasks_add` | Load the rex-sidecar extension and run `rex config reload`. The plugin teaches Claude the actions; the extension registers them. |
+| No task lists are returned | Show Google Tasks or Reminders with `,` in the sidecar. Only shown providers are queried. |
+| Google sign-in fails or expires | Follow the [Google Tasks troubleshooting table](../../rex-sidecar/README.md#google-tasks). |
+| Reminders access is denied | Allow access in System Settings, then retry as described in [Reminders setup](../../rex-sidecar/README.md#reminders). |
+| A reported task is still open | Select its Attention report in the matching task tab and press `y` to confirm, or `n` to reject it. Reporting alone does not complete it. |
+
+## Uninstall
+
+```sh
+claude plugin uninstall rex-sidecar-task-list@rex-extensions
+```
+
+For a manual install, remove only the two links you created under the skills
+directory instead. Restart Claude Code or run `/reload-plugins`.
+Your tasks remain in Google Tasks or Reminders, and the sidecar tabs still
+work without the plugin. Keep the extension's state files to preserve review
+history and pending reports; see [extension uninstall](../../README.md#uninstall).
