@@ -69,8 +69,9 @@ A Codex is green and named after its thread. Its outfit shows its reasoning
 effort: a scientist for high or xhigh, a ninja for low or minimal, and a robot
 otherwise.
 
-An agy (Antigravity CLI) crab is Google blue and wears a robot outfit: agy's
-effort is only on its command line, which the pond doesn't read.
+An agy (Antigravity CLI) crab is Google blue. With agy's status line script
+set up, its outfit shows its effort as a Codex's does; without it, it's a
+robot.
 
 Agents are found by program name, in any case: `claude`, `Claude` and
 `CLAUDE` all count. The details come from [`../agents/`](../agents/README.md).

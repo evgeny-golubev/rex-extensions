@@ -5,8 +5,10 @@
 --   1. the presence lock its agy process holds open, from lsof;
 --   2. the last conversation in the pane's directory, from
 --      cache/last_conversations.json.
--- agy runs no subagents that it logs. See agents/init.lua for the interface
--- every adapter has.
+-- The model's effort, the context window and the usage quota come from agy's
+-- status line input, which agents/agy-statusline.sh saves to
+-- state/statusline/<conversation>.json. agy runs no subagents that it logs.
+-- See agents/init.lua for the interface every adapter has.
 return function(U)
 	local M = { id = "agy", name = "Antigravity" }
 
@@ -52,6 +54,35 @@ return function(U)
 		return model
 	end
 
+	--- Seconds since 1970 of a UTC time written as YYYY-MM-DDTHH:MM:SSZ.
+	local function utc(text)
+		local y, mo, d, h, mi, sec = tostring(text or ""):match("^(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
+		if not y then
+			return nil
+		end
+		local t = os.time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d), hour = tonumber(h), min = tonumber(mi), sec = tonumber(sec) })
+		local now = os.time()
+		return t + os.difftime(now, os.time(os.date("!*t", now)))
+	end
+
+	--- The context window and the 5-hour and weekly quota from a status line
+	--- input. Gemini models draw on the gemini buckets, others on the 3p ones.
+	function M.status(sl)
+		local out = { limits = {} }
+		local window = type(sl.context_window) == "table" and tonumber(sl.context_window.context_window_size)
+		out.window = window
+		local model = type(sl.model) == "table" and tostring(sl.model.id or sl.model.display_name or "") or ""
+		local family = model:lower():find("gemini", 1, true) and "gemini" or "3p"
+		local quota = type(sl.quota) == "table" and sl.quota or {}
+		for _, w in ipairs({ { "5h", quota[family .. "-5h"] }, { "7d", quota[family .. "-weekly"] } }) do
+			local q = w[2]
+			if type(q) == "table" and tonumber(q.remaining_fraction) then
+				out.limits[#out.limits + 1] = { label = w[1], used = (1 - tonumber(q.remaining_fraction)) * 100, resets_at = utc(q.reset_time) }
+			end
+		end
+		return out
+	end
+
 	local cache = {}
 
 	function M.session(pane)
@@ -74,8 +105,11 @@ return function(U)
 			local f = io.open(transcript, "rb")
 			if f then
 				f:close()
-				local model = M.model(transcript)
-				sess = { id = id, pid = pane.pid, transcript = transcript, cwd = cwd, model = model, model_label = model,
+				local sl = U.read_json(M.home() .. "/state/statusline/" .. id .. ".json") or {}
+				local m = type(sl.model) == "table" and sl.model or {}
+				local model = m.id or M.model(transcript)
+				sess = { id = id, pid = pane.pid, transcript = transcript, cwd = cwd, model = model,
+					model_label = m.display_name or model, effort = m.effort, status = M.status(sl),
 					started = U.started(pane.pid, now) }
 			end
 		end

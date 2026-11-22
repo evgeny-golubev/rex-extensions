@@ -138,6 +138,17 @@ Reminders tabs. To set it up, ask Claude "set up the sidecar Tasks tab".
    No status line yet? [rex-crab-pond's setup](rex-crab-pond/README.md#claude-code-status-line)
    has a complete script and the `settings.json` entry.
 
+6. For agy's model, effort, context and usage quota in rex-sidecar and
+   rex-crab-pond: use the status line script that comes with the repository.
+   Add this to `~/.gemini/antigravity-cli/settings.json`, then restart agy:
+
+   ```json
+   "statusLine": { "type": "command", "command": "~/.config/rex/extensions/agents/agy-statusline.sh" }
+   ```
+
+   Use the full path to your home folder in place of `~`. The script needs
+   `jq`, and shows the model and how full the context is.
+
 ### Skills
 
 ```sh

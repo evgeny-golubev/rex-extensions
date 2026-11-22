@@ -273,6 +273,28 @@ local ok, err = pcall(function()
 	equal(as.id, "conv-2", "else the folder's last conversation")
 	equal(agy.session({ pid = 53, cwd = "/elsewhere" }), nil, "none found")
 	equal(#agy.subagents(as), 0, "no subagents")
+
+	-- agy's quota, from its saved status line input.
+	local quota = {
+		["gemini-5h"] = { remaining_fraction = 0.75, reset_time = "2026-11-22T21:40:15Z" },
+		["gemini-weekly"] = { remaining_fraction = 0.9, reset_time = "2026-11-29T16:40:15Z" },
+		["3p-5h"] = { remaining_fraction = 0.5, reset_time = "2026-11-22T21:57:44Z" },
+	}
+	local st = agy.status({ model = { id = "gemini-4-neon-medium" }, context_window = { context_window_size = 1048576 }, quota = quota })
+	equal(st.window, 1048576, "agy context window")
+	equal(#st.limits, 2, "5h and weekly")
+	equal(st.limits[1].label .. " " .. st.limits[1].used, "5h 25", "the Gemini 5h quota used")
+	equal(st.limits[2].label .. " " .. math.floor(st.limits[2].used + 0.5), "7d 10", "the Gemini weekly quota used")
+	equal(st.limits[2].resets_at - st.limits[1].resets_at, 7 * 86400 - 5 * 3600, "reset times apart as written")
+	local other = agy.status({ model = { id = "claude-x" }, quota = quota })
+	equal(#other.limits .. " " .. other.limits[1].used, "1 50", "other models draw on the 3p quota")
+	equal(#agy.status({}).limits, 0, "no status line input, no limits")
+	put(base .. "state/statusline/conv-1.json", rex.json.encode({ model = { id = "gemini-4-neon-high", display_name = "Gemini 4 Neon (High)", effort = "high" },
+		context_window = { context_window_size = 1048576 }, quota = quota }))
+	lsof_of[54] = "p54\nn" .. base .. "presence/conv-1.lock\n"
+	as = agy.session({ pid = 54, cwd = "/src/app" })
+	equal(as.model_label .. " · " .. as.effort, "Gemini 4 Neon (High) · high", "the model and effort from the status line")
+	equal(as.status.window .. " " .. #as.status.limits, "1048576 2", "and the window and quota")
 	U.home = real_home
 end)
 U.exec, U.home = real_exec, real_home

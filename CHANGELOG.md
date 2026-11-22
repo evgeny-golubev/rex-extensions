@@ -12,9 +12,12 @@ in each plugin's `plugin.json`.
 - A pane's conversation is the one whose lock file its `agy` process holds
   open (read with `lsof`), or else the folder's last conversation.
 - The sidecar shows the model, context, prompts, replies, commands, tests,
-  edits and open questions. GATE, PROCESSES, limits and subagents stay empty,
-  as agy doesn't log them.
-- The crab is Google blue, with a robot outfit.
+  edits and open questions. GATE, PROCESSES and subagents stay empty, as agy
+  doesn't log them.
+- With the new `agents/agy-statusline.sh` as agy's status line, the sidecar
+  also shows agy's effort, context window and usage quota (the 5h and weekly
+  buckets), and the crab dresses by effort.
+- The crab is Google blue.
 - rex-resume brings agy back with `agy --conversation <conversation>`, and
   `agy` is on its default program list.
 

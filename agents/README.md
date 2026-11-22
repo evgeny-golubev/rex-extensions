@@ -93,9 +93,18 @@ and whose arguments name a file (`TargetFile`, `AbsolutePath`, `FilePath`,
 `TargetContent` and `ReplacementContent`. agy doesn't log line numbers, so
 Last Turn's diffs show the changed lines without their place in the file.
 
+**Model, effort, context and usage.** agy hands its status line command a
+JSON summary: the model, its effort, the context window and the usage quota.
+`agy-statusline.sh` saves it as `state/statusline/<conversation>.json`, and
+the adapter reads it. The quota comes in buckets of the fraction left and a
+reset time: `gemini-5h` and `gemini-weekly` for Gemini models, `3p-5h` and
+`3p-weekly` for others. They show as the 5h and 7d bars, like Claude's.
+Without the script, the model comes from the transcript and there are no
+usage bars. See the root README's Install for the setting.
+
 **What an agy pane doesn't show:** GATE (no permission decisions are logged),
-PROCESSES and background job crabs, usage limits and the context window's
-size, and subagents. `ask_question` shows in OPEN until you answer.
+PROCESSES and background job crabs, and subagents. `ask_question` shows in
+OPEN until you answer.
 
 rex-resume brings an agy pane back with `agy --conversation <conversation>`.
 
