@@ -57,7 +57,7 @@ return function(P)
 		if #hunks == 0 and extra.type == "create" and type(extra.content) == "string" then
 			local lines = {}
 			local content = extra.content:gsub("\n$", "") .. "\n"
-			for line in content:gmatch("([^\n]*)\n") do
+			for line in P.each_line(content) do
 				lines[#lines + 1] = "+" .. line
 			end
 			hunks = { { oldStart = 0, oldLines = 0, newStart = 1, newLines = #lines, lines = lines } }

@@ -45,10 +45,7 @@ return function(P)
 	--- Hunks in the panel's shape from a unified diff's text.
 	function R.hunks(diff)
 		local hunks, hunk = {}, nil
-		-- Kept in a local: this runtime crashes iterating gmatch on a
-		-- parenthesised call joined with a string.
-		local text = tostring(diff or "") .. "\n"
-		for line in text:gmatch("([^\n]*)\n") do
+		for line in P.each_line(tostring(diff or "") .. "\n") do
 			local a, b, c, d = line:match("^@@ %-(%d+),?(%d*) %+(%d+),?(%d*) @@")
 			if a then
 				hunk = {
@@ -71,7 +68,7 @@ return function(P)
 		local lines = {}
 		local text = tostring(content or ""):gsub("\n$", "")
 		if text ~= "" then
-			for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+			for line in P.each_line(text .. "\n") do
 				lines[#lines + 1] = sign .. line
 			end
 		end

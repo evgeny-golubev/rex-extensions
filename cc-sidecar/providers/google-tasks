@@ -1,0 +1,7 @@
+#!/bin/sh
+# Runs google-tasks.lua with Rex's Lua runtime. Each argument is passed ended
+# by the byte 0x1F, as rex do takes only KEY=VALUE pairs.
+dir=$(cd "$(dirname "$0")" && pwd)
+rex="$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
+[ -x "$rex" ] || rex=rex
+exec "$rex" --autostart=false do "$dir/google-tasks.lua" "argv=$(printf '%s\037' "$@")"

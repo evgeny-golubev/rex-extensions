@@ -9,6 +9,11 @@
       "name": "rex-view",
       "source": "./plugins/rex-view",
       "description": "Show images, Markdown and source code in a floating pane over the Rex tab Claude runs in"
+    },
+    {
+      "name": "sidecar-task-list",
+      "source": "./plugins/sidecar-task-list",
+      "description": "Set up the cc-sidecar Tasks tab step by step, and keep its task list in step with the work done in a Claude Code session"
     }
   ]
 }

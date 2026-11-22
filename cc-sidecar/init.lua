@@ -23,6 +23,9 @@ rex.exec.start({
 local base = home .. "/.config/rex/extensions/cc-sidecar/"
 local settings = dofile(base .. "settings.lua")
 
+-- tasks_list, tasks_add and tasks_report_done, for the Tasks tab's list.
+assert(loadfile(base .. "task-actions.lua"))(base)
+
 rex.action({
 	name = "cc_sidecar_show",
 	title = "Show Sidecar Pane",

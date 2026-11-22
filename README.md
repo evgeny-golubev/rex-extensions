@@ -13,6 +13,7 @@ too, through the adapters in [`agents/`](agents/README.md).
 | Extension | [cc-crab-pond](#cc-crab-pond) | Claudes, subagents and background jobs as animated crabs | Strip along the tab's bottom |
 | Extension | [rex-resume](#rex-resume) | Claude Code conversations, and programs like nvim, resumed after the Rex server restarts | Background watcher |
 | Skill | [rex-view](#rex-view) | Claude shows images, Markdown and source code in a floating pane | Plugin, version 0.5.1 |
+| Skill | [sidecar-task-list](#sidecar-task-list) | Claude adds the work you start to your task list and reports it done for you to confirm | Plugin, version 0.1.0 |
 
 **Contents:** [Extensions](#extensions) · [Skills](#skills) ·
 [Requirements](#requirements) · [Install](#install) · [Update](#update) ·
@@ -41,6 +42,8 @@ Claude's replies mention, as Documents, PRs, Jira, URLs and Other; click one to
 view it or open it in the browser. Your own patterns turn Jira keys or PR
 numbers into links. The **Search Panel**, on `Cmd+Ctrl+Alt+Shift+O` or at the
 top of Artifacts, lists the same in a float, to filter, view, edit or open.
+**Tasks**, hidden until you show it, is the day's work from Google Tasks or
+Apple Reminders, rated A, B and C, with estimates, steps and a daily review.
 
 ![The Search Panel's float listing files, Jira keys, a pull request and links from Claude's replies, with made-up data](docs/rex-view.png)
 
@@ -78,6 +81,15 @@ uses them when you ask; they need nothing in `init.lua`.
 Ask Claude to show a file, in your own words: "show me that screenshot" or "open
 the README in a pane". Images, Markdown and source code open in a floating pane
 over Claude's tab, and `q` closes it. [Details →](plugins/rex-view/README.md)
+
+### sidecar-task-list
+
+Claude adds the work you start with it to the task list in cc-sidecar's Tasks
+tab, or finds the task already there, and reports it done when the work is
+finished. You confirm the report in the tab. It needs cc-sidecar. Ask Claude
+"set up the sidecar Tasks tab", and it walks you through the setup, one step at
+a time.
+[Details →](plugins/sidecar-task-list/README.md)
 
 ## Requirements
 
@@ -140,6 +152,7 @@ over Claude's tab, and `q` closes it. [Details →](plugins/rex-view/README.md)
 ```sh
 claude plugin marketplace add evgeny-golubev/rex-extensions
 claude plugin install rex-view@rex-extensions
+claude plugin install sidecar-task-list@rex-extensions
 ```
 
 Then restart Claude Code, or run `/reload-plugins` in it.
@@ -163,6 +176,7 @@ Skills:
 ```sh
 claude plugin marketplace update rex-extensions
 claude plugin update rex-view@rex-extensions
+claude plugin update sidecar-task-list@rex-extensions
 ```
 
 ## Repository layout
@@ -174,13 +188,16 @@ rex-resume/                       extension
 cc-sidecar/                       extension
 cc-crab-pond/                     extension
 plugins/rex-view/                 skill, as a plugin
+plugins/sidecar-task-list/        skills, as a plugin
 docs/                             pictures
 ```
 
 ## Privacy
 
 Everything reads Claude Code's and Codex's own files and the process list on your machine (rex-resume, and cc-sidecar and cc-crab-pond for a Codex, also read the command lines of programs).
-Nothing is sent anywhere and no AI is involved.
+No AI is involved. Nothing is sent anywhere, except by cc-sidecar's Tasks tab
+once you choose Google Tasks: it then reads and changes your tasks through
+Google's Tasks API.
 
 ## Tests
 
