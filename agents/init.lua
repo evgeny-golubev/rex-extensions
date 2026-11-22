@@ -24,8 +24,9 @@ A.util = dofile(dir .. "util.lua")
 A.claude = dofile(dir .. "claude.lua")(A.util)
 A.codex = dofile(dir .. "codex.lua")(A.util)
 A.agy = dofile(dir .. "agy.lua")(A.util)
-A.list = { A.claude, A.codex, A.agy }
-A.by_id = { claude = A.claude, codex = A.codex, agy = A.agy }
+A.pi = dofile(dir .. "pi.lua")(A.util)
+A.list = { A.claude, A.codex, A.agy, A.pi }
+A.by_id = { claude = A.claude, codex = A.codex, agy = A.agy, pi = A.pi }
 
 --- The agent a process is, or nil.
 function A.of(p)
