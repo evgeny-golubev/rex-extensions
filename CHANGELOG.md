@@ -3,7 +3,11 @@
 Releases are tagged `vX.Y.Z` on GitHub. The skills keep their own versions,
 in each plugin's `plugin.json`.
 
-## Unreleased
+## v1.2.0 — 2026-11-22
+
+Pi and OpenCode support, leaf as the viewer, agy at par with the other
+agents, per-agent colours, a compact LOG box, no more resize flicker, and the
+Tasks tab under its old name.
 
 ### Pi and OpenCode
 
@@ -43,6 +47,49 @@ in each plugin's `plugin.json`.
   again.
 - **rex-view 0.6.0:** when leaf is missing, `show` says so, and Claude asks you
   before installing it.
+
+### Antigravity CLI (agy)
+
+- The main box matches the other agents: effort (from the Gemini model ID),
+  a readable model name (`gemini-4-neon-high` → Gemini 4 Neon), mode, branch,
+  the conversation's title and compactions. The context window defaults to
+  1M until the status line reports it.
+- Subagents show as lanes and crabs (light blue), read from
+  `conversation_summaries.db`. Workflow test runs and their errors count, and
+  backgrounded commands no longer count as errors.
+- Last Turn shows diffs from agy's `write_file` and `edit_file` as well as
+  the older `write_to_file` and `replace_file_content`.
+- Fixed a crash when a command failed without an exit code, such as a spawn
+  error or a backgrounded command.
+
+### rex-sidecar
+
+- **Agent colours:** Codex panes get a blue to indigo gradient on the main
+  and turn borders, title and effort bar, with periwinkle subagents. agy
+  panes get Google's four colours, with light blue subagents. Claude keeps
+  its coral and lavender.
+- **LOG box:** times are `HH:MM`, shown once per minute. A one-column icon
+  and a colour per kind replace the `who` column: prompts, writes, edits,
+  deletes, workflows, subagents, advisor, errors and compactions. Paths are
+  shortened to `parent/file`, and repeated events fold into one row with
+  `×N`. Prompts never fold.
+- **Resizing:** the sidecar draws each frame in one go (synchronized output),
+  checks its size every 0.2s and redraws fully when the height changes too,
+  so a pane resized in a background tab no longer comes back broken or
+  flickers.
+- **Tasks tab:** the Google tab is named **Tasks** again. A v1.1.0
+  **Google Tasks** tab keeps its place and state.
+
+### Skills
+
+- **rex-sidecar-task-list 0.2.1:** the setup skill checks the **Tasks** tab
+  by its new name, so it no longer reports it as hidden.
+
+### Docs
+
+- Install by cloning straight into Rex's config folder.
+- Agent compatibility, troubleshooting and uninstall sections, and per-agent
+  setup in one place with extension setup tables.
 
 ## v1.1.0 — 2026-11-22
 
