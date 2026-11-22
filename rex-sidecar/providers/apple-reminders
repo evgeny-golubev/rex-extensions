@@ -2,13 +2,18 @@
 // Command-line client for Apple Reminders, through EventKit. It follows the
 // task provider contract of the sidecar Tasks tab:
 //   tasks [--completed-since DATE]
-//   add LIST [--due DATE] [--notes TEXT] TITLE
-//   update LIST TASK [--title TEXT] [--due DATE] [--notes TEXT] [--status STATUS]
+//   add LIST [--due DATE] [--notes TEXT] [--priority P] TITLE
+//   update LIST TASK [--title TEXT] [--due DATE] [--notes TEXT] [--status STATUS] [--priority P]
+//   move LIST TASK NEWLIST
 //   login
 // Lists are Reminders lists and tasks are reminders, by identifier. Each task
-// also has "recurring", true when it has a recurrence rule. Reminders has no
-// subtasks in EventKit, so --parent is refused. Without access to Reminders,
-// it prints {"error": "auth_required"} and exits with code 3.
+// also has "recurring", true when it has a recurrence rule, and "priority",
+// the Priority field as "A" (High), "B" (Medium), "C" (Low) or null; P is one
+// of those or "none". Reminders has no subtasks in EventKit, so --parent is
+// refused. EventKit can't change a saved reminder's list, so move copies it
+// to NEWLIST and deletes the original, and prints the copy's {"id"}. Without
+// access to Reminders, it prints {"error": "auth_required"} and exits with
+// code 3.
 ObjC.import("EventKit");
 ObjC.import("Foundation");
 ObjC.import("stdlib");
@@ -83,6 +88,19 @@ function fetch(predicate) {
   return out;
 }
 
+/** EventKit's priority: 1 to 4 is High, 5 Medium, 6 to 9 Low, 0 none. */
+function rating(priority) {
+  const n = Number(priority);
+  return n >= 1 && n <= 4 ? "A" : n === 5 ? "B" : n >= 6 ? "C" : null;
+}
+
+const priorities = { A: 1, B: 5, C: 9, none: 0 };
+
+function priority(value) {
+  if (!(value in priorities)) throw new Error("Priority is A, B, C or none: " + value);
+  return priorities[value];
+}
+
 function task_fields(r) {
   const due = r.dueDateComponents;
   const rules = r.recurrenceRules;
@@ -95,6 +113,7 @@ function task_fields(r) {
     status: r.completed ? "completed" : "needsAction",
     completed: r.completed && !r.completionDate.isNil() ? local_date(r.completionDate) : null,
     recurring: !rules.isNil() && rules.count > 0,
+    priority: rating(r.priority),
     created: r.creationDate.isNil() ? 0 : r.creationDate.timeIntervalSince1970,
   };
 }
@@ -129,7 +148,7 @@ function save(reminder) {
 }
 
 function command_add(args) {
-  const parsed = options(args.slice(1), ["due", "notes", "parent", "previous"]);
+  const parsed = options(args.slice(1), ["due", "notes", "parent", "previous", "priority"]);
   if (parsed.values.parent) throw new Error("Apple Reminders has no subtasks for other programs; steps are not supported.");
   const calendar = store.calendarWithIdentifier(args[0]);
   if (calendar.isNil()) throw new Error("No such list: " + args[0]);
@@ -138,20 +157,48 @@ function command_add(args) {
   reminder.title = parsed.rest.join(" ");
   if (parsed.values.due) reminder.dueDateComponents = components(parsed.values.due);
   if (parsed.values.notes !== undefined) reminder.notes = parsed.values.notes;
+  if (parsed.values.priority !== undefined) reminder.priority = priority(parsed.values.priority);
   save(reminder);
   return JSON.stringify({ id: ObjC.unwrap(reminder.calendarItemIdentifier) });
 }
 
 function command_update(args) {
-  const values = options(args.slice(2), ["title", "due", "notes", "status"]).values;
+  const values = options(args.slice(2), ["title", "due", "notes", "status", "priority"]).values;
   const reminder = store.calendarItemWithIdentifier(args[1]);
   if (reminder.isNil()) throw new Error("No such task: " + args[1]);
   if (values.title !== undefined) reminder.title = values.title;
   if (values.due !== undefined) reminder.dueDateComponents = components(values.due);
   if (values.notes !== undefined) reminder.notes = values.notes;
   if (values.status !== undefined) reminder.completed = values.status === "completed";
+  if (values.priority !== undefined) reminder.priority = priority(values.priority);
   save(reminder);
   return "updated";
+}
+
+/** Copies a reminder to another list and deletes the original: its title,
+ * notes, link, due date, priority, repeats and alarms. Attachments, tags and
+ * subtasks made in Apple's app aren't open to other programs. */
+function command_move(args) {
+  const reminder = store.calendarItemWithIdentifier(args[1]);
+  if (reminder.isNil()) throw new Error("No such task: " + args[1]);
+  const calendar = store.calendarWithIdentifier(args[2]);
+  if (calendar.isNil()) throw new Error("No such list: " + args[2]);
+  const copy = $.EKReminder.reminderWithEventStore(store);
+  copy.calendar = calendar;
+  copy.title = reminder.title;
+  if (reminder.hasNotes) copy.notes = reminder.notes;
+  if (!reminder.URL.isNil()) copy.URL = reminder.URL;
+  if (!reminder.dueDateComponents.isNil()) copy.dueDateComponents = reminder.dueDateComponents;
+  copy.priority = reminder.priority;
+  const rules = reminder.recurrenceRules;
+  for (let i = 0; !rules.isNil() && i < rules.count; i++) copy.addRecurrenceRule(rules.objectAtIndex(i).copy);
+  const alarms = reminder.alarms;
+  for (let i = 0; !alarms.isNil() && i < alarms.count; i++) copy.addAlarm(alarms.objectAtIndex(i).copy);
+  save(copy);
+  if (!store.removeReminderCommitError(reminder, true, $())) {
+    throw new Error("The copy was saved, but deleting the original failed");
+  }
+  return JSON.stringify({ id: ObjC.unwrap(copy.calendarItemIdentifier) });
 }
 
 function command_login() {
@@ -170,7 +217,8 @@ function dispatch(command, args) {
   if (command === "tasks") return command_tasks(args);
   if (command === "add") return command_add(args);
   if (command === "update") return command_update(args);
-  throw new Error("Commands: tasks, add, update, login");
+  if (command === "move") return command_move(args);
+  throw new Error("Commands: tasks, add, update, move, login");
 }
 
 /** Prints the result on standard output, or an error's message on standard

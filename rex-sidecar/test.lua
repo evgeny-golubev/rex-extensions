@@ -1849,6 +1849,115 @@ do
 	rex = real
 	P.spawn, P.run = spawn, run
 end
+-- The Reminders tab: the rating in the priority field, the lists shown, the
+-- default list for new tasks, and moving a task. The background work runs
+-- at once and the provider calls are recorded.
+do
+	local tab = P.plugins.Reminders.tab
+	local lib, state = tab.lib, tab.state
+	local state_file = panel_base .. "reminders_state.json"
+	local spawn, run = P.spawn, P.run
+	local calls = {}
+	P.spawn = function(_, fn)
+		fn()
+		return true
+	end
+	P.run = function(argv)
+		calls[#calls + 1] = table.concat(argv, " ", 2)
+		if argv[2] == "move" then
+			return { ok = true, code = 0, stdout = '{"id":"moved-1"}\n' }
+		elseif argv[2] == "add" then
+			return { ok = true, code = 0, stdout = '{"id":"new-1"}\n' }
+		elseif argv[2] == "tasks" then
+			return { ok = false, code = 1, stdout = "", stderr = "offline\n" }
+		end
+		return { ok = true, code = 0, stdout = "updated\n" }
+	end
+	local function saved_state()
+		local f = assert(io.open(state_file, "rb"))
+		local s = rex.json.decode(f:read("*a"))
+		f:close()
+		return s
+	end
+	local f = assert(io.open(state_file, "wb"))
+	f:write(rex.json.encode({ proposals = { a1 = { note = "swam" } }, snoozed = { ["slip a1"] = "2026-11-21" } }))
+	f:close()
+	tab.activate()
+	state.clock = "2026-11-21"
+	state.lists = {
+		{ id = "L1", title = "Personal", tasks = {
+			{ id = "a1", title = "Swim", priority = "A", due = "2026-11-21" },
+			{ id = "b1", title = "B. Old prefix", due = "2026-11-21" },
+			{ id = "c1", title = "Plan the trip (1h)", priority = "C", due = "" },
+		} },
+		{ id = "L2", title = "Work", tasks = { { id = "w1", title = "Ship it", priority = "B", due = "2026-11-21" } } },
+	}
+	state.view = "all"
+
+	local m = lib.model(state.lists, "2026-11-21", {})
+	equal(m.by.a1.rating, "A", "the priority field is the rating")
+	equal(m.by.b1.rating, "B", "a rating prefix from before still counts")
+	equal(m.by.c1.estimate, 60, "the estimate stays in the title")
+	has(plain(tab.view(60).lines), "C Plan the trip", "the rating shown as a letter")
+
+	-- Rating sets the priority and takes an old prefix out of the title.
+	state.selected = "b1"
+	tab.key("A")
+	equal(calls[1], "update L1 b1 --title Old prefix --priority A", "A sets High priority")
+	equal(lib.model(state.lists, "2026-11-21", {}).by.b1.rating, "A", "shown at once")
+
+	-- No steps: s does nothing, and no split warnings.
+	equal(tab.key("s"), false, "no steps")
+	tab.key("?")
+	hasnt(plain(tab.view(60).lines), "split it into steps", "no steps in the keys")
+	has(plain(tab.view(60).lines), "move it to another list", "m in the keys")
+	tab.key("?")
+
+	-- l: hide a list, refuse to hide the last, and choose the default one.
+	tab.key("l")
+	equal(state.picker.kind, "lists", "l opens the lists")
+	has(plain(tab.view(60).lines), "✓ Work", "every list shown at first")
+	tab.key("j")
+	tab.key(" ")
+	equal(saved_state().hidden_lists.L2, true, "Work hidden")
+	has(plain(tab.view(60).lines), "○ Work", "and marked hidden")
+	tab.key("k")
+	tab.key(" ")
+	equal(saved_state().hidden_lists.L1, nil, "the last shown list stays shown")
+	tab.key("j")
+	tab.key("d")
+	equal(saved_state().default_list, "L2", "Work is the default list")
+	has(plain(tab.view(60).lines), "Work ★", "the default marked")
+	tab.key("escape")
+	equal(state.picker, nil, "Esc closes the lists")
+	equal(lib.model(state.lists, "2026-11-21", {}).by.w1 ~= nil, true, "the model itself keeps every list")
+	hasnt(plain(tab.view(60).lines), "Ship it", "a hidden list's tasks aren't shown")
+
+	-- A new task goes to the default list, its rating to the priority field.
+	tab.key("a")
+	for ch in ("B. Call the bank"):gmatch(".") do
+		tab.key(ch)
+	end
+	tab.key("\r")
+	equal(calls[#calls - 1], "add L2 --priority B Call the bank", "added to the default list, undated in All")
+
+	-- m moves a task: a copy with a new ID, which the state file follows.
+	state.selected = "a1"
+	tab.key("m")
+	equal(state.picker.kind, "move", "m opens the lists")
+	equal(state.picker.index, 1, "starting at the task's own list")
+	has(plain(tab.view(60).lines), "Personal  now here", "its list marked")
+	tab.key("j")
+	tab.key("\r")
+	equal(calls[#calls - 1], "move L1 a1 L2", "moved through the provider")
+	equal(state.lists[2].tasks[#state.lists[2].tasks].id, "moved-1", "the task takes its new ID")
+	equal(saved_state().proposals["moved-1"].note, "swam", "a report follows the task")
+	equal(saved_state().snoozed["slip moved-1"], "2026-11-21", "and a hidden warning")
+	equal(saved_state().proposals.a1, nil, "nothing left under the old ID")
+
+	P.spawn, P.run = spawn, run
+	os.remove(state_file)
+end
 -- The Google Tasks provider, with the Keychain made up and no request sent.
 do
 	local stored = {}

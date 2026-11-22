@@ -5,6 +5,10 @@
 --   provider    the provider's name in task-providers.lua.
 --   state_file  the state file's name, beside settings.json.
 --   steps       true when the provider has subtasks.
+--   priority    true when the rating is the task's priority field, not a
+--               title prefix.
+--   lists       true for the list keys: l chooses the lists shown and the
+--               default list for new tasks, m moves a task to another list.
 -- Each tab is hidden until shown in the tab settings; see the README.
 --
 -- Provider contract. A provider is a command in providers/, named in
@@ -44,6 +48,10 @@ local width, clip = sidecar.width, sidecar.clip
 local providers = dofile(sidecar.dir .. "task-providers.lua")
 --- Whether the provider has subtasks, which the tab shows as steps.
 local STEPS = config.steps == true
+--- Whether the rating is kept in the provider's priority field.
+local PRIORITY = config.priority == true
+--- Whether the tab chooses lists and moves tasks between them.
+local LISTS = config.lists == true
 pcall(providers.migrate, sidecar.settings_dir, sidecar.settings)
 
 --- Minutes of planned work that fit in one day.
@@ -232,6 +240,12 @@ end
 
 local rating_rank = { A = 1, B = 2, C = 3 }
 
+--- A task's rating: its priority field when the provider has one, else the
+--- prefix of its parsed title `p`.
+function lib.rating_of(t, p)
+	return rating_rank[t.priority] and t.priority or p.rating
+end
+
 --- A before B before C before unrated, then the provider's order.
 function lib.before(a, b)
 	local ra, rb = rating_rank[a.rating] or 4, rating_rank[b.rating] or 4
@@ -265,7 +279,7 @@ function lib.model(lists, today, moves)
 		local p = lib.parse_title(t.title or "")
 		local due = (t.due or "") ~= "" and t.due or nil
 		local it = {
-			id = t.id, task = t, list = r.list, order = i, rating = p.rating, name = p.name, estimate = p.estimate, due = due,
+			id = t.id, task = t, list = r.list, order = i, rating = lib.rating_of(t, p), name = p.name, estimate = p.estimate, due = due,
 			parent = type(t.parent) == "string" and t.parent or nil, pending = t.pending,
 			recurring = t.recurring == true or recurring[lib.normal_title(t.title or "")] or false,
 			late = due and due < today and lib.days_between(due, today) or 0,
@@ -287,7 +301,7 @@ function lib.model(lists, today, moves)
 	for _, t in ipairs(raw_done) do
 		if t.completed == today and not lib.dropped(t) and type(t.parent) ~= "string" then
 			local p = lib.parse_title(t.title or "")
-			m.done[#m.done + 1] = { id = t.id, name = p.name, rating = p.rating, estimate = p.estimate, done = true,
+			m.done[#m.done + 1] = { id = t.id, name = p.name, rating = lib.rating_of(t, p), estimate = p.estimate, done = true,
 				recurring = recurring[lib.normal_title(t.title or "")] or false }
 		end
 	end
@@ -529,6 +543,8 @@ local state = {
 	view = "now",
 	--- The text being typed: { kind, text, id, error, advance }, or nil.
 	input = nil,
+	--- The list picker: { kind = "lists" or "move", index, id }, or nil.
+	picker = nil,
 	--- The daily review in progress: { stage, ids, index, confirm }, or nil.
 	review = nil,
 	--- True while the list of keys is shown.
@@ -572,8 +588,33 @@ local function saved()
 	return state.saved
 end
 
+--- The lists the tab shows: all but those hidden with l.
+local function shown_lists()
+	local hidden = LISTS and saved().hidden_lists
+	if not (state.lists and type(hidden) == "table") then
+		return state.lists
+	end
+	local out = {}
+	for _, list in ipairs(state.lists) do
+		if not hidden[list.id] then
+			out[#out + 1] = list
+		end
+	end
+	return out
+end
+
+--- The list chosen with l for new tasks, while it exists.
+local function default_list()
+	local id = LISTS and saved().default_list
+	for _, list in ipairs(id and state.lists or {}) do
+		if list.id == id then
+			return list
+		end
+	end
+end
+
 local function model()
-	return lib.model(state.lists, today(), saved().moves)
+	return lib.model(shown_lists(), today(), saved().moves)
 end
 
 --- The tab's provider.
@@ -756,12 +797,15 @@ local function update(id, fields, label)
 		return
 	end
 	local argv = { "update", list.id, id }
-	for _, key in ipairs({ "title", "due", "notes", "status" }) do
+	for _, key in ipairs({ "title", "due", "notes", "status", "priority" }) do
 		if fields[key] then
 			t[key] = fields[key]
 			argv[#argv + 1] = "--" .. key
 			argv[#argv + 1] = fields[key]
 		end
+	end
+	if t.priority == "none" then
+		t.priority = nil
 	end
 	enqueue(label, function()
 		return client_run(30, unpack(argv))
@@ -795,11 +839,24 @@ end
 --- or "estimate", and a nil value removes it.
 local function retitle(id, field, value, label)
 	local t = find_task(id)
-	if t then
-		local p = lib.parse_title(t.title or "")
-		p[field] = value
-		update(id, { title = lib.compose_title(p.rating, p.name, p.estimate) }, label)
+	if not t then
+		return
 	end
+	local p = lib.parse_title(t.title or "")
+	if PRIORITY then
+		-- The rating goes to the priority field, and a prefix left in the
+		-- title from before goes with it.
+		local rating = lib.rating_of(t, p)
+		if field == "rating" then
+			rating = value
+		else
+			p[field] = value
+		end
+		update(id, { title = lib.compose_title(nil, p.name, p.estimate), priority = rating or "none" }, label)
+		return
+	end
+	p[field] = value
+	update(id, { title = lib.compose_title(p.rating, p.name, p.estimate) }, label)
 end
 
 local pending_count = 0
@@ -809,7 +866,13 @@ local pending_count = 0
 --- runs, by which time the writes before it have given it its real ID.
 local function add_task(list, title, due, parent, previous)
 	pending_count = pending_count + 1
-	local t = { id = "pending " .. pending_count, title = title, due = due or "", parent = parent and parent.id, status = "needsAction", pending = true }
+	local priority
+	if PRIORITY then
+		local p = lib.parse_title(title)
+		title, priority = lib.compose_title(nil, p.name, p.estimate), p.rating
+	end
+	local t = { id = "pending " .. pending_count, title = title, due = due or "", parent = parent and parent.id,
+		status = "needsAction", pending = true, priority = priority }
 	local at, after = 1, previous or parent
 	for i, x in ipairs(list.tasks) do
 		if x == after then
@@ -828,6 +891,9 @@ local function add_task(list, title, due, parent, previous)
 		if previous and not previous.pending then
 			argv[#argv + 1], argv[#argv + 2] = "--previous", previous.id
 		end
+		if priority then
+			argv[#argv + 1], argv[#argv + 2] = "--priority", priority
+		end
 		argv[#argv + 1] = title
 		local r = client_run(30, unpack(argv))
 		local ok, data = pcall(rex.json.decode, r and r.stdout or "")
@@ -840,6 +906,112 @@ local function add_task(list, title, due, parent, previous)
 		return r
 	end)
 	return t
+end
+
+--- Moves the state file's records of a task to its new ID.
+local function rekey(s, old, new)
+	for _, field in ipairs({ "dues", "moves", "proposals" }) do
+		s[field][new], s[field][old] = s[field][old], nil
+	end
+	for key, day in pairs(s.snoozed) do
+		local kind = key:match("^(%S+) " .. old:gsub("%p", "%%%0") .. "$")
+		if kind then
+			s.snoozed[kind .. " " .. new], s.snoozed[key] = day, nil
+		end
+	end
+end
+
+--- Moves a task to another list, at once and through the provider in the
+--- background. The moved task gets a new ID, which the state file follows.
+local function move_task(id, to)
+	local t, from = find_task(id)
+	if not t or t.pending or not to or from == to then
+		return
+	end
+	for i, x in ipairs(from.tasks) do
+		if x == t then
+			table.remove(from.tasks, i)
+			break
+		end
+	end
+	to.tasks[#to.tasks + 1] = t
+	t.pending = true
+	enqueue("Moving the task", function()
+		local r = client_run(30, "move", from.id, id, to.id)
+		local ok, data = pcall(rex.json.decode, r and r.stdout or "")
+		if r and r.ok and ok and type(data) == "table" and data.id then
+			if state.selected == id then
+				state.selected = data.id
+			end
+			t.id, t.pending = data.id, nil
+			change_state(function(s)
+				rekey(s, id, data.id)
+			end)
+		end
+		return r
+	end)
+end
+
+--- Opens the list picker: "lists" to choose the lists shown and the default
+--- one, "move" to move task `it`, starting at its own list.
+local function open_picker(kind, it)
+	state.picker = { kind = kind, index = 1, id = it and it.id }
+	local list
+	if it then
+		list = select(2, find_task(it.id))
+	end
+	for i, l in ipairs(state.lists or {}) do
+		if l == list then
+			state.picker.index = i
+		end
+	end
+end
+
+--- Acts on the picker's list at `index`: shows or hides it, makes it the
+--- default, or moves the task to it.
+local function pick(index, how)
+	local p, list = state.picker, (state.lists or {})[index]
+	if not (p and list) then
+		return
+	end
+	p.index = index
+	if p.kind == "move" then
+		move_task(p.id, list)
+		state.picker = nil
+	elseif how == "default" then
+		change_state(function(s)
+			s.default_list = list.id
+		end)
+	else
+		local hidden = type(saved().hidden_lists) == "table" and saved().hidden_lists or {}
+		if not hidden[list.id] and #shown_lists() <= 1 then
+			state.key_notice = "At least one list stays shown."
+			return
+		end
+		change_state(function(s)
+			s.hidden_lists = type(s.hidden_lists) == "table" and s.hidden_lists or {}
+			s.hidden_lists[list.id] = not s.hidden_lists[list.id] or nil
+		end)
+	end
+end
+
+--- Keys while the picker is open: j and k select a list, Space shows or
+--- hides it, d makes it the default, Enter moves the task or closes, and
+--- Escape closes.
+local function picker_key(k)
+	local p, count = state.picker, #(state.lists or {})
+	if k == "escape" or ((k == "\r" or k == "\n" or k == "l") and p.kind == "lists") then
+		state.picker = nil
+	elseif k == "j" or k == "down" then
+		p.index = math.min(count, p.index + 1)
+	elseif k == "k" or k == "up" then
+		p.index = math.max(1, p.index - 1)
+	elseif p.kind == "lists" and (k == " " or k == "d") then
+		pick(p.index, k == "d" and "default")
+	elseif p.kind == "move" and (k == "\r" or k == "\n") then
+		pick(p.index)
+	end
+	return true
 end
 
 local function start_review()
@@ -1020,7 +1192,7 @@ local function commit(input)
 		end
 		local m = model()
 		local selected = m.by[state.selected or ""]
-		local list = selected and selected.list or (state.lists and state.lists[1])
+		local list = default_list() or selected and selected.list or (shown_lists() or {})[1]
 		if not list then
 			return true
 		end
@@ -1135,6 +1307,9 @@ local function task_key(k, it, m)
 	elseif k == "s" and STEPS then
 		open_input("steps", it.step_of or it)
 		return true
+	elseif k == "m" and LISTS then
+		open_picker("move", it)
+		return true
 	else
 		return false
 	end
@@ -1199,6 +1374,9 @@ local function handle(k)
 	if state.input then
 		return input_key(k)
 	end
+	if state.picker then
+		return picker_key(k)
+	end
 	if k == "r" then
 		state.fetched_at = nil
 		sidecar.spawn("tasks refresh", refresh_all)
@@ -1226,6 +1404,9 @@ local function handle(k)
 	end
 	if k == "v" then
 		start_review()
+		return true
+	elseif k == "l" and LISTS then
+		open_picker("lists")
 		return true
 	end
 	if state.review then
@@ -1259,10 +1440,10 @@ end
 --- The keys this tab uses somewhere; one that does nothing on the screen
 --- shown gets a notice instead of no answer.
 local tab_keys = {}
-for k in ((STEPS and "s" or "") .. "xtdeaABCvVz]yn-Lrjk"):gmatch(".") do
+for k in ((STEPS and "s" or "") .. (LISTS and "lm" or "") .. "xtdeaABCvVz]yn-Lrjk"):gmatch(".") do
 	tab_keys[k] = true
 end
-local task_keys = { x = true, t = true, d = true, e = true, s = STEPS or nil, A = true, B = true, C = true }
+local task_keys = { x = true, t = true, d = true, e = true, s = STEPS or nil, m = LISTS or nil, A = true, B = true, C = true }
 local unused_notices = {
 	z = "z hides warnings; use d to move a task to a later date.",
 	["]"] = "] shows the next warning; there is no other one here.",
@@ -1302,6 +1483,8 @@ function tab.act(action)
 		state.selected = action.id
 	elseif action.kind == "done" then
 		complete_row(action.id)
+	elseif action.kind == "pick" then
+		pick(action.index)
 	end
 end
 
@@ -1715,6 +1898,9 @@ local function key_groups(m)
 	if task and STEPS then
 		task_list[#task_list + 1] = { "s", "split it into steps" }
 	end
+	if task and LISTS then
+		task_list[#task_list + 1] = { "m", "move it to another list" }
+	end
 	if r and r.stage == "late" then
 		if task then
 			task_list[#task_list + 1] = { "-", "drop it: complete it with a note" }
@@ -1744,10 +1930,47 @@ local function key_groups(m)
 		group("Warnings", keys)
 	end
 	local views_list = r and {} or { { "V", "switch between Now, Today and All" }, { "v", "start the daily review" } }
+	if LISTS then
+		views_list[#views_list + 1] = { "l", "choose the lists shown and the list for new tasks" }
+	end
 	views_list[#views_list + 1] = { "r", "fetch the tasks now" }
 	views_list[#views_list + 1] = { "?", "close this list" }
 	group("Views", views_list)
 	return groups
+end
+
+--- The list picker: every list, the selected one marked. Choosing shows
+--- which lists are shown (✓) and the default for new tasks (★); moving
+--- marks the task's own list.
+local function picker_box(v, m)
+	local p = state.picker
+	local it = p.id and m.by[p.id]
+	local hidden = type(saved().hidden_lists) == "table" and saved().hidden_lists or {}
+	local default = default_list()
+	local current
+	if p.id then
+		current = select(2, find_task(p.id))
+	end
+	local title = p.kind == "move" and ("Move to list" .. (it and (" · " .. it.name) or "")) or "Lists"
+	v.box(c.cyan, title, nil, function(n)
+		for i, list in ipairs(state.lists or {}) do
+			local mark = i == p.index and (c.cyan .. "› " .. c.reset) or "  "
+			local note = ""
+			if p.kind == "lists" then
+				mark = mark .. (hidden[list.id] and (c.grey .. "○ ") or (c.green .. "✓ ")) .. c.reset
+				note = list == default and (c.yellow .. " ★" .. c.reset) or ""
+			elseif list == current then
+				note = c.dim .. "  now here" .. c.reset
+			end
+			v.add(mark .. fit(list.title or "", n - width(mark) - width(note)) .. note, { kind = "pick", index = i })
+			if i == p.index then
+				v.selected = #v.lines
+			end
+		end
+		v.add("")
+		v.hints(p.kind == "lists" and { "Space show or hide", "d default for new tasks ★", "Esc done" }
+			or { "Enter move here", "Esc cancel" }, n)
+	end)
 end
 
 --- The keys that work on the screen shown.
@@ -1826,7 +2049,9 @@ function tab.view(cols)
 	elseif state.help then
 		help_box(v, m)
 	end
-	if state.view == "review" and state.review then
+	if state.picker then
+		picker_box(v, m)
+	elseif state.view == "review" and state.review then
 		review_view(v, m)
 	elseif state.view == "today" then
 		today_box(v, m)
@@ -1847,6 +2072,14 @@ function tab.view(cols)
 	end
 	if state.help then
 		v.selected = 1
+	elseif state.picker then
+		local at
+		for i, l in ipairs(v.lines) do
+			if l:find("› ", 1, true) and v.actions[i] and v.actions[i].kind == "pick" then
+				at = i
+			end
+		end
+		v.selected = at or v.selected
 	elseif state.input then
 		-- The input line stays selected, so it scrolls into view.
 		local at

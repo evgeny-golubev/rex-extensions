@@ -5,4 +5,6 @@ return assert(loadfile(sidecar.dir .. "tasks-core.lua"))(sidecar, {
 	name = "Reminders",
 	provider = "apple",
 	state_file = "reminders_state.json",
+	priority = true,
+	lists = true,
 })
