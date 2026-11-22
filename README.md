@@ -103,7 +103,14 @@ Reminders tabs. To set it up, ask Claude "set up the sidecar Tasks tab".
 
 ### Extensions
 
-1. Clone the repository and link it into Rex's config folder:
+1. Clone the repository into Rex's config folder:
+
+   ```sh
+   git clone https://github.com/evgeny-golubev/rex-extensions.git ~/.config/rex/extensions
+   ```
+
+   To keep the code somewhere else, clone it there and link the folder
+   instead:
 
    ```sh
    git clone https://github.com/evgeny-golubev/rex-extensions.git ~/Sites/utils/rex
