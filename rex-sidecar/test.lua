@@ -916,13 +916,48 @@ local ok2, err2 = pcall(function()
 	equal(#logged.log, 4, "prompt, agent start and end, denial")
 	local log_view = plain(P.info_lines(logged, 60, { rows = 40 }))
 	has(log_view, "LOG", "the log box")
-	has(log_view, "main    › Fix the cart", "a prompt")
-	has(log_view, "agent   started · Map the cart", "an agent's start")
-	has(log_view, "agent   done · Map the cart", "and end")
-	has(log_view, "gate    ✗ Write /w/a.lua", "a denial")
+	local hm0 = os.date("%H:%M", P.epoch("2026-11-17T10:00:01Z"))
+	has(log_view, hm0 .. " › Fix the cart", "a prompt with its grouped HH:MM timestamp")
+	has(log_view, "      ✦ started · Map the cart", "an agent's start, blanking repeated HH:MM")
+	has(log_view, "      ✦ done · Map the cart", "and end")
+	has(log_view, "      ✗ Write /w/a.lua", "a denial")
 	local short = plain(P.info_lines(logged, 60, { rows = 1 }))
 	hasnt(short, "Fix the cart", "only the latest when there's no room")
 	has(short, "✗ Write", "at least 3 events")
+
+	-- Compact log formatting: path shortening, ×N grouping, prompt preservation, categories.
+	local compact = P.new_state()
+	local t0 = P.epoch("2026-11-17T10:00:00Z")
+	local t1 = P.epoch("2026-11-17T10:01:00Z")
+	compact.log = {
+		{ at = t0, who = "main", text = "› retry" },
+		{ at = t0 + 1, who = "main", text = "› retry" },
+		{ at = t0 + 2, who = "main", text = "edit → /very/deep/path/src/panel.lua" },
+		{ at = t0 + 3, who = "main", text = "edit → /very/deep/path/src/panel.lua" },
+		{ at = t0 + 4, who = "main", text = "edit → /very/deep/path/src/panel.lua" },
+		{ at = t0 + 5, who = "main", text = "write → /tmp/out/new.lua" },
+		{ at = t0 + 6, who = "main", text = "delete → /tmp/out/old.lua" },
+		{ at = t0 + 7, who = "main", text = "workflow → build" },
+		{ at = t1, who = "advisor", text = "consulted" },
+		{ at = t1 + 1, who = "main", text = "Compacted context" },
+	}
+	local compact_raw = P.info_lines(compact, 60, { rows = 40 })
+	local compact_plain = plain(compact_raw)
+	local hm1 = os.date("%H:%M", t1)
+	local _, retry_count = compact_plain:gsub("› retry", "")
+	equal(retry_count, 2, "consecutive identical prompts are not collapsed")
+	has(compact_plain, "✎ src/panel.lua ×3", "consecutive identical edits collapse with compact parent/file")
+	hasnt(compact_plain, "/very/deep/path", "long directory prefixes dropped")
+	has(compact_plain, "+ out/new.lua", "write icon and compact path")
+	has(compact_plain, "- out/old.lua", "delete icon and compact path")
+	has(compact_plain, "▸ build", "workflow icon")
+	has(compact_plain, hm1 .. " ◆ consulted", "new minute prints its HH:MM and advisor icon")
+	has(compact_plain, "      ⟲ Compacted context", "lifecycle icon in the same minute")
+	local compact_ansi = table.concat(compact_raw, "\n")
+	has(compact_ansi, "\27[38;5;221m✎", "edit category in gold")
+	has(compact_ansi, "\27[38;5;114m+", "write category in mint")
+	has(compact_ansi, "\27[38;5;80m▸", "workflow category in teal")
+	has(compact_ansi, "\27[38;5;141m◆", "advisor category in purple")
 
 	-- The advisor's consults.
 	local advised = P.new_state()
