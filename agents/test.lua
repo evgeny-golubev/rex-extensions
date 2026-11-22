@@ -296,6 +296,99 @@ local ok, err = pcall(function()
 	equal(as.model_label .. " · " .. as.effort, "Gemini 4 Neon (High) · high", "the model and effort from the status line")
 	equal(as.status.window .. " " .. #as.status.limits, "1048576 2", "and the window and quota")
 	U.home = real_home
+
+	-- Pi: the --session file, else the folder's newest transcript since pi
+	-- started; subagents are the run transcripts beside it.
+	local pi, opencode = A.pi, A.opencode
+	equal(A.of({ argv0 = "/usr/local/bin/pi" }), pi, "pi by path")
+	equal(A.of({ argv0 = "pip" }), nil, "only pi itself")
+	equal(pi.session_dir("/Users/me/my.app"), pi.home() .. "/sessions/--Users-me-my.app--", "a folder's session directory")
+	U.home = tmp
+	local sessions = pi.home() .. "/sessions/--src-pi--"
+	put(sessions .. "/2026-01-01T00-00-00-000Z_old.jsonl", '{"type":"session","id":"old","cwd":"/src/pi"}\n')
+	local main = sessions .. "/2026-01-02T00-00-00-000Z_new.jsonl"
+	put(main, '{"type":"session","id":"new","cwd":"/src/pi"}\n{"type":"model_change","modelId":"m-1"}\n{"type":"thinking_level_change","thinkingLevel":"high"}\n'
+		.. '{"type":"message","message":{"role":"assistant","model":"m-2","content":[],"stopReason":"stop"}}\n')
+	real_exec({ "touch", "-t", "202601010000", sessions .. "/2026-01-01T00-00-00-000Z_old.jsonl" })
+	local ps = pi.session({ pid = 61, cwd = "/src/pi" })
+	equal(ps.id, "new", "the newest transcript")
+	equal(ps.model .. " " .. ps.effort, "m-2 high", "its model and thinking level")
+	real_exec({ "touch", "-t", "202601020000", main })
+	etime_of[62] = "00:05"
+	equal(pi.session({ pid = 62, cwd = "/src/pi" }), nil, "none saved since this pi started")
+	put(pi.home() .. "/state/rex/63.json", rex.json.encode({ sessionFile = sessions .. "/2026-01-01T00-00-00-000Z_old.jsonl",
+		model = { id = "m-9", name = "Model Nine", contextWindow = 200000 }, thinkingLevel = "low", working = true }))
+	local recorded = pi.session({ pid = 63, cwd = "/src/pi" })
+	equal(recorded.id, "old", "the session the extension recorded wins")
+	equal(recorded.model_label .. " " .. recorded.effort .. " " .. recorded.status.window .. " " .. tostring(recorded.working),
+		"Model Nine low 200000 true", "with its model, thinking level, window and work")
+	local runs = main:gsub("%.jsonl$", "") .. "/ab12/"
+	put(runs .. "run-0/t_a.jsonl", '{"type":"message","message":{"role":"user","content":[{"type":"text","text":"Task: [Read from: /x]\\n\\nMap the code"}]}}\n'
+		.. '{"type":"message","message":{"role":"assistant","content":[],"stopReason":"stop"}}\n')
+	put(runs .. "run-1/t_b.jsonl", '{"type":"message","message":{"role":"assistant","content":[],"stopReason":"toolUse"}}\n')
+	local subs = pi.subagents(ps, os.time())
+	equal(#subs, 2, "both runs")
+	local by = {}
+	for _, sub in ipairs(subs) do
+		by[sub.id] = sub
+	end
+	equal(by["ab12-0"].finished, true, "a run that answered has finished")
+	equal(by["ab12-0"].description, "Map the code", "described by its task")
+	equal(by["ab12-1"].running, true, "a run still calling tools runs")
+
+	-- OpenCode: the folder's newest session, copied to a JSONL file.
+	equal(A.of({ argv0 = "/x/node_modules/.bin/.opencode" }), opencode, "opencode's npm binary")
+	equal(opencode.session_arg("opencode -s ses_abc12"), "ses_abc12", "the -s session")
+	equal(opencode.session_arg("opencode --session=ses_x9"), "ses_x9", "the --session session")
+	local messages = {
+		{ id = "msg_1", type = "user", seq = 1, data = '{"text":"hi","time":{"created":1}}' },
+		{ id = "msg_2", type = "assistant", seq = 2, data = '{"model":{"id":"big","providerID":"zen"},"time":{"created":2,"completed":3}}' },
+		{ id = "msg_3", type = "assistant", seq = 3, data = '{"model":{"id":"big","providerID":"zen"},"time":{"created":4}}' },
+	}
+	rows_for = function(q)
+		if q:find("FROM kv", 1, true) then
+			return q:find('"zen".models."big"', 1, true) and { { context = 200000 } } or {}
+		elseif q:find("FROM session_v2 WHERE directory", 1, true) then
+			return { { id = "ses_1", directory = "/src/oc", title = "Hello", model = '{"id":"big","providerID":"zen","variant":"high"}', time_updated = os.time() * 1000, time_busy = 5, time_idle = 9 } }
+		elseif q:find("FROM session_message", 1, true) then
+			local seq = tonumber(q:match("seq > (%d+)"))
+			local out = {}
+			for _, m in ipairs(messages) do
+				if m.seq > seq then
+					out[#out + 1] = m
+				end
+			end
+			return out
+		elseif q:find("FROM session_part", 1, true) then
+			return { { message_id = "msg_2", type = "text", data = '{"text":"hello there"}' },
+				{ message_id = "msg_3", type = "tool", data = '{"id":"q1","name":"question","state":{"status":"running","input":{"questions":[{"question":"Colour?"}]}}}' } }
+		elseif q:find("parent_id = ", 1, true) then
+			return { { id = "ses_c", title = "Explore", agent = "explore", time_created = 1000, time_busy = 2, time_idle = 1 } }
+		end
+		return {}
+	end
+	local os_ = opencode.session({ pid = 71, cwd = "/src/oc" })
+	equal(os_.id, "ses_1", "the folder's session")
+	equal(os_.model .. " " .. os_.effort .. " " .. os_.status.window, "big high 200000", "model, variant and context window")
+	equal(os_.working, false, "idle after its last busy spell")
+	local copy = io.open(os_.transcript):read("*a")
+	local lines = {}
+	for line in copy:gmatch("[^\n]+") do
+		lines[#lines + 1] = rex.json.decode(line)
+	end
+	equal(#lines, 4, "the folder, two final messages and the waiting question")
+	equal(lines[1].type .. " " .. lines[1].data.directory, "session /src/oc", "the session's folder first")
+	equal(lines[3].parts[1].type .. " " .. lines[3].parts[1].text, "text hello there", "a part with its type")
+	equal(lines[4].type .. " " .. lines[4].id, "question q1", "the question it waits on")
+	opencode.sync("ses_1", "/src/oc")
+	equal(select(2, io.open(os_.transcript):read("*a"):gsub("\n", "")), 4, "nothing copied twice")
+	messages[3].data = '{"model":{"id":"big"},"time":{"created":4,"completed":6}}'
+	opencode.sync("ses_1", "/src/oc")
+	equal(select(2, io.open(os_.transcript):read("*a"):gsub("\n", "")), 5, "the message once final")
+	local kids = opencode.subagents(os_)
+	equal(#kids .. " " .. kids[1].type .. " " .. tostring(kids[1].running), "1 explore true", "a child session still busy")
+	rows_for = nil
+	U.home = real_home
 end)
 U.exec, U.home = real_exec, real_home
 real_exec({ "rm", "-rf", tmp })

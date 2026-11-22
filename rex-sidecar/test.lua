@@ -1376,6 +1376,89 @@ do
 	local turns = P.parsers.agy.turns(raw, 5)
 	equal(#turns .. " " .. turns[1], "1 Done.", "agy turns")
 end
+-- Pi: a Pi session transcript read through its parser.
+do
+	local function msg(m, at)
+		return { type = "message", timestamp = at or "2026-11-22T16:40:15Z", message = m }
+	end
+	local diff = "    ...\n  9 keep\n-10 old line\n+10 new line\n 11 after\n    ...\n 40 x\n+41 added\n    ..."
+	local lines = {
+		{ type = "session", cwd = "/src/pi", timestamp = "2026-11-22T16:40:00Z" },
+		{ type = "thinking_level_change", thinkingLevel = "high" },
+		msg({ role = "user", content = { { type = "text", text = "Tidy the code" } } }),
+		msg({ role = "assistant", model = "claude-x", usage = { input = 10, cacheRead = 1000, cacheWrite = 90 }, stopReason = "toolUse", content = {
+			{ type = "toolCall", id = "c1", name = "bash", arguments = { command = "npm test" } },
+			{ type = "toolCall", id = "c2", name = "edit", arguments = { path = "a.ts", oldText = "old line", newText = "new line" } },
+			{ type = "toolCall", id = "c3", name = "write", arguments = { path = "/src/pi/b.md", content = "one\ntwo\n" } },
+			{ type = "toolCall", id = "c4", name = "bash", arguments = { command = "make lint" } },
+		} }),
+		msg({ role = "toolResult", toolCallId = "c1", toolName = "bash", isError = false, content = { { type = "text", text = "3 passed" } } }),
+		msg({ role = "toolResult", toolCallId = "c2", toolName = "edit", isError = false, details = { diff = diff } }),
+		msg({ role = "toolResult", toolCallId = "c3", toolName = "write", isError = false }),
+		msg({ role = "toolResult", toolCallId = "c4", toolName = "bash", isError = true, content = { { type = "text", text = "lint failed" } } }),
+		msg({ role = "assistant", model = "claude-x", stopReason = "toolUse", content = {
+			{ type = "toolCall", id = "c5", name = "ask_user", arguments = { question = "Keep the old API?" } } } }, "2026-11-22T16:41:15Z"),
+	}
+	local px = P.new_state("pi")
+	for _, r in ipairs(lines) do
+		P.record(px, r)
+	end
+	equal(px.prompts[1].text, "Tidy the code", "pi prompt")
+	equal(px.model .. " " .. px.effort .. " " .. px.context, "claude-x high 1100", "pi model, thinking level and context")
+	equal(px.requests, 2, "pi requests")
+	equal(px.failures[1].command, "make lint", "a failed pi command")
+	local a = px.turn.files["/src/pi/a.ts"]
+	equal(#a.hunks .. " " .. a.added .. " " .. a.removed, "2 2 1", "pi's diff as hunks")
+	equal(a.hunks[1].oldStart .. " " .. a.hunks[1].newStart .. " " .. a.hunks[2].newStart, "9 9 40", "pi's line numbers")
+	equal(px.turn.files["/src/pi/b.md"].created, true, "a written file")
+	has(plain(P.info_lines(px, 60, { now = os.time() })), "Keep the old API?", "pi's question waits in Open")
+	P.record(px, msg({ role = "user", content = { { type = "text", text = '<skill name="review" location="/x">body</skill>' } } }))
+	equal(next(px.waiting), nil, "an answer ends the question")
+	equal(px.prompts[#px.prompts].text, "/skill:review", "a skill by its name")
+	P.record(px, msg({ role = "assistant", model = "claude-x", stopReason = "stop", content = { { type = "text", text = "Done." } } }))
+	equal(px.last_text.text, "Done.", "pi reply")
+	local raw = {}
+	for _, r in ipairs(lines) do
+		raw[#raw + 1] = rex.json.encode(r)
+	end
+	raw[#raw + 1] = rex.json.encode(msg({ role = "user", content = { { type = "text", text = "more" } } }))
+	raw[#raw + 1] = rex.json.encode(msg({ role = "assistant", content = { { type = "text", text = "Done." } } }))
+	local turns = P.parsers.pi.turns(raw, 5)
+	equal(turns[1], "Done.", "pi turns")
+end
+-- OpenCode: the copy agents/opencode.lua writes, read through its parser.
+do
+	local patch = "--- a/a.go\n+++ b/a.go\n@@ -3,2 +3,2 @@\n keep\n-old\n+new\n"
+	local lines = {
+		{ type = "user", seq = 1, data = { text = "Fix it", time = { created = 1763829615000 } }, parts = {} },
+		{ type = "assistant", seq = 2, data = { model = { id = "big", variant = "high" }, tokens = { input = 50, cache = { read = 950, write = 0 } },
+			time = { created = 1763829616000, completed = 1763829620000 } }, parts = {
+			{ type = "tool", id = "t1", name = "shell", state = { status = "completed", input = { command = "go test ./..." }, metadata = { exit = 0 } } },
+			{ type = "tool", id = "t2", name = "shell", state = { status = "completed", input = { command = "go vet" }, metadata = { exit = 1 } } },
+			{ type = "tool", id = "t3", name = "edit", state = { status = "completed", input = { path = "/src/oc/a.go" },
+				metadata = { files = { { file = "/src/oc/a.go", patch = patch, status = "modified" } } } } },
+			{ type = "tool", id = "t4", name = "write", state = { status = "completed", input = { path = "/src/oc/n.md", content = "x\ny\n" } } },
+		} },
+		{ type = "question", seq = 2, id = "q1", data = { id = "q1", name = "question", state = { status = "running", input = { questions = { { question = "Colour?" } } } } } },
+	}
+	local ox = P.new_state("opencode")
+	for _, r in ipairs(lines) do
+		P.record(ox, r)
+	end
+	equal(ox.prompts[1].text, "Fix it", "opencode prompt")
+	equal(ox.model .. " " .. ox.effort .. " " .. ox.context, "big high 1000", "opencode model, variant and context")
+	equal(ox.failures[1].command, "go vet", "a failed opencode command")
+	local f = ox.turn.files["/src/oc/a.go"]
+	equal(f.added .. " " .. f.removed, "1 1", "opencode's patch as hunks")
+	equal(ox.turn.files["/src/oc/n.md"].created, true, "a written file")
+	has(plain(P.info_lines(ox, 60, { now = os.time() })), "Colour?", "opencode's question waits in Open")
+	P.record(ox, { type = "user", seq = 3, data = { text = "blue" }, parts = {} })
+	equal(next(ox.waiting), nil, "an answer ends the question")
+	P.record(ox, { type = "assistant", seq = 4, data = { model = { id = "big" }, time = { created = 1, completed = 2 } },
+		parts = { { type = "text", text = "Blue it is." } } })
+	equal(ox.last_text.text, "Blue it is.", "opencode reply")
+	equal(P.parsers.opencode.turns({ rex.json.encode(lines[1]), rex.json.encode({ type = "assistant", parts = { { type = "text", text = "Ok" } } }) }, 3)[1], "Ok", "opencode turns")
+end
 -- The Tasks tab, on made-up tasks, with its state file beside the throwaway
 -- settings.json. No provider runs: the writes stay queued.
 do
