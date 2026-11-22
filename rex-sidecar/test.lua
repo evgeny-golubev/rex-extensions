@@ -1821,22 +1821,51 @@ do
 		equal(ok, false, name .. " fails")
 		has(tostring(err), part, name .. " error")
 	end
+	-- Only a shown tab's provider is asked; the tab settings are made up here
+	-- and put back after.
+	local settings_file = panel_base .. "settings.json"
+	local f = io.open(settings_file, "rb")
+	local settings_before = f and f:read("*a")
+	if f then
+		f:close()
+	end
+	local function show_tabs(...)
+		local order = { ... }
+		local out = assert(io.open(settings_file, "wb"))
+		out:write(rex.json.encode({ tabs = { order = #order > 0 and order or { "Changes" }, hidden = {} } }))
+		out:close()
+	end
+	local apple_file = panel_base .. "reminders_state.json"
+	local function apple_state()
+		local af = io.open(apple_file, "rb")
+		local value = af and rex.json.decode(af:read("*a")) or {}
+		if af then
+			af:close()
+		end
+		return value
+	end
 	local listed = rex.json.encode({ { id = "L", title = "To Do", tasks = { { id = "t1", title = "A. Water the plants", due = "" } } } })
+	local apple_listed = rex.json.encode({
+		{ id = "R1", title = "Home", tasks = { { id = "r1", title = "Fix the tap", priority = "B", due = "" } } },
+		{ id = "R2", title = "Hidden", tasks = { { id = "r2", title = "Secret", due = "" } } },
+	})
 	write_state({})
-	fails("tasks_list", {}, "No task source chosen")
-	write_state({ provider = "google" })
+	show_tabs()
+	fails("tasks_list", {}, "No task tab is shown")
+	show_tabs("Google Tasks")
 	answers[1] = { ok = false, code = 3, stdout = "" }
-	fails("tasks_list", {}, "Sign-in needed")
+	fails("tasks_list", {}, "Sign-in needed: press L in the Google Tasks tab")
 	equal(calls[#calls][1], dir .. "providers/google-tasks", "the provider beside the extension")
 	answers[1] = { ok = false, code = 4, stdout = '{"error":"setup_required"}\n', stderr = "Google Tasks is not set up yet: no OAuth client is stored.\n" }
-	fails("tasks_list", {}, "The task source is not set up: Google Tasks is not set up yet")
+	fails("tasks_list", {}, "Google Tasks is not set up: Google Tasks is not set up yet")
 	fails("tasks_add", { title = "A. Water the plants" }, "due date is required")
 	fails("tasks_add", { title = "Water the plants", due = "today" }, "must start with a rating")
 	fails("tasks_add", { title = "A. Water the plants", due = "soon" }, "today, tomorrow or YYYY-MM-DD")
+	fails("tasks_add", { title = "A. Water the plants", due = "today", provider = "outlook" }, "google or apple")
 	answers[1] = { ok = true, code = 0, stdout = listed }
 	answers[2] = { ok = true, code = 0, stdout = '{"id":"t2"}' }
 	local added = actions.tasks_add.run({}, { title = "B. Mend the fence (2h)", due = "2026-12-01" })
-	equal(added.id .. " " .. added.list, "t2 L", "tasks_add returns the new task")
+	equal(added.id .. " " .. added.list .. " " .. added.provider, "t2 L google", "tasks_add returns the new task")
 	equal(table.concat(calls[#calls], " ", 2), "add L --due 2026-12-01 B. Mend the fence (2h)", "tasks_add arguments")
 	local saved = rex.json.decode(assert(io.open(state_file, "rb")):read("*a"))
 	equal(type(saved.changed_at), "number", "tasks_add records the change for the tab")
@@ -1846,6 +1875,40 @@ do
 	equal(actions.tasks_report_done.run({}, { id = "t1", note = "watered" }).title, "A. Water the plants", "the report names the task")
 	saved = rex.json.decode(assert(io.open(state_file, "rb")):read("*a"))
 	equal(saved.proposals.t1.note, "watered", "the report waits in the state file")
+
+	-- Both tabs shown: both providers are listed, without a hidden Reminders
+	-- list, and each task carries its rating.
+	show_tabs("Google Tasks", "Reminders")
+	local af = assert(io.open(apple_file, "wb"))
+	af:write(rex.json.encode({ hidden_lists = { R2 = true }, default_list = "R1" }))
+	af:close()
+	answers[1] = { ok = true, code = 0, stdout = listed }
+	answers[2] = { ok = true, code = 0, stdout = apple_listed }
+	local all = actions.tasks_list.run({}, {})
+	equal(#all, 2, "a list from each provider, the hidden one left out")
+	equal(all[1].provider .. " " .. all[2].provider, "google apple", "each list names its provider")
+	equal(all[1].tasks[1].rating .. all[2].tasks[1].rating, "AB", "the rating from the title or the priority")
+	equal(calls[#calls][1], dir .. "providers/apple-reminders", "Reminders asked too")
+
+	-- With only Reminders shown, a task goes to its default list, its rating
+	-- to the priority field.
+	show_tabs("Reminders")
+	answers[1] = { ok = true, code = 0, stdout = '{"id":"r3"}' }
+	added = actions.tasks_add.run({}, { title = "A. Call the plumber (15m)", due = "2026-12-02" })
+	equal(added.provider .. " " .. added.list, "apple R1", "the Reminders default list")
+	equal(table.concat(calls[#calls], " ", 2), "add R1 --due 2026-12-02 --priority A Call the plumber (15m)", "the rating as a priority")
+	fails("tasks_add", { title = "Step", due = "today", parent = "r1" }, "Reminders has no steps")
+	answers[1] = { ok = true, code = 0, stdout = apple_listed }
+	equal(actions.tasks_report_done.run({}, { id = "r1", note = "fixed" }).provider, "apple", "the report finds the Reminders task")
+	equal(apple_state().proposals.r1.note, "fixed", "and waits in the Reminders state file")
+	os.remove(apple_file)
+	if settings_before then
+		local out = assert(io.open(settings_file, "wb"))
+		out:write(settings_before)
+		out:close()
+	else
+		os.remove(settings_file)
+	end
 	rex = real
 	P.spawn, P.run = spawn, run
 end

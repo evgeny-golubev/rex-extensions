@@ -1,11 +1,12 @@
 ---
-name: sidecar-tasks-setup
-description: Sets up the Tasks tab of the Rex sidecar pane, step by step, with Google Tasks or Apple Reminders. Use it when the user asks to set up, connect or fix the sidecar Tasks tab, Google Tasks or Apple Reminders for the sidecar, or when the tab or a task action says "not set up", "Sign-in needed", "access denied" or "Sign-in failed".
+name: rex-sidecar-tasks-setup
+description: Sets up the task tabs of the Rex sidecar pane, step by step, with Google Tasks or Apple Reminders. Use it when the user asks to set up, connect or fix the sidecar Tasks, Google Tasks or Reminders tab, Google Tasks or Apple Reminders for the sidecar, or when the tab or a task action says "not set up", "Sign-in needed", "access denied" or "Sign-in failed".
 ---
 
-# Sidecar Tasks setup
+# Rex sidecar tasks setup
 
-Guide the user through setting up the Tasks tab of the Rex sidecar pane. Check
+The Rex sidecar pane has two task tabs: **Google Tasks** and **Reminders**
+(Apple Reminders). Guide the user through setting up the one they want. Check
 what is already done yourself, then give the user one step at a time. After
 each step the user takes in the browser or in the tab, stop and wait for them
 to say it is done. Keep each message short: what to open, what to type or
@@ -16,7 +17,8 @@ Never print or ask for secrets:
 - Never ask the user to paste a client ID, client secret, token or the
   contents of a JSON file into the chat.
 - Never run `security` with `-w` or `-g`, and never `cat` or read the
-  downloaded `client_secret_*.json` file or `tasks_state.json`.
+  downloaded `client_secret_*.json` file or the state files
+  (`tasks_state.json`, `reminders_state.json`).
 - Send task output to `/dev/null` or count it; do not show the user's tasks
   unless they ask.
 
@@ -29,15 +31,16 @@ EXT=~/.config/rex/extensions/rex-sidecar
 test -x "$EXT/providers/google-tasks" && echo "extension: present" || echo "extension: missing"
 echo "task actions: $(rex actions 2>/dev/null | grep -c '^tasks_')"
 order=$(plutil -extract tabs.order json -o - "$EXT/settings.json" 2>/dev/null)
-hidden=$(plutil -extract tabs.hidden.Tasks raw -o - "$EXT/settings.json" 2>/dev/null)
-case "$order" in *'"Tasks"'*) [ "$hidden" = true ] && echo "tab: hidden" || echo "tab: shown" ;; *) echo "tab: hidden" ;; esac
-echo "provider: $(plutil -extract provider raw -o - "$EXT/tasks_state.json" 2>/dev/null || echo none)"
+for tab in "Google Tasks" Reminders; do
+  hidden=$(plutil -extract "tabs.hidden.$tab" raw -o - "$EXT/settings.json" 2>/dev/null)
+  case "$order" in *"\"$tab\""*) [ "$hidden" = true ] && echo "$tab tab: hidden" || echo "$tab tab: shown" ;; *) echo "$tab tab: hidden" ;; esac
+done
 security find-generic-password -s google-tasks-client -a client >/dev/null 2>&1 && echo "google client: stored" || echo "google client: missing"
 security find-generic-password -s google-tasks-client -a refresh_token >/dev/null 2>&1 && echo "google sign-in: stored" || echo "google sign-in: missing"
 ```
 
-Then, for the provider in use, or for Google when the client is stored, run
-the provider and keep only its exit code and its first error line:
+Then, for each shown tab, or for Google when the client is stored, run its
+provider and keep only its exit code and its first error line:
 
 ```sh
 EXT=~/.config/rex/extensions/rex-sidecar
@@ -45,24 +48,23 @@ EXT=~/.config/rex/extensions/rex-sidecar
 head -1 "$TMPDIR/sidecar-tasks-check.txt"; rm -f "$TMPDIR/sidecar-tasks-check.txt"
 ```
 
-For Apple Reminders, run `"$EXT/providers/apple-reminders" tasks` the same way.
+For the Reminders tab, run `"$EXT/providers/apple-reminders" tasks` the same way.
 
 Read the results:
 
 | Result | Meaning | Go to |
 | --- | --- | --- |
 | extension missing, or task actions not 3 | rex-sidecar is not installed or not loaded | 2 |
-| tab hidden | The Tasks tab is not shown yet | 3 |
-| provider none | No task source chosen | 4 |
+| both tabs hidden | No task tab chosen yet | 3 |
 | exit code 0 | Set up and working | 7 |
 | exit code 4, or google client missing | Google Tasks is not set up | 5 |
 | exit code 3, google client stored | Google sign-in is missing or ended | 6 |
-| exit code 3 with Apple Reminders | macOS access to Reminders not granted | 4 |
+| exit code 3 with Reminders | macOS access to Reminders not granted | 4 |
 | exit code 1 | Read the error line; see "If something goes wrong" | 8 |
 
 Tell the user in one or two lines what is already done and what is left.
-When everything works, say that the Tasks tab is already set up, name the
-source, and stop. Do not change anything.
+When everything works, say that the tab is already set up, name it, and
+stop. Do not change anything.
 
 ## 2. Install rex-sidecar
 
@@ -73,33 +75,32 @@ Tell the user the steps in the Install section of
 `rex config reload` once the line is there. Check again with
 `rex actions | grep -c '^tasks_'`, which prints 3.
 
-## 3. Show the Tasks tab
-
-The tab is hidden until shown. Ask the user, in a sidecar pane:
-
-1. Press `,` to open the tab settings.
-2. Select **Tasks** and press `Space`.
-3. Press `Esc`.
-
-The Tasks tab now shows in the tab bar. Wait for the user.
-
-## 4. Choose the source
+## 3. Choose and show a tab
 
 Ask which source the user wants:
 
-- **Apple Reminders**: no setup. Best when the user already keeps tasks in
-  Reminders, or wants to start in a minute. It has no steps (subtasks).
-- **Google Tasks**: about 10 minutes of setup in Google Cloud, once. It keeps
+- **Reminders** (Apple Reminders): no setup. Best when the user already keeps
+  tasks in Reminders, or wants to start in a minute. The rating is the
+  reminder's Priority; there are no steps (subtasks).
+- **Google Tasks**: about 10 minutes of setup in Google Cloud, once. It has
   steps, and syncs with Google's apps.
 
-Then ask the user to open the Tasks tab and press `g` for Google Tasks or `r`
-for Apple Reminders. `W` changes the choice later.
+Both can be shown at once. Each tab is hidden until shown. Ask the user, in a
+sidecar pane:
 
-For Apple Reminders: macOS asks once for access to Reminders; the user allows
-it. If the tab shows "Access to Reminders needed", the user presses `L`, or
-allows it in System Settings, Privacy and Security, Reminders. Then go to 7.
+1. Press `,` to open the tab settings.
+2. Select **Reminders** or **Google Tasks** and press `Space`.
+3. Press `Esc`.
 
-For Google Tasks, go to 5, or to 6 when the client is already stored.
+The tab now shows in the tab bar. Wait for the user. For Reminders, go to 4;
+for Google Tasks, go to 5, or to 6 when the client is already stored.
+
+## 4. Allow access to Reminders
+
+macOS asks once for access to Reminders; the user allows it. If the tab shows
+"Access to Reminders needed", the user presses `L`, or allows it in System
+Settings, Privacy and Security, Reminders. In the tab, `l` chooses which
+lists show and the list new tasks go to. Then go to 7.
 
 ## 5. Set up Google Tasks
 
@@ -178,7 +179,7 @@ timeout of 330000 ms:
 ```
 
 It prints `signed in` on success. On failure, see "If something goes wrong".
-The user can also press `L` in the Tasks tab, which runs the same sign-in.
+The user can also press `L` in the Google Tasks tab, which runs the same sign-in.
 
 ## 7. Verify
 
@@ -195,7 +196,7 @@ rm -f "$f" "$f.err"
 ```
 
 Tell the user it works, with the counts, and that the tab shows the tasks at
-its next fetch, or at once after pressing `r` in the Tasks tab. With Google
+its next fetch, or at once after pressing `r` in it. With Google
 in Testing, mention once that Google ends the sign-in every 7 days; the tab
 then shows "Sign-in needed" and `L` signs in again.
 
@@ -214,8 +215,8 @@ then shows "Sign-in needed" and `L` signs in again.
 | "HTTP 403" with "has not been used in project" or "is disabled" | The Tasks API is not enabled in the client's project | Step 5.2, with that project selected; wait a minute, then check again |
 | "Access to Reminders needed" | macOS access not granted | Press `L` in the tab, or allow it in System Settings, Privacy and Security, Reminders |
 
-If Google Tasks keeps failing, offer Apple Reminders: `W`, then `r` in the
-Tasks tab, with no setup.
+If Google Tasks keeps failing, offer the Reminders tab, which needs no setup
+(step 3).
 
 Delete the Keychain entries only when the user agrees, and only the one the
-fix names. Never delete `tasks_state.json`.
+fix names. Never delete the state files.
