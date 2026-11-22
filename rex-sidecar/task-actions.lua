@@ -97,6 +97,28 @@ local function date_of(text)
 	error("A due date is today, tomorrow or YYYY-MM-DD, not " .. text, 0)
 end
 
+--- The lists of each provider in `names` that answers, each with its
+--- provider. A failing provider is skipped while another answers, so an
+--- ended Google sign-in doesn't hide the Reminders tasks; with none
+--- answering, the first error is raised.
+local function all_lists(names)
+	local out, first_error = {}, nil
+	for _, name in ipairs(names) do
+		local ok, lists = pcall(lists_of, name)
+		if ok then
+			for _, list in ipairs(lists) do
+				out[#out + 1] = { name = name, list = list }
+			end
+		else
+			first_error = first_error or lists
+		end
+	end
+	if #out == 0 and first_error then
+		error(first_error, 0)
+	end
+	return out
+end
+
 rex.action({
 	name = "tasks_list",
 	title = "Tasks: List Open Tasks",
@@ -105,17 +127,15 @@ rex.action({
 	args = { provider = "string?" },
 	run = function(_, args)
 		local out = {}
-		for _, name in ipairs(sources(args and args.provider)) do
-			for _, list in ipairs(lists_of(name)) do
-				local tasks = {}
-				for _, t in ipairs(list.tasks or {}) do
-					if t.status ~= "completed" then
-						tasks[#tasks + 1] = { id = t.id, title = t.title, due = t.due, parent = t.parent,
-							rating = t.priority or (t.title or ""):match("^([ABC])%. ") }
-					end
+		for _, found in ipairs(all_lists(sources(args and args.provider))) do
+			local list, tasks = found.list, {}
+			for _, t in ipairs(list.tasks or {}) do
+				if t.status ~= "completed" then
+					tasks[#tasks + 1] = { id = t.id, title = t.title, due = t.due, parent = t.parent,
+						rating = t.priority or (t.title or ""):match("^([ABC])%. ") }
 				end
-				out[#out + 1] = { provider = name, id = list.id, title = list.title, tasks = tasks }
 			end
+			out[#out + 1] = { provider = found.name, id = list.id, title = list.title, tasks = tasks }
 		end
 		return out
 	end,
@@ -138,10 +158,8 @@ rex.action({
 		local candidates = sources(args.provider)
 		local name, list = nil, args.list
 		if list and #candidates > 1 then
-			for _, n in ipairs(candidates) do
-				for _, l in ipairs(lists_of(n)) do
-					name = name or (l.id == list and n) or nil
-				end
+			for _, found in ipairs(all_lists(candidates)) do
+				name = name or (found.list.id == list and found.name) or nil
 			end
 		end
 		name = name or (#candidates == 1 and candidates[1]) or "google"
@@ -182,12 +200,10 @@ rex.action({
 	args = { id = "string", note = "string?", provider = "string?" },
 	run = function(_, args)
 		local task, name
-		for _, n in ipairs(sources(args.provider)) do
-			for _, list in ipairs(task and {} or lists_of(n)) do
-				for _, t in ipairs(list.tasks or {}) do
-					if t.id == args.id and t.status ~= "completed" then
-						task, name = t, n
-					end
+		for _, found in ipairs(all_lists(sources(args.provider))) do
+			for _, t in ipairs(found.list.tasks or {}) do
+				if t.id == args.id and t.status ~= "completed" then
+					task, name = t, found.name
 				end
 			end
 		end

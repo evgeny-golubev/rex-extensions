@@ -603,9 +603,13 @@ local function shown_lists()
 	return out
 end
 
---- The list chosen with l for new tasks, while it exists.
+--- The list chosen with l for new tasks, while it exists and is shown.
 local function default_list()
 	local id = LISTS and saved().default_list
+	local hidden = saved().hidden_lists
+	if type(hidden) == "table" and id and hidden[id] then
+		return nil
+	end
 	for _, list in ipairs(id and state.lists or {}) do
 		if list.id == id then
 			return list
@@ -979,8 +983,12 @@ local function pick(index, how)
 		move_task(p.id, list)
 		state.picker = nil
 	elseif how == "default" then
+		-- A new task must land where it can be seen, so the default is shown.
 		change_state(function(s)
 			s.default_list = list.id
+			if type(s.hidden_lists) == "table" then
+				s.hidden_lists[list.id] = nil
+			end
 		end)
 	else
 		local hidden = type(saved().hidden_lists) == "table" and saved().hidden_lists or {}
@@ -1786,8 +1794,11 @@ local function review_view(v, m)
 			v.add(fit("Due " .. due .. " · " .. it.late .. "d past" .. (it.moves > 0 and (" · moved " .. it.moves .. "×") or ""), n))
 			local steps = m.steps[it.id] or {}
 			local est = lib.remaining(m, it)
-			v.add(c.dim .. fit((#steps > 0 and (#steps .. " open steps") or "No steps") .. " · "
-				.. (est and ("estimate " .. lib.format_minutes(est)) or "no estimate"), n) .. c.reset)
+			local estimate = est and ("estimate " .. lib.format_minutes(est)) or "no estimate"
+			if STEPS then
+				estimate = (#steps > 0 and (#steps .. " open steps") or "No steps") .. " · " .. estimate
+			end
+			v.add(c.dim .. fit(estimate, n) .. c.reset)
 			if lib.too_large(m, it) then
 				v.add(c.orange .. fit(split_reason(it), n) .. c.reset)
 			end

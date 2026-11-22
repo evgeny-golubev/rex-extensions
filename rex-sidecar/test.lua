@@ -1890,6 +1890,15 @@ do
 	equal(all[1].tasks[1].rating .. all[2].tasks[1].rating, "AB", "the rating from the title or the priority")
 	equal(calls[#calls][1], dir .. "providers/apple-reminders", "Reminders asked too")
 
+	-- An ended Google sign-in doesn't hide the Reminders tasks.
+	answers[1] = { ok = false, code = 3, stdout = "" }
+	answers[2] = { ok = true, code = 0, stdout = apple_listed }
+	all = actions.tasks_list.run({}, {})
+	equal(#all .. " " .. all[1].provider, "1 apple", "Reminders listed while Google fails")
+	answers[1] = { ok = false, code = 3, stdout = "" }
+	answers[2] = { ok = false, code = 3, stdout = "" }
+	fails("tasks_list", {}, "Sign-in needed: press L in the Google Tasks tab")
+
 	-- With only Reminders shown, a task goes to its default list, its rating
 	-- to the priority field.
 	show_tabs("Reminders")
@@ -1952,6 +1961,7 @@ do
 			{ id = "a1", title = "Swim", priority = "A", due = "2026-11-21" },
 			{ id = "b1", title = "B. Old prefix", due = "2026-11-21" },
 			{ id = "c1", title = "Plan the trip (1h)", priority = "C", due = "" },
+			{ id = "d1", title = "Renew the passport (3h)", priority = "B", due = "2026-11-10" },
 		} },
 		{ id = "L2", title = "Work", tasks = { { id = "w1", title = "Ship it", priority = "B", due = "2026-11-21" } } },
 	}
@@ -1969,8 +1979,15 @@ do
 	equal(calls[1], "update L1 b1 --title Old prefix --priority A", "A sets High priority")
 	equal(lib.model(state.lists, "2026-11-21", {}).by.b1.rating, "A", "shown at once")
 
-	-- No steps: s does nothing, and no split warnings.
+	-- No steps: s does nothing, and no split warnings, even for a large task
+	-- far past due, nor in the review.
 	equal(tab.key("s"), false, "no steps")
+	hasnt(plain(tab.view(60).lines), "split", "no split warning")
+	tab.key("v")
+	has(plain(tab.view(60).lines), "Renew the passport", "the review shows the late task")
+	hasnt(plain(tab.view(60).lines), "steps", "and says nothing of steps")
+	tab.key("escape")
+	state.view, state.selected = "all", "b1"
 	tab.key("?")
 	hasnt(plain(tab.view(60).lines), "split it into steps", "no steps in the keys")
 	has(plain(tab.view(60).lines), "move it to another list", "m in the keys")
@@ -1990,7 +2007,10 @@ do
 	tab.key("j")
 	tab.key("d")
 	equal(saved_state().default_list, "L2", "Work is the default list")
+	equal(saved_state().hidden_lists.L2, nil, "and shown again, so new tasks can be seen")
 	has(plain(tab.view(60).lines), "Work ★", "the default marked")
+	tab.key(" ")
+	equal(saved_state().hidden_lists.L2, true, "Work hidden again")
 	tab.key("escape")
 	equal(state.picker, nil, "Esc closes the lists")
 	equal(lib.model(state.lists, "2026-11-21", {}).by.w1 ~= nil, true, "the model itself keeps every list")
@@ -2002,7 +2022,7 @@ do
 		tab.key(ch)
 	end
 	tab.key("\r")
-	equal(calls[#calls - 1], "add L2 --priority B Call the bank", "added to the default list, undated in All")
+	equal(calls[#calls - 1], "add L1 --priority B Call the bank", "a hidden default isn't used: the selected task's list, undated in All")
 
 	-- m moves a task: a copy with a new ID, which the state file follows.
 	state.selected = "a1"

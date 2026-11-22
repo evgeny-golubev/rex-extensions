@@ -386,8 +386,9 @@ the next time you rate the task.
 **Choosing lists (`l`).** A picker lists all your Reminders lists.
 
 - `Space` shows or hides a list (✓ or ○). At least one list stays shown.
-- `d` makes a list the default for new tasks, marked ★. Without a default, a
-  new task goes to the selected task's list, or the first shown list.
+- `d` makes a list the default for new tasks, marked ★, and shows it if it
+  was hidden. A hidden default isn't used. Without a default, a new task goes
+  to the selected task's list, or the first shown list.
 - `Esc` closes the picker.
 
 **Moving a task (`m`).** Pick a list and press `Enter`. EventKit can't change
