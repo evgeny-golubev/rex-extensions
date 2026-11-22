@@ -3,8 +3,9 @@
 Tools that make the [Rex](https://www.superlogical.com) terminal a better home
 for coding agents on macOS. They work with
 [Claude Code](https://claude.com/claude-code), and the extensions work with
-[Codex](https://github.com/openai/codex) and the
-Antigravity CLI (`agy`) too.
+[Codex](https://github.com/openai/codex), the
+Antigravity CLI (`agy`), [Pi](https://github.com/badlogic/pi-mono) and
+[OpenCode](https://opencode.ai) too.
 
 - **See what your agent did.** A side pane shows the files it changed, a live
   dashboard of its work, and every link and document it mentioned.
@@ -21,7 +22,7 @@ Antigravity CLI (`agy`) too.
 | --- | --- | --- | --- |
 | Extension | [rex-sidecar](#rex-sidecar) | What the agent changed, a dashboard of its work, what its replies mention, and your tasks | A pane beside the agent |
 | Extension | [rex-crab-pond](#rex-crab-pond) | Agents, subagents and programs as animated crabs | A strip along the tab's bottom |
-| Extension | [rex-resume](#rex-resume) | Claude Code, Codex and agy conversations, and programs like nvim, back after a restart | A background watcher |
+| Extension | [rex-resume](#rex-resume) | Claude Code, Codex, agy, Pi and OpenCode conversations, and programs like nvim, back after a restart | A background watcher |
 | Skill | [rex-view](#rex-view) | Claude shows pictures, Markdown and code in a floating pane | Plugin 0.5.1 |
 | Skill | [rex-sidecar-task-list](#rex-sidecar-task-list) | Claude keeps your task list in step with the work you do together | Plugin 0.2.0 |
 
@@ -39,7 +40,7 @@ details.
 ### rex-sidecar
 
 Answers two questions: what did the agent change, and what's still waiting on
-you? The pane opens on the right of every Claude Code, Codex or agy pane and closes
+you? The pane opens on the right of every Claude Code, Codex, agy, Pi or OpenCode pane and closes
 when the agent exits.
 
 ![rex-sidecar with made-up data. Info: the time and date, the model, context, limits, permission checks, subagents, running shells, open questions and the last turn. Changes: the files changed on a pull request. Artifacts: documents, PRs, Jira issues, links and files from the agent's replies. Reminders: the day's tasks, rated A, B and C.](docs/rex-sidecar.png)
@@ -71,7 +72,8 @@ For Claude Code details, [save its status line input](#install).
 
 Rex brings back your sessions, tabs and splits after a restart, but not the
 programs in them. rex-resume types them back in: `claude --resume` for Claude
-Code, `codex resume` for Codex, `agy --conversation` for agy, and the original
+Code, `codex resume` for Codex, `agy --conversation` for agy, `pi --session`
+for Pi, `opencode --session` for OpenCode, and the original
 command for programs like
 nvim. It has nothing on screen.
 
@@ -157,6 +159,17 @@ Reminders tabs. To set it up, ask Claude "set up the sidecar Tasks tab".
    Use the full path to your home folder in place of `~`. The script needs
    `jq`, and shows the model and how full the context is.
 
+7. For Pi: link the small extension that comes with the repository into Pi's
+   extensions, then restart Pi. It records which session each `pi` writes,
+   with its model, context window and thinking level:
+
+   ```sh
+   ln -s ~/.config/rex/extensions/agents/pi-rex-status.ts ~/.pi/agent/extensions/rex-status.ts
+   ```
+
+   Without it, a Pi pane's session is the folder's newest one since that `pi`
+   started, and the context has no percentage. OpenCode needs no setup.
+
 ### Skills
 
 ```sh
@@ -210,16 +223,17 @@ Claude Code plugins.
 
 ### Agent compatibility
 
-| Feature | Claude Code | Codex | Antigravity CLI (`agy`) |
-| --- | --- | --- | --- |
-| Sidecar: Changes, Info and Artifacts | Yes | Yes, with the limits below | Yes, from its conversation transcript |
-| Crab pond: agent panes | Yes | Yes | Yes |
-| Resume conversations | `claude --resume` | `codex resume` | `agy --conversation` |
-| rex-view and rex-sidecar-task-list plugins | Yes | Not packaged for this agent | Not packaged for this agent |
+| Feature | Claude Code | Codex | Antigravity CLI (`agy`) | Pi | OpenCode |
+| --- | --- | --- | --- | --- | --- |
+| Sidecar: Changes, Info and Artifacts | Yes | Yes, with the limits below | Yes, from its conversation transcript | Yes, from its session file | Yes, from its database |
+| Crab pond: agent panes | Yes | Yes | Yes | Yes, with subagents | Yes, with subagents |
+| Resume conversations | `claude --resume` | `codex resume` | `agy --conversation` | `pi --session` | `opencode --session` |
+| rex-view and rex-sidecar-task-list plugins | Yes | Not packaged for this agent | Not packaged for this agent | Not packaged for this agent | Not packaged for this agent |
 
 The Info fields depend on what each agent records. Codex has no GATE approval
 history or per-pane background process list, and its OPEN box only shows
-questions from the last reply. See the [adapter details and known
+questions from the last reply. Pi and OpenCode have no GATE history either.
+See the [adapter details and known
 limits](agents/README.md) for session discovery and agent-specific behavior.
 
 ### Dependencies by feature
@@ -246,10 +260,10 @@ the named features; you can leave out tools for features you don't need.
 
 | Symptom | What to check |
 | --- | --- |
-| No sidecar or pond appears | Check the `require` lines in `~/.config/rex/init.lua`, run `rex config reload`, and start `claude`, `codex` or `agy` in a pane. If you closed the sidecar, run **Show Sidecar Pane** from the palette. Check that auto-show is enabled if you want it to open automatically. |
+| No sidecar or pond appears | Check the `require` lines in `~/.config/rex/init.lua`, run `rex config reload`, and start `claude`, `codex`, `agy`, `pi` or `opencode` in a pane. If you closed the sidecar, run **Show Sidecar Pane** from the palette. Check that auto-show is enabled if you want it to open automatically. |
 | An update has no effect | Config reload does not replace an already running watcher. Run the watcher restart command under [Update](#update). |
 | Claude context or limits are missing | Check that the status line writes `~/.claude/state/statusline/<session-id>.json` (under `$CLAUDE_CONFIG_DIR` if set), and that `jq` is installed. See the [complete status line setup](rex-crab-pond/README.md#claude-code-status-line). |
-| A Codex or agy pane has no conversation yet | Send the first prompt so the agent creates its conversation. For Codex panes in the same folder with identical thread names, rename one. See [session discovery](agents/README.md). |
+| A Codex, agy, Pi or OpenCode pane has no conversation yet | Send the first prompt so the agent creates its conversation. For Pi, link the [Pi extension](#install) so a session opened with `--session` or `/resume` is found too. For Codex panes in the same folder with identical thread names, rename one. See [session discovery](agents/README.md). |
 | Google Tasks or Reminders is missing | Both tabs are hidden initially. Enable the tab in [Tab settings](rex-sidecar/README.md#tab-settings), then follow the [Google Tasks](rex-sidecar/README.md#google-tasks) or [Reminders](rex-sidecar/README.md#reminders) setup. |
 
 For sidecar errors, inspect the last 50 log lines:
@@ -288,6 +302,9 @@ If you added the bundled agy status line command, remove that `statusLine`
 entry from agy's settings before moving or deleting the clone. For Claude,
 remove only the status line snippet that saves the input if you no longer
 need it. You can also revert `diffSidebarOpen` if you changed it during setup.
+If you linked the Pi extension, remove the link with
+`rm ~/.pi/agent/extensions/rex-status.ts`. OpenCode's copies for the sidecar
+are in `~/.config/rex/state/opencode/` and can be deleted.
 
 ### Skills
 
@@ -302,8 +319,9 @@ your Google Tasks and Apple Reminders remain with their providers.
 ## Privacy
 
 Everything runs on your Mac and reads local files: Claude Code's, Codex's and agy's
-own files and the list of running programs. rex-resume, and rex-sidecar and
-rex-crab-pond for Codex, also read the command lines of programs, and the
+own files, Pi's session files, OpenCode's database (read only) and the list
+of running programs. rex-resume, and rex-sidecar and
+rex-crab-pond for Codex and OpenCode, also read the command lines of programs, and the
 sidecar reads which files an agy process has open, to find its conversation.
 No AI is
 involved.
@@ -316,7 +334,7 @@ talks to Google's Tasks API, and the PR scope and titles ask GitHub through
 
 ```text
 .claude-plugin/marketplace.json   the plugin marketplace
-agents/                           Claude Code, Codex and agy adapters
+agents/                           Claude Code, Codex, agy, Pi and OpenCode adapters
 rex-sidecar/                      extension
 rex-crab-pond/                    extension
 rex-resume/                       extension

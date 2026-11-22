@@ -3,7 +3,7 @@
 **Everything running in your tab, as a pond of pixel crabs.** Glance down and
 you know who's thinking, who's building, and who just caught fire.
 
-- **One crab per thing:** each Claude, Codex or agy, subagent, background job and
+- **One crab per thing:** each Claude, Codex, agy, Pi or OpenCode, subagent, background job and
   program in the tab's other panes.
 - **Read it at a glance:** colour shows the kind of program, the hat shows its
   job, movement shows its state, and a failed command sets it on fire.
@@ -19,7 +19,7 @@ effort details, do the [status line step](#claude-code-status-line).
 
 ![The crab pond along the bottom of a tab, with sample crabs](../docs/rex-crab-pond.png)
 
-**On this page:** [Reading a crab](#reading-a-crab) · [Claude, Codex and agy](#claude-codex-and-agy) ·
+**On this page:** [Reading a crab](#reading-a-crab) · [Claude and other agents](#claude-and-other-agents) ·
 [Subagents](#subagents) · [Programs](#programs-and-background-jobs) ·
 [Install](#install) · [Palette actions](#palette-actions) · [Behavior](#behavior) ·
 [Troubleshooting](#troubleshooting) · [Tests](#tests)
@@ -48,11 +48,11 @@ such as `docker ×2` or `waiting ×3`, and show the longest uptime. Waiting crab
 go last. A taller pane wraps the crabs onto more rows. If they still don't
 fit, a plain grey crab with `+N` counts the rest.
 
-## Claude, Codex and agy
+## Claude and other agents
 
 The first crab is the tab's main agent: the focused agent pane, or the last
-one that was. It shows the session's name, model and uptime. Other Claudes and
-Codexes and agys in the tab get crabs of their own.
+one that was. It shows the session's name, model and uptime. Other agents in
+the tab get crabs of their own.
 
 A Claude's outfit shows its model and effort:
 
@@ -74,6 +74,12 @@ otherwise.
 An agy (Antigravity CLI) crab is Google blue. With agy's status line script
 set up, its outfit shows its effort as a Codex's does; without it, it's a
 robot.
+
+A Pi crab is pink, and its outfit shows its thinking level as a Codex's does.
+Each pi-subagents run gets a light pink crab of its own.
+
+An OpenCode crab is silver-grey, dressed by its model's variant (high, low)
+as a Codex is. Its subagents, OpenCode's child sessions, get lighter crabs.
 
 Agents are found by program name, in any case: `claude`, `Claude` and
 `CLAUDE` all count. The details come from [`../agents/`](../agents/README.md).
@@ -123,7 +129,7 @@ panes, are coloured by what the program does:
 | Yellow | Build or test | Hard hat and wrench | go, cargo, make, npm, bun, node, python, pytest, xcodebuild |
 | Violet | Server | Server rack | docker, kubectl, psql, redis, nginx, terraform |
 | Purple | Remote | Diving mask | ssh, mosh, scp, rsync, tailscale |
-| Teal | Agent CLI | Robot antenna | codex, agy, gemini, aider, opencode, goose |
+| Teal | Agent CLI | Robot antenna | gemini, aider, goose, and codex, agy, pi or opencode when their session isn't found |
 | Green | Anything else | None | |
 | Grey | Shell | Nightcap | zsh, bash, fish |
 
@@ -133,7 +139,8 @@ full list is in `pond.lua` (`program_accents`).
 
 Codex runs its commands under its app-server, not its own process. So a Codex
 has no background shell crabs. agy also has no background job or subagent
-crabs; programs in separate panes still appear. See [adapter limits](../agents/README.md).
+crabs, and Pi and OpenCode have no background job crabs; programs in separate
+panes still appear. See [adapter limits](../agents/README.md).
 
 ## Where the data comes from
 
@@ -153,7 +160,7 @@ Nothing is sent anywhere.
 ## Install
 
 Requires macOS, Rex and the CLI for the agent you use. Claude Code is optional
-for Codex or agy panes. Follow the [repository install guide](../README.md#install),
+for Codex, agy, Pi or OpenCode panes. Follow the [repository install guide](../README.md#install),
 keeping `agents/` beside this folder under `~/.config/rex/extensions/`, and add
 this line to `~/.config/rex/init.lua`:
 
@@ -163,8 +170,9 @@ require("extensions.rex-crab-pond")
 
 Run `rex config reload`. For Claude model and effort details, save its status
 line input as below. For agy model, effort and usage data, configure the
-[bundled agy status line script](../README.md#install). Codex details come from
-its state database and rollout, with no status line setup.
+[bundled agy status line script](../README.md#install). For Pi, link the
+[Pi extension](../README.md#install). Codex and OpenCode details come from
+their databases, with no setup.
 
 To load a changed `watcher.lua`, stop the running watcher first. The crab panes
 reopen with the new `pond.lua`:

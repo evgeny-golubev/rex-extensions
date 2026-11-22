@@ -12,12 +12,12 @@ pane opens by itself.
   titled and one click away. The Search Panel finds the rest.
 - **Google Tasks** and **Reminders**: the day's work from Google Tasks or
   Apple Reminders. The agent can report a task done, and you confirm it.
-- **Works with Claude Code, Codex and agy** (the Antigravity CLI). A `Sidecar: <folder>` pane opens to the
+- **Works with Claude Code, Codex, agy** (the Antigravity CLI), **Pi and OpenCode**. A `Sidecar: <folder>` pane opens to the
   right of every agent pane and closes when the agent exits.
 
 **Once installed:** add `require("extensions.rex-sidecar")` to
-`~/.config/rex/init.lua`, run `rex config reload`, and start `claude`, `codex`
-or `agy` in a tab. [Full install →](#install)
+`~/.config/rex/init.lua`, run `rex config reload`, and start `claude`, `codex`,
+`agy`, `pi` or `opencode` in a tab. [Full install →](#install)
 
 **On this page:** [Changes](#changes) · [Info](#info) · [Artifacts](#artifacts) ·
 [Search Panel](#search-panel) · [Task tabs](#task-tabs) ·
@@ -30,9 +30,9 @@ or `agy` in a tab. [Full install →](#install)
 If you use Claude Code, turn off its own diff panel with
 `"diffSidebarOpen": false` in `~/.claude.json`.
 
-The Changes and Artifacts tabs work with all three agents. Info only shows
-fields the agent records: Codex and agy have no GATE approval history or
-per-pane background process list, and agy has no subagents. See the
+The Changes and Artifacts tabs work with all five agents. Info only shows
+fields the agent records: Codex, agy, Pi and OpenCode have no GATE approval
+history or per-pane background process list, and agy has no subagents. See the
 [agent compatibility table](../README.md#agent-compatibility) and
 [adapter details](../agents/README.md).
 
@@ -81,7 +81,8 @@ now** or **Don't ask again**. The install runs in a float, so you see it. Run
 saved in `settings.json`, per repository.
 
 **Limits.** Last Turn depends on recorded edit tools: Claude's Edit and Write,
-Codex's file-change events, or agy's file-edit calls. A file changed only
+Codex's file-change events, agy's file-edit calls, Pi's edit and write, or
+OpenCode's edit, patch and write. A file changed only
 through a shell command (`sed`, a formatter) may not show there; use
 Uncommitted to see git changes. Outside a git repository, Last Turn is the
 only scope. An agent update that changes its transcript format can empty
@@ -560,6 +561,8 @@ Then run `rex config reload`.
 
 Claude context and limits need the [status line setup](../rex-crab-pond/README.md#claude-code-status-line).
 agy's extra status fields need the [bundled status line command](../README.md#install).
+Pi's exact session, model window and thinking level need the
+[Pi extension](../README.md#install).
 Neither is required to open a pane. See [dependencies by feature](../README.md#dependencies-by-feature)
 for optional diff, Markdown and search tools. The Search Panel uses bundled
 rex-view scripts without requiring the Claude Code plugin to be installed.
@@ -593,8 +596,8 @@ pkill -f 'rex-sidecar/watcher\.lua'; rex config reload
 
 ## Behavior
 
-- Claude is recognised by its program name, `claude`, Codex by `codex` and
-  the Antigravity CLI by `agy`, in any case, in the foreground or as the parent of the foreground command. A
+- Claude is recognised by its program name, `claude`, Codex by `codex`,
+  the Antigravity CLI by `agy`, Pi by `pi` and OpenCode by `opencode`, in any case, in the foreground or as the parent of the foreground command. A
   pane started as `rex split -- claude` is found by a second look a second
   after its shell starts.
 - The pane takes 30% of the width. Focus stays on the agent pane.
@@ -638,6 +641,15 @@ For agy, the session is the conversation whose lock its process holds open,
 found as [agents/README.md](../agents/README.md#antigravity-cli-agy)
 describes. The transcript is the conversation's `transcript_full.jsonl`.
 
+For Pi, the session is the file the Pi extension records for the process, or
+else the folder's newest one, as [agents/README.md](../agents/README.md#pi)
+describes. Subagents are the pi-subagents runs saved beside it.
+
+For OpenCode, the session is the folder's newest in OpenCode's database, as
+[agents/README.md](../agents/README.md#opencode) describes. The transcript is
+a copy of its messages in `~/.config/rex/state/opencode/`, and subagents are
+its child sessions.
+
 ## Troubleshooting
 
 | Symptom | What to check |
@@ -667,8 +679,8 @@ without deleting them.
   and state files, and moves the old Tasks tab's settings.
 - `task-actions.lua` defines the task actions.
 - `../agents/` finds a pane's agent, its session and its subagents.
-- `parsers/claude.lua`, `parsers/codex.lua` and `parsers/agy.lua` read each
-  agent's transcript.
+- `parsers/claude.lua`, `parsers/codex.lua`, `parsers/agy.lua`, `parsers/pi.lua`
+  and `parsers/opencode.lua` read each agent's transcript.
 - `settings.lua` reads and writes `settings.json`, and passes Show requests to
   the watcher through `show-request.json`.
 - `diff-view` draws one diff in the floating pane.

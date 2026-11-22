@@ -10,6 +10,8 @@ crash, supported conversations and allowed programs come back in their panes.
 | Claude Code | `claude --resume <session>`: the same conversation, in the same folder |
 | Codex | `codex resume <thread>`: the same conversation, in the thread's folder |
 | Antigravity CLI | `agy --conversation <conversation>`: the same conversation, in its folder |
+| Pi | `pi --session <file>`: the same session, in its folder |
+| OpenCode | `opencode --session <session>`: the same session, in its folder |
 | nvim, less, htop, ssh and others | The same command, such as `nvim src/app.lua`, as your [settings](#settings) allow |
 | A shell | A shell in the same folder |
 
@@ -19,7 +21,7 @@ There's nothing on screen and nothing to click.
 and run `rex config reload`. [Full install →](#install)
 
 **On this page:** [How it works](#how-it-works) · [Settings](#settings) ·
-[Agent restoration](#claude-code-codex-and-agy) · [Limits](#limits) ·
+[Agent restoration](#claude-code-and-other-agents) · [Limits](#limits) ·
 [Install](#install) · [Troubleshooting](#troubleshooting) · [Files](#files) ·
 [Manual use](#manual-use) · [Tests](#tests)
 
@@ -64,13 +66,13 @@ ignores. The file is read on every save, so an edit applies straight away.
 | `any_full` | Any program that isn't a shell, with its arguments. `programs` is ignored |
 
 Without `programs`, the list is: nvim, vim, vi, nano, less, man, htop, btop,
-top, watch, lazygit, tig, k9s, ssh, codex and agy.
+top, watch, lazygit, tig, k9s, ssh, codex, agy, pi and opencode.
 
 Claude Code always comes back, whatever the mode or the list.
 
 An explicit `programs` array replaces the default list. Omit it to keep all
 defaults, or use `[]` to restore only Claude conversations. In `any_full`,
-the list is ignored. Known Codex and agy conversation IDs use their resume
+the list is ignored. Known Codex, agy, Pi and OpenCode sessions use their resume
 commands even in `allow_name`; that mode's name-only behavior applies to
 ordinary programs and agents whose conversation has not been found.
 
@@ -88,7 +90,7 @@ and they're saved as plain text in the snapshot.
 Agent discovery is separate: the Codex adapter can read its process command
 line to find a resumed thread ID, even in `allow_name`.
 
-## Claude Code, Codex and agy
+## Claude Code and other agents
 
 **Claude Code** is found through `~/.claude/sessions/<pid>.json`. Its original
 flags, such as the model or the permission mode, aren't known, so it resumes
@@ -104,14 +106,18 @@ thread is found as [agents/README.md](../agents/README.md#codex) describes.
 <conversation>`. The conversation is found as
 [agents/README.md](../agents/README.md#antigravity-cli-agy) describes.
 
-All three take a moment before they can be saved. Claude writes its session
-file a few seconds after it starts, and Codex and agy only have a
-conversation after your first prompt. Until then, the save is tried again
-every 5 seconds, up to 6 times. For Codex and agy, their own command is saved
-in the meantime.
+**Pi** comes back with `pi --session <file>`, and **OpenCode** with
+`opencode --session <session>`, found as
+[agents/README.md](../agents/README.md#pi) describes. For Pi, the Pi extension
+makes sure the session is the pane's own.
 
-To have Codex or agy panes come back as plain shells, use `allow_full` or
-`allow_name` and leave `codex` or `agy` out of `programs`.
+They all take a moment before they can be saved. Claude writes its session
+file a few seconds after it starts, and the others only have a session after
+your first prompt. Until then, the save is tried again every 5 seconds, up to
+6 times. For the others, their own command is saved in the meantime.
+
+To have an agent's panes come back as plain shells, use `allow_full` or
+`allow_name` and leave `codex`, `agy`, `pi` or `opencode` out of `programs`.
 
 ## Limits
 
@@ -124,7 +130,8 @@ To have Codex or agy panes come back as plain shells, use `allow_full` or
 ## Install
 
 Requires macOS, Rex and the CLI for each agent you want to resume. Claude
-Code is optional when you only use Codex, agy or ordinary programs.
+Code is optional when you only use Codex, agy, Pi, OpenCode or ordinary
+programs.
 
 1. Follow the [repository install guide](../README.md#install), keeping
    `agents/` beside this folder at `~/.config/rex/extensions/`.
@@ -162,7 +169,7 @@ The snapshot stays where it was, so nothing is lost.
 | --- | --- |
 | Reloading config does not restore programs | Restoration happens once after a Rex server restart. Config reload starts the watcher but does not replay the snapshot in the current server. |
 | A program returns as a shell | Check `mode` and `programs`. A custom array replaces the defaults, and shells themselves have no command to replay. |
-| Codex or agy starts a new conversation | Send a first prompt before restarting Rex so its conversation ID can be saved. Check [agent discovery](../agents/README.md) if the ID is still missing. |
+| Codex, agy, Pi or OpenCode starts a new conversation | Send a first prompt before restarting Rex so its conversation ID can be saved. Check [agent discovery](../agents/README.md) if the ID is still missing. |
 | Claude does not resume with a custom config directory | The restoration lookup currently only reads `~/.claude/sessions/`. |
 | The watcher does not start | Inspect `tail -n 50 ~/.config/rex/state/sessions.log` and verify the install path and `require` line. |
 

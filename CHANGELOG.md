@@ -5,6 +5,28 @@ in each plugin's `plugin.json`.
 
 ## Unreleased
 
+### Pi and OpenCode
+
+- rex-sidecar, rex-crab-pond and rex-resume work with
+  [Pi](https://github.com/badlogic/pi-mono) and [OpenCode](https://opencode.ai),
+  through new adapters (`agents/pi.lua`, `agents/opencode.lua`) and sidecar
+  parsers (`parsers/pi.lua`, `parsers/opencode.lua`).
+- **Pi:** the sidecar shows prompts, replies, commands, edits (with Pi's own
+  line numbers), new files, the model, thinking level, context and questions.
+  pi-subagents runs show as lanes and crabs. A new Pi extension,
+  `agents/pi-rex-status.ts`, records which session each `pi` writes, with its
+  model's context window; link it into `~/.pi/agent/extensions/`. Without it,
+  a pane's session is the folder's newest one.
+- **OpenCode:** a pane's session is read, read only, from OpenCode's
+  database, and copied to `~/.config/rex/state/opencode/` for the sidecar.
+  Commands with their exit codes, edits and patches, new files, the model and
+  its variant, the context against the model's window, questions and child
+  sessions (subagents) show.
+- rex-resume brings them back with `pi --session <file>` and
+  `opencode --session <session>`, and both are on its default program list.
+- Crabs: Pi is pink, OpenCode silver-grey, dressed by effort like Codex.
+- GATE and PROCESSES stay empty for both, as neither records them.
+
 ### leaf
 
 - [leaf](https://leaf.dipxsy.app) is now the viewer for the sidecar's diffs

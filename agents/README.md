@@ -3,12 +3,12 @@
 **One sidecar, one pond, any coding agent.** rex-sidecar and rex-crab-pond ask
 this folder which agent a pane runs and where its session is, so they never
 name an agent themselves. rex-resume uses it to find a Codex or agy pane's
-conversation. Three adapters ship today: Claude Code, Codex and the
-Antigravity CLI (`agy`). Adding another takes
+conversation. Five adapters ship today: Claude Code, Codex, the
+Antigravity CLI (`agy`), Pi and OpenCode. Adding another takes
 [one adapter and one parser](#adding-an-agent).
 
 **On this page:** [What ships](#what-ships) · [Claude Code](#claude-code) ·
-[Codex](#codex) · [agy](#antigravity-cli-agy) ·
+[Codex](#codex) · [agy](#antigravity-cli-agy) · [Pi](#pi) · [OpenCode](#opencode) ·
 [Troubleshooting](#troubleshooting) · [Interface](#interface) ·
 [Adding an agent](#adding-an-agent) · [Tests](#tests)
 
@@ -23,6 +23,8 @@ folders when installing. See the [repository install guide](../README.md#install
 | `claude.lua` | Program name `claude`, in any case | `~/.claude/sessions/<pid>.json` (or under `$CLAUDE_CONFIG_DIR`), plus the saved status line input | `projects/<project>/<session>.jsonl` |
 | `codex.lua` | Program name `codex`, in any case | The `threads` table of Codex's state database, `~/.codex/state_<n>.sqlite` (or under `$CODEX_HOME`) | The thread's `rollout_path` |
 | `agy.lua` | Program name `agy`, in any case | The conversation lock the process holds open in `~/.gemini/antigravity-cli/presence/`, else the folder's last conversation | `brain/<conversation>/.system_generated/logs/transcript_full.jsonl` |
+| `pi.lua` | Program name `pi`, in any case | What `pi-rex-status.ts` records in `~/.pi/agent/state/rex/<pid>.json`, else the folder's newest session since `pi` started | `~/.pi/agent/sessions/--<folder>--/<time>_<id>.jsonl` |
+| `opencode.lua` | Program name `opencode` or `.opencode` | The `session_v2` table of `~/.local/share/opencode/opencode.db`: the folder's newest top-level session since `opencode` started | A copy of its messages in `~/.config/rex/state/opencode/<session>.jsonl` |
 
 An agent counts whether it runs in the pane's foreground or as the parent of
 the foreground command, so `claude` running `git` still counts.
@@ -132,6 +134,85 @@ OPEN until you answer.
 
 rex-resume brings an agy pane back with `agy --conversation <conversation>`.
 
+## Pi
+
+[Pi](https://github.com/badlogic/pi-mono) keeps each session as a JSONL file
+in `~/.pi/agent/sessions/`, in a folder named after the directory with `/` as
+`-` (`--Users-me-app--`). Set `PI_CODING_AGENT_DIR` and the adapter looks
+there instead of `~/.pi/agent`.
+
+**Finding a pane's session.** Pi names its process `pi`, so its command line
+(`--session`, `--continue`) can't be read, and it doesn't keep the session
+file open. So:
+
+1. With the Pi extension installed, each `pi` writes
+   `state/rex/<pid>.json`: its session file, model, context window, thinking
+   level and whether it's working. It updates on start, `/new`, `/resume`,
+   `/fork`, a model change and every turn, and removes the file when Pi exits.
+   Install it with
+   `ln -s ~/.config/rex/extensions/agents/pi-rex-status.ts ~/.pi/agent/extensions/rex-status.ts`
+   and restart Pi.
+2. Without it, the session is the folder's newest file that changed since
+   this `pi` started. A `pi` that hasn't saved a message yet has none, and a
+   session file kept elsewhere with `--session` isn't found.
+
+**What the sidecar reads.** `message` records hold the conversation: user
+prompts, assistant messages with text, thinking and tool calls, and a
+`toolResult` for each call. `bash` calls count as commands, failed when the
+result is an error. `edit` changes come from the diff Pi saves with the
+result, with real line numbers; `write` counts as a new file. Model and
+thinking-level changes, and the token counts of each reply, fill the model,
+effort and context. A question from an ask-user tool shows in OPEN until you
+answer.
+
+**Subagents.** The pi-subagents package runs each step as a Pi session of its
+own, under `<session>/<run>/run-<n>/`. Each one is a lane and a crab,
+described by the start of its task. It counts as finished once its last reply
+ended without a tool call, and as running while it changed in the last 10
+minutes.
+
+**What a Pi pane doesn't show:** GATE (Pi logs no permission decisions),
+PROCESSES and background job crabs. Without the extension, the context has
+no percentage, as the transcript doesn't record the model's window.
+
+rex-resume brings a Pi pane back with `pi --session <file>`.
+
+## OpenCode
+
+[OpenCode](https://opencode.ai) 2.x keeps its sessions in a SQLite
+database, `~/.local/share/opencode/opencode.db` (or `$OPENCODE_DB`, or under
+`$XDG_DATA_HOME`), which its background service writes. The adapter only
+reads it, with `sqlite3 -readonly`. The adapter follows the database layout of
+OpenCode 2.3.2; 1.x databases aren't read.
+
+**Finding a pane's session.** An OpenCode TUI is a client of that service, so
+nothing links a process to a session. The adapter takes the session named
+with `--session` or `-s` on the command line, or else the newest top-level,
+unarchived session in the pane's folder that changed since this `opencode`
+started. Two OpenCode panes in one folder can't be told apart.
+
+**What the sidecar reads.** The sidecar reads transcripts from files, so the
+adapter copies the session to `~/.config/rex/state/opencode/<session>.jsonl`:
+one line per message once it's final, with its parts, as the database holds
+them, and a line for a question while it waits. Only new messages are added,
+under a lock, so the sidecar and the pond don't copy one twice.
+
+- `shell` calls count as commands, failed when their exit code isn't 0; a
+  `!` command you type counts too.
+- `edit` and `patch` changes come from the unified diffs OpenCode records;
+  `write` counts as a new file.
+- The model and its variant, which the crab dresses by, come from the
+  session. The context window comes from OpenCode's cached models.dev list.
+- A `question` shows in OPEN until you answer.
+- Subagents are child sessions. A child counts as finished once it went idle
+  after its last busy spell.
+
+**What an OpenCode pane doesn't show:** GATE (permission requests live only in
+OpenCode's memory), PROCESSES and background job crabs. Usage limits aren't
+recorded.
+
+rex-resume brings an OpenCode pane back with `opencode --session <session>`.
+
 ## Troubleshooting
 
 | Symptom | What to check |
@@ -139,7 +220,9 @@ rex-resume brings an agy pane back with `agy --conversation <conversation>`.
 | An agent is recognised but its session is empty | Wait for Claude to write its session file, or send the first prompt in Codex or agy. Process recognition alone does not identify a conversation. |
 | Codex shows the wrong thread | Give threads in the same folder distinct names. Check that `$CODEX_HOME` points to the intended profile and that `sqlite3` is available. |
 | agy shows the wrong conversation | The folder fallback cannot distinguish panes in the same folder. Check that `lsof` can read the agy process's open presence lock. |
-| Model or usage fields are missing | Check the Claude or agy status line setup. Only fields present in the saved JSON or transcript can be shown. |
+| A Pi pane shows the wrong session, or none | Install the Pi extension and restart Pi. Without it, only the folder's newest session since `pi` started is found. |
+| An OpenCode pane shows no session | Send the first prompt. Check that `~/.local/share/opencode/opencode.db` exists and `sqlite3 -readonly` can open it. |
+| Model or usage fields are missing | Check the Claude or agy status line setup, or the Pi extension. Only fields present in the saved JSON or transcript can be shown. |
 
 The adapters follow each CLI's local storage format. After a CLI update,
 check its session files and transcript format if discovery or parsing stops
