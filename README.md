@@ -1,11 +1,13 @@
-# Rex extensions and skills for Claude Code
+# Rex extensions and skills for Claude Code and Codex
 
 Make the [Rex](https://www.superlogical.com) terminal a better home for
 [Claude Code](https://claude.com/claude-code) on macOS: see what each Claude
 changed and what you decided with it, watch your agents as pixel crabs, get your
 conversations and programs back after a restart, and let Claude show you files.
 rex-sidecar and rex-crab-pond work with [Codex](https://github.com/openai/codex)
-too, through the adapters in [`agents/`](agents/README.md).
+too, through the adapters in [`agents/`](agents/README.md): a Codex pane gets the
+same sidecar and crabs, less what [Codex doesn't record](agents/README.md#codex).
+What changed in each release is in the [changelog](CHANGELOG.md).
 
 | | Name | What you get | Runs as |
 | --- | --- | --- | --- |
@@ -18,7 +20,7 @@ too, through the adapters in [`agents/`](agents/README.md).
 **Contents:** [Extensions](#extensions) · [Skills](#skills) ·
 [Requirements](#requirements) · [Install](#install) · [Update](#update) ·
 [Repository layout](#repository-layout) · [Privacy](#privacy) ·
-[Tests](#tests) · [License](#license)
+[Tests](#tests) · [Changelog](CHANGELOG.md) · [License](#license)
 
 ## Extensions
 
@@ -96,6 +98,7 @@ a time.
 | Needed for | What |
 | --- | --- |
 | Everything | macOS with [Rex](https://www.superlogical.com) and [Claude Code](https://claude.com/claude-code) |
+| Codex panes, optional | [Codex](https://github.com/openai/codex) CLI; its sessions are read with the `sqlite3` that comes with macOS |
 | rex-crab-pond | A terminal font with Unicode 16 octant characters (Rex draws them itself), and `jq` for the status line (`brew install jq`) |
 | rex-sidecar and rex-view colours, optional | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
 | rex-sidecar's highlighted diffs, optional | [`delta`](https://github.com/dandavison/delta) (`brew install git-delta`) |

@@ -77,6 +77,8 @@ an argument with spaces in it comes back split in two.
   The used snapshot is kept as `sessions.json.prev`.
 - Claude Code is found through `~/.claude/sessions/<pid>.json`. Its original
   flags (model, permission mode) aren't known, so it resumes with defaults.
+- A Codex conversation isn't resumed. `codex` isn't on the default list; add
+  it to `programs` to start Codex again in its pane, in a new conversation.
 - A program comes back as it was started, not as it was left: nvim reopens
   its files but not its buffers or undo history.
 - Quitting a resumed program leaves the shell it was typed into.

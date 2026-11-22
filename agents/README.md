@@ -6,8 +6,8 @@ themselves don't name an agent. Two adapters ship: Claude Code and Codex.
 
 | Adapter | Recognised by | Session from | Transcript |
 | --- | --- | --- | --- |
-| `claude.lua` | Program name `claude` | `~/.claude/sessions/<pid>.json`, or under `$CLAUDE_CONFIG_DIR`, and the saved status line input | `projects/<project>/<session>.jsonl` |
-| `codex.lua` | Program name `codex` | The `threads` table of Codex's state database, `~/.codex/state_<n>.sqlite`, or under `$CODEX_HOME` | The thread's `rollout_path` |
+| `claude.lua` | Program name `claude`, in any case | `~/.claude/sessions/<pid>.json`, or under `$CLAUDE_CONFIG_DIR`, and the saved status line input | `projects/<project>/<session>.jsonl` |
+| `codex.lua` | Program name `codex`, in any case | The `threads` table of Codex's state database, `~/.codex/state_<n>.sqlite`, or under `$CODEX_HOME` | The thread's `rollout_path` |
 
 Both are found in the foreground of a pane or as the parent of its foreground
 command.
