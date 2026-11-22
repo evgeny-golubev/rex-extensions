@@ -3,7 +3,7 @@
 Releases are tagged `vX.Y.Z` on GitHub. The skills keep their own versions,
 in each plugin's `plugin.json`.
 
-## Unreleased
+## v1.0.1 — 2026-11-22
 
 ### rex-resume
 
@@ -11,6 +11,11 @@ in each plugin's `plugin.json`.
   thread's directory, found through the Codex adapter in `agents/`.
 - `codex` is on the default program list. Leave it out of `programs` to have
   Codex panes come back as shells.
+
+### Docs
+
+- Every extension and plugin README opens with what it does for you, what
+  you get, and a quick way to try it.
 
 ## v1.0.0 — 2026-11-22
 
