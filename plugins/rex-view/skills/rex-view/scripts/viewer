@@ -1,8 +1,29 @@
 #!/bin/bash
 # Draws one file in the floating pane: viewer <path> [line]
-export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+# viewer --leaf-missing <path> [line] succeeds when leaf would show the file but
+# isn't installed. REX_LEAF names the leaf to use, empty for none (the tests).
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.cargo/bin"
+probe=
+[ "${1:-}" = "--leaf-missing" ] && probe=1 && shift
 file=$1
 line=${2:-}
+leaf=${REX_LEAF-$(command -v leaf 2>/dev/null)}
+
+# leaf reads documents and pictures. Code and other text, and a request for a
+# line, which leaf can't open at, stay with bat and less below.
+leaf_reads() {
+	[ -z "$line" ] || return 1
+	case "$(printf '%s' "$file" | tr 'A-Z' 'a-z')" in
+	*.md | *.markdown | *.mdown | *.mkd | *.pdf | *.epub | *.html | *.htm | *.docx | *.pptx | *.xlsx | *.xls | *.ods | *.csv | *.tsv | \
+		*.png | *.jpg | *.jpeg | *.gif | *.webp | *.svg | *.heic) return 0 ;;
+	esac
+	return 1
+}
+
+if [ -n "$probe" ]; then
+	leaf_reads && [ -z "$leaf" ]
+	exit
+fi
 
 notice() {
 	printf '\n  %s\n\n  Press any key to close' "$1"
@@ -97,6 +118,11 @@ draw_image() {
 	done < <(base64 -i "$1" -b 4096)
 	printf '\033_Gm=0;\033\\\033[%d;1Hq closes' "$((rows + 1))"
 }
+
+# A file leaf can't read falls through to the viewers below.
+if [ -n "$leaf" ] && leaf_reads; then
+	"$leaf" open "$file" && exit 0
+fi
 
 case "$(printf '%s' "$file" | tr 'A-Z' 'a-z')" in
 *.png | *.jpg | *.jpeg | *.gif | *.webp) show_image; exit 0 ;;

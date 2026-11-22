@@ -2365,4 +2365,39 @@ return {
 	end
 	real.exec({ "rm", "-rf", plugin_dir, panel_base })
 end
+do
+	-- diff-view gives leaf a patch file, removed once leaf exits; REX_LEAF stands
+	-- in for leaf, printing its arguments and the patch.
+	local tmp = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "")
+	local fake = tmp .. "/leaf"
+	local f = assert(io.open(fake, "w"))
+	f:write('#!/bin/sh\necho "$1 $2"\ncat "$3"\necho "$3" >' .. tmp .. '/patch-path\n')
+	f:close()
+	real.exec({ "chmod", "+x", fake })
+	local patch = tmp .. "/turn.patch"
+	f = assert(io.open(patch, "w"))
+	f:write("--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n")
+	f:close()
+	local r = real.exec({ "/usr/bin/env", "REX_LEAF=" .. fake, dir .. "diff-view", "patch", patch })
+	has(r.stdout, "diff --patch", "leaf reads the diff from a patch file")
+	has(r.stdout, "+b", "the whole patch")
+	local given = io.open(tmp .. "/patch-path"):read("*l")
+	equal(io.open(given, "r"), nil, "leaf's patch file is removed after it exits")
+	real.exec({ "rm", "-rf", tmp })
+
+	local L = dofile(dir .. "leaf.lua")
+	local home = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "")
+	real.exec({ "mkdir", "-p", home .. "/.cargo/bin" })
+	real.exec({ "touch", home .. "/.cargo/bin/leaf" })
+	local found = L.path(home)
+	equal(found == home .. "/.cargo/bin/leaf" or found == "/opt/homebrew/bin/leaf" or found == "/usr/local/bin/leaf", true, "leaf from cargo is found")
+	real.exec({ "rm", "-rf", home })
+
+	local base = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "") .. "/"
+	local SL = dofile(dir .. "settings.lua")
+	equal(SL.leaf_ask(base), true, "leaf is offered by default")
+	SL.set_leaf_ask(base, false)
+	equal(SL.leaf_ask(base), false, "don't ask again is kept")
+	real.exec({ "rm", "-rf", base })
+end
 return "rex-sidecar: all tests passed"

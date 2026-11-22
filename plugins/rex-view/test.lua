@@ -38,4 +38,21 @@ equal(b.options.command[3], "12", "line")
 equal(M.request("s", "w", "/v", "/a.md", "").layout.block.options.command[3], nil, "no line")
 equal(M.request("s", "w", "/v", "/a.md", 3).layout.block.options.command[3], "3", "a line that rex do made a number")
 equal(r.bounds[1] + r.bounds[3] <= 1 and r.bounds[2] + r.bounds[4] <= 1, true, "fits the tab")
+-- The viewer hands documents and pictures to leaf; REX_LEAF stands in for it.
+local viewer = dir .. "skills/rex-view/scripts/viewer"
+local function missing(leaf, ...)
+	return rex.exec({ "/usr/bin/env", "REX_LEAF=" .. leaf, viewer, "--leaf-missing", ... }).code == 0
+end
+equal(missing("", "/a/Notes.MD"), true, "Markdown without leaf: offer it")
+equal(missing("/bin/echo", "/a/notes.md"), false, "Markdown with leaf")
+equal(missing("", "/a/notes.md", "4"), false, "a line stays with bat, so leaf isn't missed")
+equal(missing("", "/a/main.lua"), false, "code stays with bat")
+equal(missing("", "/a/shot.png"), true, "a picture without leaf")
+local tmp = rex.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "")
+local f = assert(io.open(tmp .. "/a.md", "w"))
+f:write("# a\n")
+f:close()
+local opened = rex.exec({ "/usr/bin/env", "REX_LEAF=/bin/echo", viewer, tmp .. "/a.md" })
+equal(opened.stdout, "open " .. tmp .. "/a.md\n", "leaf opens the document")
+rex.exec({ "rm", "-rf", tmp })
 return "rex-view: all tests passed"

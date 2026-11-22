@@ -1,7 +1,10 @@
 #!/bin/bash
 # Draws one diff in the floating pane: diff-view git <root> <git diff args...>
 # or diff-view patch <file>, which removes the file once read.
-export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+# leaf draws the diff when it's installed, delta or less otherwise. REX_LEAF
+# names the leaf to use, empty for none (the tests).
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.cargo/bin"
+leaf=${REX_LEAF-$(command -v leaf 2>/dev/null)}
 
 case "$1" in
 patch)
@@ -27,6 +30,18 @@ if [ -z "$text" ]; then
 	printf '\n  No differences.\n\n  Press any key to close'
 	read -rsn1
 	exit 0
+fi
+
+# leaf reads a patch from a file, which stays until leaf exits so its r reloads
+# it. Text with no hunk, such as git's error or "Binary files differ", is left
+# to the viewers below.
+if [ -n "$leaf" ] && printf '%s\n' "$text" | grep -q '^@@'; then
+	patch=$(mktemp -t rex-sidecar-diff)
+	trap 'rm -f "$patch"' EXIT
+	trap 'exit' HUP TERM
+	printf '%s\n' "$text" >"$patch"
+	"$leaf" diff --patch "$patch" && exit 0
+	rm -f "$patch"
 fi
 
 render_delta() {

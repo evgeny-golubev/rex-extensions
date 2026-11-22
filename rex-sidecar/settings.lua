@@ -74,6 +74,19 @@ function M.set_folded_dir(base, root, path, on)
 	write_json(base .. "settings.json", settings)
 end
 
+--- Whether to offer installing leaf when it's missing; "Don't ask again"
+--- turns it off.
+function M.leaf_ask(base)
+	local settings = read_json(base .. "settings.json") or {}
+	return settings.leaf_ask ~= false
+end
+
+function M.set_leaf_ask(base, on)
+	local settings = read_json(base .. "settings.json") or {}
+	settings.leaf_ask = on
+	write_json(base .. "settings.json", settings)
+end
+
 --- The tabs after Info, in the order shown, and the hidden ones: tab name ->
 --- true.
 function M.tabs(base)

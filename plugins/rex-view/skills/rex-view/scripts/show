@@ -19,4 +19,7 @@ if [ -n "${2:-}" ] && ! [[ "$2" =~ ^[1-9][0-9]*$ ]]; then
 fi
 here=$(cd "$(dirname "$0")" && pwd)
 path="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+if "$here/viewer" --leaf-missing "$path" "${2:-}"; then
+	echo "rex-view: leaf isn't installed, so this opens in the basic viewer. It can be installed with: brew install deepanshumishraa/tap/leaf"
+fi
 exec rex do "$here/show.lua" "path=$path" "line=${2:-}" "viewer=$here/viewer"

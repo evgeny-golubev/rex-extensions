@@ -179,4 +179,45 @@ rex.action({
 	end,
 })
 
+-- The sidecar runs this with `rex do` when it opens a diff or file and leaf
+-- is missing, passing its pane, as palette prompts only work in an action.
+local leaf = dofile(base .. "leaf.lua")
+
+rex.action({
+	name = "rex_sidecar_leaf_install",
+	title = "Rex View: Install leaf",
+	description = "Installs leaf with Homebrew, to show the sidecar's diffs and Rex View's Markdown, pictures and documents.",
+	category = "Claude Code",
+	args = { session_id = "string?", block_id = "string?" },
+	run = function(ctx, args)
+		args = args or {}
+		if leaf.path(home) then
+			return "leaf is installed"
+		end
+		local answer, reason = rex.ui.pick({
+			title = "Install leaf to show diffs, Markdown and pictures?",
+			items = {
+				{ id = "install", title = "Install with Homebrew", subtitle = leaf.brew_install },
+				{ id = "later", title = "Not now" },
+				{ id = "never", title = "Don't ask again", subtitle = "You can still run Rex View: Install leaf from the palette" },
+			},
+		})
+		if answer == "never" then
+			settings.set_leaf_ask(base, false)
+		elseif answer == "install" then
+			settings.set_leaf_ask(base, true)
+			local here = { session_id = args.session_id or ctx.session_id, block_id = args.block_id or ctx.block_id }
+			open_float(here, current_window(here), "Install leaf", {
+				"/bin/bash",
+				"-c",
+				'export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"\n'
+					.. 'if command -v brew >/dev/null; then ' .. leaf.brew_install .. ' && printf "\\nleaf is installed. Diffs, Markdown and pictures open in it from now on.\\n"\n'
+					.. 'else printf "Homebrew is not installed. Install leaf with:\\n  curl -fsSL https://leaf.dipxsy.app | sh\\n"; fi\n'
+					.. 'printf "\\nPress any key to close"; read -rsn1',
+			})
+		end
+		return answer or reason
+	end,
+})
+
 rex.bind("cmd+ctrl+alt+shift+o", "rex_sidecar_view")

@@ -14,6 +14,7 @@ local dir = debug.getinfo(1, "S").source:match("^@?(.*/)") or "./"
 local settings = dofile(dir .. "settings.lua")
 local agents = dofile(dir .. "../agents/init.lua")
 local mentions = dofile(dir .. "mentions.lua")
+local leaf = dofile(dir .. "leaf.lua")
 --- The folder of settings.json: a throwaway one in the tests.
 local settings_dir = REX_SIDECAR_TEST_BASE or dir
 local rex_binary = home
@@ -1935,6 +1936,21 @@ local function fold_focused()
 	next_section(1)
 end
 
+--- Whether this pane has offered to install leaf.
+local leaf_offered = false
+
+--- Offers once per sidecar, unless declined for good, to install leaf, which
+--- the float would use. The offer is a palette prompt, which only an action can
+--- show, so it runs in the background through `rex do`.
+local function offer_leaf()
+	if leaf_offered or leaf.path(home) or not settings.leaf_ask(settings_dir) then
+		return
+	end
+	leaf_offered = true
+	pcall(rex.exec.start, { rex_binary, "--autostart=false", "do", "rex_sidecar_leaf_install",
+		"session_id=" .. panel.session_id, "block_id=" .. panel.block_id }, { detach = true, stdout = false, stderr = false })
+end
+
 --- Opens a float over this pane's tab, replacing an earlier diff or Rex View.
 --- Returns a message when it can't.
 local function open_float(label, command, cwd)
@@ -1972,6 +1988,7 @@ local function open_float(label, command, cwd)
 	if panel.float then
 		rex.call("session.disown_block", { session_id = panel.session_id, block_ids = { panel.float } })
 	end
+	offer_leaf()
 end
 
 --- Rex focuses whichever pane it picks when a float closes, so the pane takes
