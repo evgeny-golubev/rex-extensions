@@ -2,7 +2,8 @@
 -- them back once after the Rex server restarts (reboot, update, crash). Rex
 -- now brings sessions back itself, with new IDs and without the programs
 -- that ran in them, so for those this only types the programs back into the
--- panes that ran them: Claude Code always, others as settings.json says.
+-- panes that ran them: Claude Code always, Codex's thread and other programs
+-- as settings.json says.
 -- init.lua starts it with every config load (`rex do --all watcher.lua`); it
 -- then saves a snapshot a second after each layout, label, directory or
 -- program change. `state=/tmp/x.json` points it at another snapshot file.
@@ -15,18 +16,22 @@ local path = rex.args.state or (home .. "/.config/rex/state/sessions.json")
 --- `rex config reload` sees the first one and quits.
 local client_label = "rex-resume"
 
---- Claude Code writes its process file a few seconds after it starts, so a
---- save that finds claude without one is repeated, up to this many times.
+--- Claude Code writes its process file a few seconds after it starts, and
+--- Codex has no thread until the first prompt, so a save that finds either
+--- without its session is repeated, up to this many times.
 local claude_retries = 6
 local claude_waits = {}
 local claude_starting = false
 
-local settings_path = rex.args.settings
-	or (debug.getinfo(1, "S").source:match("^@?(.*/)") or "./") .. "settings.json"
+local dir = debug.getinfo(1, "S").source:match("^@?(.*/)") or "./"
+local settings_path = rex.args.settings or dir .. "settings.json"
+
+--- The adapter that finds a Codex pane's thread; the tests put in their own.
+local codex = REX_RESUME_CODEX or dofile(dir .. "../agents/init.lua").codex
 
 local default_programs = {
 	"nvim", "vim", "vi", "nano", "less", "man", "htop", "btop", "top",
-	"watch", "lazygit", "tig", "k9s", "ssh",
+	"watch", "lazygit", "tig", "k9s", "ssh", "codex",
 }
 local modes = { allow_name = true, allow_full = true, any_full = true }
 
@@ -124,9 +129,15 @@ local function program_input(r)
 	return line and (line:gsub("^%-", "") .. "\n")
 end
 
+--- Whether settings.json lets a program come back.
+local function allowed_program(name)
+	local mode, allowed = settings()
+	return mode == "any_full" or allowed[name] == true
+end
+
 --- A terminal's `session.create` options: its directory, and the command that
---- brings back its foreground program: Claude Code's session, or another
---- program settings.json allows. The command is typed into a shell, so
+--- brings back its foreground program: Claude Code's session, a Codex thread
+--- when settings.json allows codex, or another program it allows. The command is typed into a shell, so
 --- quitting the program leaves the shell, as before.
 local function terminal_options(session_id, block_id)
 	local r = rex.block.call(terminal, "process", { session_id = session_id, block_id = block_id })
@@ -145,6 +156,18 @@ local function terminal_options(session_id, block_id)
 			claude_starting = true
 		end
 		return { cwd = cwd(r) }
+	end
+	if fg and program(r) == "codex" and allowed_program("codex") then
+		local ok, thread = pcall(codex.session, { pid = fg.pid, cwd = cwd(r), session_id = session_id, block_id = block_id })
+		if ok and thread and thread.id then
+			return { cwd = thread.cwd or cwd(r), initial_input = "codex resume " .. thread.id .. "\n" }
+		end
+		-- Until the thread is known, the plain command is kept.
+		local waits = claude_waits[fg.pid] or 0
+		if waits < claude_retries then
+			claude_waits[fg.pid] = waits + 1
+			claude_starting = true
+		end
 	end
 	return { cwd = cwd(r), initial_input = program_input(r) }
 end

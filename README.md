@@ -13,7 +13,7 @@ What changed in each release is in the [changelog](CHANGELOG.md).
 | --- | --- | --- | --- |
 | Extension | [rex-sidecar](#rex-sidecar) | A side pane with what each Claude changed, by turn, uncommitted, branch or pull request, plus a dashboard of its context, limits, permission checks, subagents, running shells and a session log, and the documents, PRs, Jira issues, links and files Claude's replies mention | Pane beside Claude |
 | Extension | [rex-crab-pond](#rex-crab-pond) | Claudes, subagents and background jobs as animated crabs | Strip along the tab's bottom |
-| Extension | [rex-resume](#rex-resume) | Claude Code conversations, and programs like nvim, resumed after the Rex server restarts | Background watcher |
+| Extension | [rex-resume](#rex-resume) | Claude Code and Codex conversations, and programs like nvim, resumed after the Rex server restarts | Background watcher |
 | Skill | [rex-view](#rex-view) | Claude shows images, Markdown and source code in a floating pane | Plugin, version 0.5.1 |
 | Skill | [sidecar-task-list](#sidecar-task-list) | Claude adds the work you start to your task list and reports it done for you to confirm | Plugin, version 0.1.0 |
 
@@ -69,8 +69,8 @@ It needs one setup step: [saving Claude Code's status line input](#extensions-1)
 Gets your Claude conversations and other programs back after a reboot, Rex
 update or crash. Rex restores sessions, tabs and splits but not the programs in
 them, so rex-resume types `claude --resume <session>` into each pane that ran
-Claude, and the command of each other program its settings allow, such as
-`nvim src/app.lua`. It has nothing on screen.
+Claude, `codex resume <thread>` into each that ran Codex, and the command of
+each other program its settings allow, such as `nvim src/app.lua`. It has nothing on screen.
 [How it works, its settings and what it can't restore →](rex-resume/README.md)
 
 ## Skills

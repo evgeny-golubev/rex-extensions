@@ -3,6 +3,15 @@
 Releases are tagged `vX.Y.Z` on GitHub. The skills keep their own versions,
 in each plugin's `plugin.json`.
 
+## Unreleased
+
+### rex-resume
+
+- Codex comes back in its conversation, with `codex resume <thread>` in the
+  thread's directory, found through the Codex adapter in `agents/`.
+- `codex` is on the default program list. Leave it out of `programs` to have
+  Codex panes come back as shells.
+
 ## v1.0.0 — 2026-11-22
 
 The first numbered release. It covers everything since the repository

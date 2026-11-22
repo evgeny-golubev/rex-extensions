@@ -40,10 +40,17 @@ local function shell(id, label)
 	}
 end
 
-local clients, views, processes, created, timers, stopped, written, ps_calls
+local clients, views, processes, created, timers, stopped, written, ps_calls, codex_thread, codex_asked
+REX_RESUME_CODEX = {
+	session = function(pane)
+		codex_asked = pane
+		return codex_thread
+	end,
+}
 
 local function reset()
 	clients, created, timers, stopped, written, ps_calls = {}, {}, {}, false, {}, {}
+	codex_thread, codex_asked = nil, nil
 	views = {
 		["session:1"] = {
 			session_id = "session:1",
@@ -211,6 +218,35 @@ local ok, err = pcall(function()
 	run()
 	equal(shell_options().initial_input, nil, "a shell")
 
+	-- Codex comes back in its thread, in the thread's directory.
+	reset()
+	processes["block:1"].foreground.argv0 = "Codex"
+	codex_thread = { id = "thread-7", cwd = "/src/app/api" }
+	run()
+	equal(codex_asked.pid, 41, "codex pane asked about")
+	equal(codex_asked.block_id, "block:1", "codex pane's block")
+	equal(shell_options().initial_input, "codex resume thread-7\n", "codex resume")
+	equal(shell_options().cwd, "/src/app/api", "codex thread's directory")
+
+	-- Before Codex has a thread, its command is kept and the save repeated.
+	reset()
+	processes["block:1"].foreground.argv0 = "codex"
+	run()
+	equal(shell_options().initial_input, "nvim src/main.lua\n", "codex's own command")
+	equal(#timers, 1, "retries for codex's thread")
+	codex_thread = { id = "thread-8" }
+	fire()
+	equal(shell_options().initial_input, "codex resume thread-8\n", "codex resume after retry")
+
+	-- Without codex on the list, its thread isn't looked up.
+	reset()
+	write(settings, '{"programs":["nvim"]}')
+	processes["block:1"].foreground.argv0 = "codex"
+	codex_thread = { id = "thread-9" }
+	run()
+	equal(codex_asked, nil, "codex thread looked up")
+	equal(shell_options().initial_input, nil, "codex not on the list")
+
 	-- A claude that hasn't written its session file yet is saved again later.
 	reset()
 	run()
@@ -332,6 +368,7 @@ local ok, err = pcall(function()
 	equal(read_json(snapshot), nil, "second copy's snapshot")
 end)
 rex, os.getenv = real, real_getenv
+REX_RESUME_CODEX = nil
 real.exec({ "/bin/rm", "-rf", tmp })
 if not ok then
 	error(err, 0)

@@ -52,8 +52,9 @@ every save, so an edit applies without a restart.
 | `any_full` | Any program that isn't a shell, with its arguments; `programs` is ignored |
 
 Without `programs`, the list is nvim, vim, vi, nano, less, man, htop, btop,
-top, watch, lazygit, tig, k9s and ssh. Claude Code always comes back, whatever
-the mode or list.
+top, watch, lazygit, tig, k9s, ssh and codex. Claude Code always comes back,
+whatever the mode or list; Codex comes back in its conversation while `codex`
+is allowed.
 
 Arguments come from `ps` and are saved as plain text in the snapshot, so in
 `any_full` mode a token passed on a command line ends up there too. The other
@@ -77,8 +78,12 @@ an argument with spaces in it comes back split in two.
   The used snapshot is kept as `sessions.json.prev`.
 - Claude Code is found through `~/.claude/sessions/<pid>.json`. Its original
   flags (model, permission mode) aren't known, so it resumes with defaults.
-- A Codex conversation isn't resumed. `codex` isn't on the default list; add
-  it to `programs` to start Codex again in its pane, in a new conversation.
+- Codex comes back in its conversation: `codex resume <thread>`, in the
+  thread's directory. The thread is found as [agents/README.md](../agents/README.md#codex)
+  describes. Until Codex has a thread, which is after your first prompt, its
+  own command is saved, and the save is tried again every 5 seconds, 6
+  times. Leave `codex` out of `programs` to have Codex panes come back as
+  shells.
 - A program comes back as it was started, not as it was left: nvim reopens
   its files but not its buffers or undo history.
 - Quitting a resumed program leaves the shell it was typed into.
