@@ -1,0 +1,185 @@
+#!/usr/bin/osascript -l JavaScript
+// Command-line client for Apple Reminders, through EventKit. It follows the
+// task provider contract of the sidecar Tasks tab:
+//   tasks [--completed-since DATE]
+//   add LIST [--due DATE] [--notes TEXT] TITLE
+//   update LIST TASK [--title TEXT] [--due DATE] [--notes TEXT] [--status STATUS]
+//   login
+// Lists are Reminders lists and tasks are reminders, by identifier. Each task
+// also has "recurring", true when it has a recurrence rule. Reminders has no
+// subtasks in EventKit, so --parent is refused. Without access to Reminders,
+// it prints {"error": "auth_required"} and exits with code 3.
+ObjC.import("EventKit");
+ObjC.import("Foundation");
+ObjC.import("stdlib");
+
+const store = $.EKEventStore.alloc.init;
+const FULL_ACCESS = 3;
+
+/** Waits on the run loop until done() is true, for up to the given seconds. */
+function wait(done, seconds) {
+  const until = $.NSDate.dateWithTimeIntervalSinceNow(seconds);
+  while (!done() && $.NSDate.date.compare(until) < 0) {
+    $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(0.05));
+  }
+}
+
+function authorized() {
+  return Number($.EKEventStore.authorizationStatusForEntityType($.EKEntityTypeReminder)) === FULL_ACCESS;
+}
+
+/** Prints the sign-in answer on standard output and exits with code 3. */
+function auth_required() {
+  const out = $.NSFileHandle.fileHandleWithStandardOutput;
+  out.writeData($(JSON.stringify({ error: "auth_required" }) + "\n").dataUsingEncoding($.NSUTF8StringEncoding));
+  $.exit(3);
+}
+
+/** Splits arguments into the values of the named options and the rest. */
+function options(args, names) {
+  const values = {}, rest = [];
+  for (let i = 0; i < args.length; i++) {
+    const name = args[i].startsWith("--") ? args[i].slice(2) : null;
+    if (name !== null && names.includes(name)) {
+      if (i + 1 >= args.length) throw new Error("Missing value for --" + name);
+      values[name] = args[++i];
+    } else {
+      rest.push(args[i]);
+    }
+  }
+  return { values, rest };
+}
+
+function pad(n) {
+  return (n < 10 ? "0" : "") + n;
+}
+
+/** The local date of an NSDate as YYYY-MM-DD. */
+function local_date(date) {
+  const formatter = $.NSDateFormatter.alloc.init;
+  formatter.dateFormat = "yyyy-MM-dd";
+  return ObjC.unwrap(formatter.stringFromDate(date));
+}
+
+/** NSDateComponents for a YYYY-MM-DD date, or nil for an empty one. */
+function components(date) {
+  if (!date) return $();
+  const parts = date.split("-").map(Number);
+  const c = $.NSDateComponents.alloc.init;
+  c.year = parts[0];
+  c.month = parts[1];
+  c.day = parts[2];
+  return c;
+}
+
+function fetch(predicate) {
+  let items = null;
+  store.fetchRemindersMatchingPredicateCompletion(predicate, function (found) {
+    items = found;
+  });
+  wait(function () { return items !== null; }, 20);
+  const out = [];
+  for (let i = 0; items && i < items.count; i++) out.push(items.objectAtIndex(i));
+  return out;
+}
+
+function task_fields(r) {
+  const due = r.dueDateComponents;
+  const rules = r.recurrenceRules;
+  return {
+    id: ObjC.unwrap(r.calendarItemIdentifier),
+    title: ObjC.unwrap(r.title) || "",
+    due: due.isNil() ? "" : due.year + "-" + pad(due.month) + "-" + pad(due.day),
+    notes: r.hasNotes ? ObjC.unwrap(r.notes) : "",
+    parent: null,
+    status: r.completed ? "completed" : "needsAction",
+    completed: r.completed && !r.completionDate.isNil() ? local_date(r.completionDate) : null,
+    recurring: !rules.isNil() && rules.count > 0,
+    created: r.creationDate.isNil() ? 0 : r.creationDate.timeIntervalSince1970,
+  };
+}
+
+function command_tasks(args) {
+  const values = options(args, ["completed-since"]).values;
+  const calendars = store.calendarsForEntityType($.EKEntityTypeReminder);
+  const output = [];
+  for (let i = 0; i < calendars.count; i++) {
+    const calendar = calendars.objectAtIndex(i);
+    const scope = $.NSArray.arrayWithObject(calendar);
+    // Reminders keeps no manual order that EventKit exposes, so the oldest come first.
+    const tasks = fetch(store.predicateForIncompleteRemindersWithDueDateStartingEndingCalendars($(), $(), scope))
+      .map(task_fields).sort(function (a, b) { return a.created - b.created; });
+    if (values["completed-since"]) {
+      const parts = values["completed-since"].split("-").map(Number);
+      const start = $.NSCalendar.currentCalendar.dateWithEraYearMonthDayHourMinuteSecondNanosecond(1, parts[0], parts[1], parts[2], 0, 0, 0, 0);
+      fetch(store.predicateForCompletedRemindersWithCompletionDateStartingEndingCalendars(start, $(), scope))
+        .forEach(function (r) { tasks.push(task_fields(r)); });
+    }
+    tasks.forEach(function (t) { delete t.created; });
+    output.push({ id: ObjC.unwrap(calendar.calendarIdentifier), title: ObjC.unwrap(calendar.title), tasks: tasks });
+  }
+  return JSON.stringify(output);
+}
+
+function save(reminder) {
+  const error = $();
+  if (!store.saveReminderCommitError(reminder, true, error)) {
+    throw new Error("Saving the reminder failed");
+  }
+}
+
+function command_add(args) {
+  const parsed = options(args.slice(1), ["due", "notes", "parent", "previous"]);
+  if (parsed.values.parent) throw new Error("Apple Reminders has no subtasks for other programs; steps are not supported.");
+  const calendar = store.calendarWithIdentifier(args[0]);
+  if (calendar.isNil()) throw new Error("No such list: " + args[0]);
+  const reminder = $.EKReminder.reminderWithEventStore(store);
+  reminder.calendar = calendar;
+  reminder.title = parsed.rest.join(" ");
+  if (parsed.values.due) reminder.dueDateComponents = components(parsed.values.due);
+  if (parsed.values.notes !== undefined) reminder.notes = parsed.values.notes;
+  save(reminder);
+  return JSON.stringify({ id: ObjC.unwrap(reminder.calendarItemIdentifier) });
+}
+
+function command_update(args) {
+  const values = options(args.slice(2), ["title", "due", "notes", "status"]).values;
+  const reminder = store.calendarItemWithIdentifier(args[1]);
+  if (reminder.isNil()) throw new Error("No such task: " + args[1]);
+  if (values.title !== undefined) reminder.title = values.title;
+  if (values.due !== undefined) reminder.dueDateComponents = components(values.due);
+  if (values.notes !== undefined) reminder.notes = values.notes;
+  if (values.status !== undefined) reminder.completed = values.status === "completed";
+  save(reminder);
+  return "updated";
+}
+
+function command_login() {
+  let answer = null;
+  store.requestFullAccessToRemindersWithCompletion(function (granted) {
+    answer = granted;
+  });
+  wait(function () { return answer !== null; }, 120);
+  if (!authorized()) throw new Error("Access to Reminders was not granted. Allow it in System Settings, Privacy and Security, Reminders.");
+  return "signed in";
+}
+
+function dispatch(command, args) {
+  if (command === "login") return command_login();
+  if (!authorized()) auth_required();
+  if (command === "tasks") return command_tasks(args);
+  if (command === "add") return command_add(args);
+  if (command === "update") return command_update(args);
+  throw new Error("Commands: tasks, add, update, login");
+}
+
+/** Prints the result on standard output, or an error's message on standard
+ * error with exit code 1. */
+function run(argv) {
+  try {
+    return dispatch(argv[0], argv.slice(1));
+  } catch (error) {
+    console.log(error.message);
+    $.exit(1);
+  }
+}
