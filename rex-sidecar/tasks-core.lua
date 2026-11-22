@@ -2117,7 +2117,7 @@ function tab.view(cols)
 	local v = new_view()
 	v.cols = cols
 	-- A blank line keeps the first box clear of the view switcher.
-	v.add("")
+	pinned[#pinned + 1] = ""
 	selected_index(rows_of(m), m)
 	if state.input then
 		input_box(v, m)

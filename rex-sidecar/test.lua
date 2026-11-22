@@ -2061,7 +2061,9 @@ do
 	equal(lib.model(state.lists, "2026-11-21", {}).by.z1.done, nil, "open again at once")
 
 	-- A blank line between the view switcher and the first box.
-	equal(plain(tab.view(60).lines):match("^[^\n]*"), "", "space under the switcher")
+	local pinned = tab.view(60).pinned
+	equal(pinned[#pinned], "", "space under the switcher")
+	equal(plain(tab.view(60).lines):match("^[^\n]*") ~= "", true, "and only one blank line")
 
 	P.spawn, P.run = spawn, run
 	os.remove(state_file)
