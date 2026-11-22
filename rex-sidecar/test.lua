@@ -1770,7 +1770,7 @@ do
 		equal(shown:find("y mark done", 1, true) ~= nil, true, "y and n offered")
 		equal(tab.badge(), "4!", "badge alerts for a report")
 		tab.key("y")
-		equal(lib.model(state.lists, today, {}).by.reply, nil, "y marks the task done")
+		equal(lib.model(state.lists, today, {}).by.reply.done, true, "y marks the task done")
 		equal(tab.state.saved.proposals.reply, nil, "the report is settled")
 		tab.key("n")
 		equal(lib.model(state.lists, today, {}).by.site ~= nil, true, "n keeps the task open")
@@ -1962,6 +1962,7 @@ do
 			{ id = "b1", title = "B. Old prefix", due = "2026-11-21" },
 			{ id = "c1", title = "Plan the trip (1h)", priority = "C", due = "" },
 			{ id = "d1", title = "Renew the passport (3h)", priority = "B", due = "2026-11-10" },
+			{ id = "z1", title = "Water the plants", priority = "C", status = "completed", completed = "2026-11-21" },
 		} },
 		{ id = "L2", title = "Work", tasks = { { id = "w1", title = "Ship it", priority = "B", due = "2026-11-21" } } },
 	}
@@ -2037,6 +2038,30 @@ do
 	equal(saved_state().proposals["moved-1"].note, "swam", "a report follows the task")
 	equal(saved_state().snoozed["slip moved-1"], "2026-11-21", "and a hidden warning")
 	equal(saved_state().proposals.a1, nil, "nothing left under the old ID")
+
+	-- E edits a task: its title, rating and estimate, and a date when one is
+	-- typed last.
+	state.view, state.selected = "all", "c1"
+	tab.key("E")
+	equal(state.input.text, "C. Plan the trip (1h)", "the edit starts from the task")
+	state.input.text = "A. Plan the summer trip (2h) +3"
+	tab.key("\r")
+	equal(calls[#calls - 1], "update L1 c1 --title Plan the summer trip (2h) --due 2026-11-24 --priority A", "the edit, saved")
+	state.selected = "c1"
+	tab.key("E")
+	state.input.text = "A. Plan the summer trip"
+	tab.key("\r")
+	equal(calls[#calls - 1], "update L1 c1 --title Plan the summer trip --priority A", "no date typed: the date stays")
+
+	-- x on a task done today marks it not done.
+	state.view, state.selected = "now", "z1"
+	has(plain(tab.view(60).lines), "x not done", "the footer offers it")
+	tab.key("x")
+	equal(calls[#calls - 1], "update L1 z1 --status needsAction", "not done, through the provider")
+	equal(lib.model(state.lists, "2026-11-21", {}).by.z1.done, nil, "open again at once")
+
+	-- A blank line between the view switcher and the first box.
+	equal(plain(tab.view(60).lines):match("^[^\n]*"), "", "space under the switcher")
 
 	P.spawn, P.run = spawn, run
 	os.remove(state_file)

@@ -285,12 +285,13 @@ of days in a row with a review.
 | Key | What it does |
 | --- | --- |
 | `j` `k` | Select a task |
-| `x`, or a click on `○` | Mark it done |
+| `x`, or a click on `○` | Mark it done. On a task done today (`✓`), mark it not done again |
 | `a` | Add a task, typed as `A. Title (20m) fri`. The last word can be a date. Without one, the task is due today, or has no date in All |
 | `A` `B` `C` | Rate it |
 | `t` | Plan it for today |
 | `d` | Give it a new date: `today`, `tomorrow`, a weekday, `+3` or `2026-12-01`. Empty clears it |
 | `e` | Estimate it: `15m`, `1h`, `1h30`. Empty clears it |
+| `E` | Edit it: the line starts as `A. Title (20m)`. Change the rating, title or estimate, or add a date as the last word to move it |
 | `s` | Add steps, one per line; `Esc` finishes. Google Tasks only |
 | `l` | Choose the lists shown and the list for new tasks. Reminders only |
 | `m` | Move the task to another list. Reminders only |

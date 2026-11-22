@@ -25,6 +25,12 @@ can show on their own or together. Their shared code lives in
     Attachments, tags and subtasks made in Apple's app don't come along.
   - Steps and "split it into steps" warnings are gone, as Reminders has no
     subtasks for other programs.
+- **Both task tabs:**
+  - `E` edits a task: its rating, title and estimate, and its date when you
+    type one last.
+  - `x` on a task done today marks it not done again. Done tasks can now be
+    selected.
+  - A blank line now separates the view switcher from the first box.
 
 ### Task actions and skill
 

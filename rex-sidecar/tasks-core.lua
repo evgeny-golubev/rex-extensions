@@ -301,8 +301,10 @@ function lib.model(lists, today, moves)
 	for _, t in ipairs(raw_done) do
 		if t.completed == today and not lib.dropped(t) and type(t.parent) ~= "string" then
 			local p = lib.parse_title(t.title or "")
-			m.done[#m.done + 1] = { id = t.id, name = p.name, rating = lib.rating_of(t, p), estimate = p.estimate, done = true,
-				recurring = recurring[lib.normal_title(t.title or "")] or false }
+			local it = { id = t.id, name = p.name, rating = lib.rating_of(t, p), estimate = p.estimate, done = true,
+				recurring = recurring[lib.normal_title(t.title or "")] or false, late = 0, moves = 0 }
+			m.done[#m.done + 1] = it
+			m.by[t.id] = m.by[t.id] or it
 		end
 	end
 	return m
@@ -415,6 +417,9 @@ end
 --- The actions that suit a task, most useful first, each { key, label }: at
 --- most two that fit its state, then done.
 function lib.actions(m, it)
+	if it.done then
+		return { { "x", "not done" } }
+	end
 	local out = {}
 	if lib.too_large(m, it) then
 		out[#out + 1] = { "s", "split into steps" }
@@ -839,6 +844,22 @@ local function complete(id, drop)
 	end
 end
 
+--- Marks a task completed today as not done, at once and through the
+--- provider in the background.
+local function reopen(id)
+	for _, list in ipairs(state.lists or {}) do
+		for _, t in ipairs(list.tasks or {}) do
+			if t.id == id and t.status == "completed" and not t.pending then
+				t.status, t.completed = "needsAction", nil
+				enqueue("Marking the task not done", function()
+					return client_run(30, "update", list.id, id, "--status", "needsAction")
+				end)
+				return
+			end
+		end
+	end
+end
+
 --- Sets the rating or the estimate in a task's title; `field` is "rating"
 --- or "estimate", and a nil value removes it.
 local function retitle(id, field, value, label)
@@ -1087,6 +1108,9 @@ local function rows_of(m)
 	end
 	local view, r = state.view, state.review
 	if view == "now" or view == "today" or (r and r.stage == "today") then
+		for _, it in ipairs(m.done) do
+			rows[#rows + 1] = { item = it, depth = 0 }
+		end
 		for _, it in ipairs(lib.today_items(m)) do
 			add(it)
 		end
@@ -1144,15 +1168,29 @@ end
 --- Completes a task and selects the row that takes its place, so that the
 --- selection never jumps to the top of the list.
 local function complete_row(id, drop)
-	local rows = rows_of(model())
+	local done = model().by[id]
+	if done and done.done then
+		reopen(id)
+		return
+	end
+	-- Done rows sit at the top, so the next row is counted among open ones.
+	local function open_rows()
+		local out = {}
+		for _, r in ipairs(rows_of(model())) do
+			if not r.item.done then
+				out[#out + 1] = r
+			end
+		end
+		return out
+	end
 	local at = 1
-	for i, r in ipairs(rows) do
+	for i, r in ipairs(open_rows()) do
 		if r.item.id == id then
 			at = i
 		end
 	end
 	complete(id, drop)
-	local rest = rows_of(model())
+	local rest = open_rows()
 	local row = rest[math.min(at, #rest)]
 	state.selected = row and row.item.id
 end
@@ -1180,6 +1218,7 @@ end
 
 local input_hints = {
 	add = "A. Title (20m) fri · Enter adds · Esc cancels",
+	edit = "A. Title (20m), and a date last to change it · Enter saves · Esc cancels",
 	date = "today, tomorrow, mon, +3, 2026-12-01; empty clears",
 	estimate = "15m, 1h, 1h30; empty clears",
 	steps = "One step of at most 2h, as Title (30m) · Enter adds · Esc finishes",
@@ -1189,6 +1228,9 @@ local function open_input(kind, it)
 	-- A new date or new steps decide a task in the review's first stage.
 	local deciding = state.review ~= nil and state.review.stage == "late" and (kind == "date" or kind == "steps")
 	state.input = { kind = kind, text = "", id = it and it.id, advance = deciding }
+	if kind == "edit" then
+		state.input.text = lib.compose_title(it.rating, it.name, it.estimate)
+	end
 end
 
 --- Acts on the typed text. Returns false to keep the input open.
@@ -1209,6 +1251,20 @@ local function commit(input)
 			due = day
 		end
 		state.selected = add_task(list, title, due).id
+	elseif input.kind == "edit" then
+		if text == "" then
+			input.error = "A task needs a title."
+			return false
+		end
+		local title, due = lib.parse_entry(text, day)
+		local fields = { due = due }
+		if PRIORITY then
+			local p = lib.parse_title(title)
+			fields.title, fields.priority = lib.compose_title(nil, p.name, p.estimate), p.rating or "none"
+		else
+			fields.title = title
+		end
+		update(input.id, fields, "Editing the task")
 	elseif input.kind == "date" then
 		local due = lib.parse_date(text, day)
 		if not due then
@@ -1298,6 +1354,12 @@ end
 local function task_key(k, it, m)
 	if not it or it.pending then
 		return false
+	elseif it.done then
+		if k == "x" then
+			reopen(it.id)
+			return true
+		end
+		return false
 	end
 	local in_review = state.review and state.review.stage == "late"
 	if k == "x" then
@@ -1311,6 +1373,9 @@ local function task_key(k, it, m)
 		return true
 	elseif k == "e" then
 		open_input("estimate", it)
+		return true
+	elseif k == "E" then
+		open_input("edit", it)
 		return true
 	elseif k == "s" and STEPS then
 		open_input("steps", it.step_of or it)
@@ -1448,10 +1513,10 @@ end
 --- The keys this tab uses somewhere; one that does nothing on the screen
 --- shown gets a notice instead of no answer.
 local tab_keys = {}
-for k in ((STEPS and "s" or "") .. (LISTS and "lm" or "") .. "xtdeaABCvVz]yn-Lrjk"):gmatch(".") do
+for k in ((STEPS and "s" or "") .. (LISTS and "lm" or "") .. "xtdeEaABCvVz]yn-Lrjk"):gmatch(".") do
 	tab_keys[k] = true
 end
-local task_keys = { x = true, t = true, d = true, e = true, s = STEPS or nil, m = LISTS or nil, A = true, B = true, C = true }
+local task_keys = { x = true, t = true, d = true, e = true, E = true, s = STEPS or nil, m = LISTS or nil, A = true, B = true, C = true }
 local unused_notices = {
 	z = "z hides warnings; use d to move a task to a later date.",
 	["]"] = "] shows the next warning; there is no other one here.",
@@ -1558,10 +1623,10 @@ local function row_line(m, row, cols, selected)
 	left = left .. shown_name(it, math.max(4, room))
 	local line = left .. string.rep(" ", math.max(1, cols - width(left) - width(right))) .. right
 	local circle_at = 3 + #indent
-	local action = not it.done and { ranges = {
+	local action = { ranges = {
 		{ from = circle_at, to = circle_at, action = { kind = "done", id = it.id } },
 		{ from = 1, to = cols, action = { kind = "select", id = it.id } },
-	} } or nil
+	} }
 	return line, action
 end
 
@@ -1620,7 +1685,7 @@ end
 local function input_box(v, m)
 	local input = state.input
 	local it = input.id and m.by[input.id]
-	local titles = { add = "New task", date = "New date", estimate = "Estimate", steps = "Steps" }
+	local titles = { add = "New task", edit = "Edit task", date = "New date", estimate = "Estimate", steps = "Steps" }
 	v.box(c.cyan, titles[input.kind] .. (it and (" · " .. it.name) or ""), nil, function(n)
 		if input.kind == "steps" then
 			local long = false
@@ -1673,11 +1738,8 @@ local function today_box(v, m)
 	local items = lib.today_items(m)
 	v.box(c.blue, "Today", #m.done .. "/" .. (#m.done + #items), function(n)
 		v.add(progress(m, items, n))
-		for _, it in ipairs(m.done) do
-			v.add((row_line(m, { item = it, depth = 0 }, n, false)))
-		end
 		add_rows(v, m, rows_where(m, function(it)
-			return it.due and it.due <= m.today
+			return it.done or (it.due and it.due <= m.today)
 		end), n)
 		if #items == 0 and #m.done == 0 then
 			v.dim("Nothing planned for today. a adds a task; t plans the selected one.", n)
@@ -1904,7 +1966,7 @@ local function key_groups(m)
 	end
 	local task_list = task and {
 		{ "x", "mark the task done" }, { "t", "plan it for today" }, { "d", "give it a new date" },
-		{ "e", "estimate how long it takes" }, { "A B C", "rate it A, B or C" },
+		{ "e", "estimate how long it takes" }, { "E", "edit its title, rating, estimate or date" }, { "A B C", "rate it A, B or C" },
 	} or {}
 	if task and STEPS then
 		task_list[#task_list + 1] = { "s", "split it into steps" }
@@ -2054,6 +2116,8 @@ function tab.view(cols)
 	local m = model()
 	local v = new_view()
 	v.cols = cols
+	-- A blank line keeps the first box clear of the view switcher.
+	v.add("")
 	selected_index(rows_of(m), m)
 	if state.input then
 		input_box(v, m)
