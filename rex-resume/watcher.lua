@@ -26,12 +26,22 @@ local claude_starting = false
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)") or "./"
 local settings_path = rex.args.settings or dir .. "settings.json"
 
---- The adapter that finds a Codex pane's thread; the tests put in their own.
-local codex = REX_RESUME_CODEX or dofile(dir .. "../agents/init.lua").codex
+--- The adapters that find a Codex pane's thread and an agy pane's
+--- conversation; the tests put in their own.
+local agents = (REX_RESUME_CODEX or REX_RESUME_AGY) and {} or dofile(dir .. "../agents/init.lua")
+local codex = REX_RESUME_CODEX or agents.codex
+local agy = REX_RESUME_AGY or agents.agy
+
+--- Each agent that comes back in its own conversation: its adapter and the
+--- command that resumes a session ID.
+local resumable = {
+	codex = { adapter = function() return codex end, command = "codex resume " },
+	agy = { adapter = function() return agy end, command = "agy --conversation " },
+}
 
 local default_programs = {
 	"nvim", "vim", "vi", "nano", "less", "man", "htop", "btop", "top",
-	"watch", "lazygit", "tig", "k9s", "ssh", "codex",
+	"watch", "lazygit", "tig", "k9s", "ssh", "codex", "agy",
 }
 local modes = { allow_name = true, allow_full = true, any_full = true }
 
@@ -157,12 +167,13 @@ local function terminal_options(session_id, block_id)
 		end
 		return { cwd = cwd(r) }
 	end
-	if fg and program(r) == "codex" and allowed_program("codex") then
-		local ok, thread = pcall(codex.session, { pid = fg.pid, cwd = cwd(r), session_id = session_id, block_id = block_id })
-		if ok and thread and thread.id then
-			return { cwd = thread.cwd or cwd(r), initial_input = "codex resume " .. thread.id .. "\n" }
+	local agent = fg and resumable[program(r) or ""]
+	if agent and allowed_program(program(r)) then
+		local ok, sess = pcall(agent.adapter().session, { pid = fg.pid, cwd = cwd(r), session_id = session_id, block_id = block_id })
+		if ok and sess and sess.id then
+			return { cwd = sess.cwd or cwd(r), initial_input = agent.command .. sess.id .. "\n" }
 		end
-		-- Until the thread is known, the plain command is kept.
+		-- Until the session is known, the plain command is kept.
 		local waits = claude_waits[fg.pid] or 0
 		if waits < claude_retries then
 			claude_waits[fg.pid] = waits + 1

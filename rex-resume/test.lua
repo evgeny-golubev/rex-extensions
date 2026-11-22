@@ -47,6 +47,12 @@ REX_RESUME_CODEX = {
 		return codex_thread
 	end,
 }
+local agy_conversation
+REX_RESUME_AGY = {
+	session = function()
+		return agy_conversation
+	end,
+}
 
 local function reset()
 	clients, created, timers, stopped, written, ps_calls = {}, {}, {}, false, {}, {}
@@ -228,6 +234,15 @@ local ok, err = pcall(function()
 	equal(shell_options().initial_input, "codex resume thread-7\n", "codex resume")
 	equal(shell_options().cwd, "/src/app/api", "codex thread's directory")
 
+	-- agy comes back in its conversation.
+	reset()
+	processes["block:1"].foreground.argv0 = "agy"
+	agy_conversation = { id = "conv-9", cwd = "/src/app/web" }
+	run()
+	equal(shell_options().initial_input, "agy --conversation conv-9\n", "agy resume")
+	equal(shell_options().cwd, "/src/app/web", "agy conversation's directory")
+	agy_conversation = nil
+
 	-- Before Codex has a thread, its command is kept and the save repeated.
 	reset()
 	processes["block:1"].foreground.argv0 = "codex"
@@ -368,7 +383,7 @@ local ok, err = pcall(function()
 	equal(read_json(snapshot), nil, "second copy's snapshot")
 end)
 rex, os.getenv = real, real_getenv
-REX_RESUME_CODEX = nil
+REX_RESUME_CODEX, REX_RESUME_AGY = nil, nil
 real.exec({ "/bin/rm", "-rf", tmp })
 if not ok then
 	error(err, 0)
