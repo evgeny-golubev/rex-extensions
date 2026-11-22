@@ -1317,6 +1317,57 @@ do
 	has(plain(a.tools), "Shell", "codex subagent's tool calls")
 	equal(cx.gate.total, 0, "codex logs no permission checks")
 end
+-- agy: an Antigravity CLI transcript read through its parser.
+do
+	local function step(t, fields)
+		fields.type, fields.created_at, fields.status = t, fields.created_at or "2026-11-22T16:40:15Z", fields.status or "DONE"
+		return fields
+	end
+	local lines = {
+		step("USER_INPUT", { source = "USER_EXPLICIT", content = "<USER_REQUEST>\nFix the parser\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nnow\n</ADDITIONAL_METADATA>" }),
+		step("PLANNER_RESPONSE", { source = "MODEL", model = "gemini-test", input_tokens = 900, cache_read_tokens = 100, tool_calls = {
+			{ name = "run_command", args = { CommandLine = "pytest -q" } },
+			{ name = "run_command", args = { CommandLine = "make lint" } },
+			{ name = "write_to_file", args = { TargetFile = "/src/app/new.lua", CodeContent = "one\ntwo\n" } },
+			{ name = "replace_file_content", args = { TargetFile = "/src/app/a.lua", ReplacementChunks = { { TargetContent = "old", ReplacementContent = "new" } } } },
+		} }),
+		step("GENERIC", { source = "MODEL", content = "Created At: x\nThe command exited with code 0.\nOutput: 3 passed" }),
+		step("GENERIC", { source = "MODEL", content = "Created At: x\nThe command exited with code 2.\nOutput: lint failed" }),
+		step("GENERIC", { source = "MODEL", content = "Created file" }),
+		step("GENERIC", { source = "MODEL", content = "Edited file" }),
+		step("PLANNER_RESPONSE", { source = "MODEL", model = "gemini-test", input_tokens = 1200, created_at = "2026-11-22T16:41:15Z",
+			tool_calls = { { name = "ask_question", args = { questions = { { question = "Keep the old API?", options = { "yes", "no" } } } } } } }),
+	}
+	local ax = P.new_state("agy")
+	ax.root = "/src/app"
+	for _, r in ipairs(lines) do
+		P.record(ax, r)
+	end
+	equal(ax.prompts[1].text, "Fix the parser", "the prompt without agy's markup")
+	equal(ax.model, "gemini-test", "agy model")
+	equal(ax.context, 1200, "agy context")
+	equal(ax.requests, 2, "agy requests")
+	equal(#ax.tests .. " " .. tostring(ax.tests[1].ok), "1 true", "a passing test run")
+	equal(ax.failures[1].command, "make lint", "a failed command")
+	equal(ax.turn.files["/src/app/new.lua"].created, true, "a written file")
+	equal(ax.turn.files["/src/app/new.lua"].added, 2, "its lines")
+	equal(ax.turn.files["/src/app/a.lua"].added .. " " .. ax.turn.files["/src/app/a.lua"].removed, "1 1", "a replacement")
+	equal(ax.turn.edits, 2, "two edits")
+	has(plain(P.info_lines(ax, 60, { now = os.time() })), "Keep the old API?", "the question waits in Open")
+	equal(ax.turn.ms, 60000, "asking ends the turn")
+	P.record(ax, step("USER_INPUT", { content = "<USER_REQUEST>yes</USER_REQUEST>" }))
+	equal(next(ax.waiting), nil, "an answer ends the question")
+	P.record(ax, step("PLANNER_RESPONSE", { model = "gemini-test", content = "Done. See https://example.com/pr/2" }))
+	equal(ax.last_text.text, "Done. See https://example.com/pr/2", "the reply")
+	local raw = {}
+	for _, r in ipairs(lines) do
+		raw[#raw + 1] = rex.json.encode(r)
+	end
+	raw[#raw + 1] = rex.json.encode(step("USER_INPUT", { content = "<USER_REQUEST>yes</USER_REQUEST>" }))
+	raw[#raw + 1] = rex.json.encode(step("PLANNER_RESPONSE", { content = "Done." }))
+	local turns = P.parsers.agy.turns(raw, 5)
+	equal(#turns .. " " .. turns[1], "1 Done.", "agy turns")
+end
 -- The Tasks tab, on made-up tasks, with its state file beside the throwaway
 -- settings.json. No provider runs: the writes stay queued.
 do

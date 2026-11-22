@@ -23,8 +23,9 @@ local A = {}
 A.util = dofile(dir .. "util.lua")
 A.claude = dofile(dir .. "claude.lua")(A.util)
 A.codex = dofile(dir .. "codex.lua")(A.util)
-A.list = { A.claude, A.codex }
-A.by_id = { claude = A.claude, codex = A.codex }
+A.agy = dofile(dir .. "agy.lua")(A.util)
+A.list = { A.claude, A.codex, A.agy }
+A.by_id = { claude = A.claude, codex = A.codex, agy = A.agy }
 
 --- The agent a process is, or nil.
 function A.of(p)

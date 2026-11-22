@@ -3,7 +3,7 @@
 -- it doesn't read the real ~/.claude or ~/.codex.
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)")
 local A = dofile(dir .. "init.lua")
-local U, claude, codex = A.util, A.claude, A.codex
+local U, claude, codex, agy = A.util, A.claude, A.codex, A.agy
 
 local function equal(actual, expected, what)
 	if actual ~= expected then
@@ -13,7 +13,7 @@ end
 
 local real_exec = U.exec
 local real_home = U.home
-local queries, rows_for, args_of, etime_of = {}, nil, {}, {}
+local queries, rows_for, args_of, etime_of, lsof_of = {}, nil, {}, {}, {}
 
 --- sqlite3 answers with the rows `rows_for(query)` gives; ps with the
 --- command lines and ages set for a pid; anything else runs.
@@ -22,6 +22,9 @@ U.exec = function(argv)
 		queries[#queries + 1] = argv[5]
 		local rows = rows_for and rows_for(argv[5]) or {}
 		return { ok = true, stdout = #rows > 0 and rex.json.encode(rows) or "" }
+	elseif argv[1] == "/usr/sbin/lsof" then
+		local out = lsof_of[tonumber(argv[3])]
+		return { ok = out ~= nil, stdout = out or "" }
 	elseif argv[1] == "/bin/ps" then
 		local pid = tonumber(argv[#argv])
 		if argv[4] == "args=" then
@@ -243,6 +246,34 @@ local ok, err = pcall(function()
 	equal(known[1].finished, true, "a subagent the caller knows finished")
 	equal(known[1].type, nil, "its files not read again")
 	equal(known[2].type, "Plan", "the others read")
+
+	-- agy: the conversation whose presence lock the process holds, else the
+	-- folder's last one; the model from the end of its transcript.
+	equal(A.of({ argv0 = "/Users/me/.local/bin/agy" }), agy, "agy by path")
+	equal(A.of({ argv0 = "AGY" }), agy, "agy in any case")
+	U.home = tmp
+	local base = tmp .. "/.gemini/antigravity-cli/"
+	local function put(path, text)
+		real_exec({ "mkdir", "-p", (path:match("^(.*)/")) })
+		local f = assert(io.open(path, "w"))
+		f:write(text)
+		f:close()
+	end
+	local logs = "/.system_generated/logs/transcript_full.jsonl"
+	put(base .. "brain/conv-1" .. logs, '{"type":"USER_INPUT"}\n{"type":"PLANNER_RESPONSE","model":"gemini-a"}\n{"type":"PLANNER_RESPONSE","model":"gemini-b"}\n')
+	put(base .. "brain/conv-2" .. logs, '{"type":"USER_INPUT"}\n')
+	put(base .. "cache/last_conversations.json", rex.json.encode({ ["/src/app"] = "conv-2" }))
+	equal(agy.locked_id("p51\nn/x/antigravity-cli/conversations\nn/x/antigravity-cli/presence/conv-1.lock\n"), "conv-1", "the lock's conversation")
+	lsof_of[51] = "p51\nn" .. base .. "presence/conv-1.lock\n"
+	local as = agy.session({ pid = 51, cwd = "/src/app" })
+	equal(as.id, "conv-1", "the locked conversation first")
+	equal(as.transcript, base .. "brain/conv-1" .. logs, "its transcript")
+	equal(as.model, "gemini-b", "the latest model")
+	as = agy.session({ pid = 52, cwd = "/src/app" })
+	equal(as.id, "conv-2", "else the folder's last conversation")
+	equal(agy.session({ pid = 53, cwd = "/elsewhere" }), nil, "none found")
+	equal(#agy.subagents(as), 0, "no subagents")
+	U.home = real_home
 end)
 U.exec, U.home = real_exec, real_home
 real_exec({ "rm", "-rf", tmp })

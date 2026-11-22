@@ -450,7 +450,7 @@ M.first_line, M.short_path, M.each_line = first_line, short_path, each_line
 
 --- A reader for each agent's transcripts, by adapter ID; see parsers/.
 local parsers = {}
-for _, id in ipairs({ "claude", "codex" }) do
+for _, id in ipairs({ "claude", "codex", "agy" }) do
 	parsers[id] = dofile(dir .. "parsers/" .. id .. ".lua")(M)
 end
 M.parsers = parsers
