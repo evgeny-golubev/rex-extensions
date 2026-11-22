@@ -47,10 +47,20 @@ REX_RESUME_CODEX = {
 		return codex_thread
 	end,
 }
-local agy_conversation
+local agy_conversation, pi_session, opencode_session
 REX_RESUME_AGY = {
 	session = function()
 		return agy_conversation
+	end,
+}
+REX_RESUME_PI = {
+	session = function()
+		return pi_session
+	end,
+}
+REX_RESUME_OPENCODE = {
+	session = function()
+		return opencode_session
 	end,
 }
 
@@ -243,6 +253,21 @@ local ok, err = pcall(function()
 	equal(shell_options().cwd, "/src/app/web", "agy conversation's directory")
 	agy_conversation = nil
 
+	-- Pi comes back in its session file, OpenCode in its session.
+	reset()
+	processes["block:1"].foreground.argv0 = "pi"
+	pi_session = { id = "p1", transcript = "/home/me/.pi/agent/sessions/--x--/it's.jsonl", cwd = "/src/app/pi" }
+	run()
+	equal(shell_options().initial_input, "pi --session '/home/me/.pi/agent/sessions/--x--/it'\\''s.jsonl'\n", "pi resume, quoted")
+	equal(shell_options().cwd, "/src/app/pi", "pi session's directory")
+	pi_session = nil
+	reset()
+	processes["block:1"].foreground.argv0 = "opencode"
+	opencode_session = { id = "ses_42", cwd = "/src/app/oc" }
+	run()
+	equal(shell_options().initial_input, "opencode --session ses_42\n", "opencode resume")
+	opencode_session = nil
+
 	-- Before Codex has a thread, its command is kept and the save repeated.
 	reset()
 	processes["block:1"].foreground.argv0 = "codex"
@@ -383,7 +408,7 @@ local ok, err = pcall(function()
 	equal(read_json(snapshot), nil, "second copy's snapshot")
 end)
 rex, os.getenv = real, real_getenv
-REX_RESUME_CODEX, REX_RESUME_AGY = nil, nil
+REX_RESUME_CODEX, REX_RESUME_AGY, REX_RESUME_PI, REX_RESUME_OPENCODE = nil, nil, nil, nil
 real.exec({ "/bin/rm", "-rf", tmp })
 if not ok then
 	error(err, 0)

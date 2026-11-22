@@ -21,6 +21,10 @@ M.colors = {
 	codex = "#10A37F",
 	codex_subagent = "#5CC9A7",
 	agy = "#4285F4",
+	pi = "#E06C9F",
+	pi_subagent = "#EE9BC0",
+	opencode = "#C9D1D9",
+	opencode_subagent = "#E4E8EC",
 	agent = "#4FB3A9",
 	editor = "#6A8FD8",
 	git = "#D9534F",
@@ -80,7 +84,7 @@ local program_kinds = {
 	},
 	remote = { "ssh", "mosh", "scp", "rsync", "sftp", "tailscale", "et" },
 	shell = { "zsh", "bash", "fish", "sh", "dash", "nu", "login" },
-	agent = { "codex", "agy", "gemini", "aider", "opencode", "cursor-agent", "amp", "goose", "crush", "qwen" },
+	agent = { "codex", "agy", "pi", "gemini", "aider", "opencode", "cursor-agent", "amp", "goose", "crush", "qwen" },
 }
 local kind_of_program = {}
 for kind, names in pairs(program_kinds) do
@@ -291,7 +295,7 @@ end
 
 --- An agent session's outfit.
 function M.agent_outfit(adapter_id, model, effort)
-	if adapter_id == "codex" or adapter_id == "agy" then
+	if adapter_id ~= "claude" then
 		return M.codex_outfit(model, effort)
 	end
 	return M.claude_outfit(model, effort)

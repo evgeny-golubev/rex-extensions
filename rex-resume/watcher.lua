@@ -26,22 +26,31 @@ local claude_starting = false
 local dir = debug.getinfo(1, "S").source:match("^@?(.*/)") or "./"
 local settings_path = rex.args.settings or dir .. "settings.json"
 
---- The adapters that find a Codex pane's thread and an agy pane's
---- conversation; the tests put in their own.
-local agents = (REX_RESUME_CODEX or REX_RESUME_AGY) and {} or dofile(dir .. "../agents/init.lua")
+--- The adapters that find a Codex, agy, Pi or OpenCode pane's session; the
+--- tests put in their own.
+local faked = REX_RESUME_CODEX or REX_RESUME_AGY or REX_RESUME_PI or REX_RESUME_OPENCODE
+local agents = faked and {} or dofile(dir .. "../agents/init.lua")
 local codex = REX_RESUME_CODEX or agents.codex
 local agy = REX_RESUME_AGY or agents.agy
+local pi = REX_RESUME_PI or agents.pi
+local opencode = REX_RESUME_OPENCODE or agents.opencode
+
+local function quoted(s)
+	return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
 
 --- Each agent that comes back in its own conversation: its adapter and the
---- command that resumes a session ID.
+--- command that resumes a session.
 local resumable = {
-	codex = { adapter = function() return codex end, command = "codex resume " },
-	agy = { adapter = function() return agy end, command = "agy --conversation " },
+	codex = { adapter = function() return codex end, command = function(s) return "codex resume " .. s.id end },
+	agy = { adapter = function() return agy end, command = function(s) return "agy --conversation " .. s.id end },
+	pi = { adapter = function() return pi end, command = function(s) return "pi --session " .. quoted(s.transcript) end },
+	opencode = { adapter = function() return opencode end, command = function(s) return "opencode --session " .. s.id end },
 }
 
 local default_programs = {
 	"nvim", "vim", "vi", "nano", "less", "man", "htop", "btop", "top",
-	"watch", "lazygit", "tig", "k9s", "ssh", "codex", "agy",
+	"watch", "lazygit", "tig", "k9s", "ssh", "codex", "agy", "pi", "opencode",
 }
 local modes = { allow_name = true, allow_full = true, any_full = true }
 
@@ -171,7 +180,7 @@ local function terminal_options(session_id, block_id)
 	if agent and allowed_program(program(r)) then
 		local ok, sess = pcall(agent.adapter().session, { pid = fg.pid, cwd = cwd(r), session_id = session_id, block_id = block_id })
 		if ok and sess and sess.id then
-			return { cwd = sess.cwd or cwd(r), initial_input = agent.command .. sess.id .. "\n" }
+			return { cwd = sess.cwd or cwd(r), initial_input = agent.command(sess) .. "\n" }
 		end
 		-- Until the session is known, the plain command is kept.
 		local waits = claude_waits[fg.pid] or 0
