@@ -511,11 +511,27 @@ end
 
 -- Drawing -------------------------------------------------------------------
 
-local rgb = agents.util.rgb
+local raw_rgb = agents.util.rgb
+local rgb_cache = {}
+local function rgb(hex)
+	local c = rgb_cache[hex]
+	if not c then
+		c = raw_rgb(hex)
+		rgb_cache[hex] = c
+	end
+	return c
+end
 
+local shade_cache = {}
 local function shade(hex, factor)
-	local c = rgb(hex)
-	return string.format("%d;%d;%d", math.floor(c[1] * factor), math.floor(c[2] * factor), math.floor(c[3] * factor))
+	local key = tostring(hex) .. "\0" .. tostring(factor)
+	local out = shade_cache[key]
+	if not out then
+		local c = rgb(hex)
+		out = string.format("%d;%d;%d", math.floor(c[1] * factor), math.floor(c[2] * factor), math.floor(c[3] * factor))
+		shade_cache[key] = out
+	end
+	return out
 end
 
 local function gradient_shade(stops, t, factor)
@@ -536,9 +552,27 @@ local function gradient_shade(stops, t, factor)
 	)
 end
 
+local grad_col_cache = setmetatable({}, { __mode = "k" })
+local function gradient_cols(stops, factor)
+	local by_f = grad_col_cache[stops]
+	if not by_f then
+		by_f = {}
+		grad_col_cache[stops] = by_f
+	end
+	local cols = by_f[factor]
+	if not cols then
+		cols = {}
+		for cx = 0, 6 do
+			cols[cx] = gradient_shade(stops, cx / 5, factor)
+		end
+		by_f[factor] = cols
+	end
+	return cols
+end
+
 --- A canvas of cols x rows cells, each 2 x 4 pixels, with text on top.
 function M.canvas(cols, rows)
-	return { cols = cols, rows = rows, width = cols * 2, height = rows * 4, px = {}, text = {} }
+	return { cols = cols, rows = rows, width = cols * 2, height = rows * 4, px = {}, text = {}, row_max = {} }
 end
 
 --- A crab's width in cells.
@@ -547,6 +581,15 @@ M.crab_cols = math.ceil(sprites.width / 2)
 local function plot(c, x, y, color)
 	if x >= 0 and x < c.width and y >= 0 and y < c.height then
 		c.px[y * c.width + x + 1] = color
+		local row = math.floor(y / 4)
+		local col = math.floor(x / 2)
+		local rm = c.row_max
+		if rm then
+			local prev = rm[row]
+			if not prev or col > prev then
+				rm[row] = col
+			end
+		end
 	end
 end
 
@@ -556,14 +599,22 @@ function M.write(c, col, row, segments, width)
 		return
 	end
 	local limit = math.min(c.cols, col + width)
+	local rm = c.row_max
 	for _, seg in ipairs(segments) do
 		local s = M.clip(seg[1], limit - col)
 		local grad = seg[4]
 		local span = grad and math.max(1, M.width(s) - 1) or 1
+		local solid = not grad and shade(seg[2] or M.colors.text, 1) or nil
 		local idx = 0
 		for ch in s:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-			local color = grad and gradient_shade(grad, idx / span, 1) or shade(seg[2] or M.colors.text, 1)
+			local color = solid or gradient_shade(grad, idx / span, 1)
 			c.text[row * c.cols + col + 1] = { ch, color, seg[3] }
+			if rm then
+				local prev = rm[row]
+				if not prev or col > prev then
+					rm[row] = col
+				end
+			end
 			col = col + 1
 			idx = idx + 1
 		end
@@ -573,9 +624,14 @@ function M.write(c, col, row, segments, width)
 	end
 end
 
+local row_map_cache = {}
 --- Where each of a crab's pixel rows lands in a pane height pixels tall, and
 --- how many rows the crab keeps.
 function M.row_map(height)
+	local cached = row_map_cache[height]
+	if cached then
+		return cached[1], cached[2]
+	end
 	local sheet = sprites
 	local dropped = {}
 	for i = 1, math.max(0, sheet.height - height) do
@@ -590,6 +646,7 @@ function M.row_map(height)
 			kept = kept + 1
 		end
 	end
+	row_map_cache[height] = { map, kept }
 	return map, kept
 end
 
@@ -601,20 +658,23 @@ function M.draw_crab(c, col, oy, crab, frame, map)
 	local ox = col * 2
 	map = map or M.row_map(sheet.height)
 	local function put(x, y, color, shift)
-		if map[y] then
-			plot(c, ox + x, oy + map[y] + (shift or 0), color)
+		local my = map[y]
+		if my then
+			plot(c, ox + x, oy + my + (shift or 0), color)
 		end
 	end
 	local busy = crab.state == "busy"
 	local factor = busy and 1 or 0.6
 	local body = crab.color or M.colors.claude
 	local grad = crab.gradient
+	local solid_body = not grad and shade(body, factor) or nil
+	local gcols = grad and gradient_cols(grad, factor) or nil
 	-- Quantise gradients per 2-pixel cell column so octant cells keep one body colour.
-	local function body_at(x, f)
-		if grad then
-			return gradient_shade(grad, math.floor(x / 2) / 5, f or factor)
+	local function body_at(x)
+		if gcols then
+			return gcols[math.floor(x / 2)] or gcols[5]
 		end
-		return shade(body, f or factor)
+		return solid_body
 	end
 	local bob = (busy and (frame % 4 == 1 or frame % 4 == 2)) and -1 or 0
 	local lifted = busy and (frame % 2 + 1) or 0
@@ -632,23 +692,33 @@ function M.draw_crab(c, col, oy, crab, frame, map)
 	end
 	local shut = crab.state == "sleep" or (not busy and frame % 20 == 0)
 	local eye_open = shade(sheet.eye, 1)
+	local shut_cols = shut and (grad and gradient_cols(grad, factor * 0.7) or nil) or nil
+	local shut_solid = shut and (not grad and shade(body, factor * 0.7) or nil) or nil
 	for dy, line in ipairs(sheet.body.rows) do
+		local py = sheet.body.y + dy - 1
 		for dx = 1, #line do
 			local ch = line:sub(dx, dx)
 			if ch == "c" then
-				put(dx - 1, sheet.body.y + dy - 1, body_at(dx - 1), bob)
+				put(dx - 1, py, body_at(dx - 1), bob)
 			elseif ch == "k" then
-				put(dx - 1, sheet.body.y + dy - 1, shut and body_at(dx - 1, factor * 0.7) or eye_open, bob)
+				local ec = eye_open
+				if shut then
+					ec = shut_cols and (shut_cols[math.floor((dx - 1) / 2)] or shut_cols[5]) or shut_solid
+				end
+				put(dx - 1, py, ec, bob)
 			end
 		end
 	end
 	local wave = busy and frame % 2 or -1
 	local arms = sheet.arms
-	for side, x in pairs({ left = arms.left, right = arms.right }) do
-		local up = (side == "left" and wave == 0) or (side == "right" and wave == 1)
+	for side = 1, 2 do
+		local x = side == 1 and arms.left or arms.right
+		local up = (side == 1 and wave == 0) or (side == 2 and wave == 1)
+		local shift = bob - (up and 1 or 0)
 		for dx = 0, arms.size - 1 do
+			local col_c = body_at(x + dx)
 			for dy = 0, arms.size - 1 do
-				put(x + dx, arms.y + dy, body_at(x + dx), bob - (up and 1 or 0))
+				put(x + dx, arms.y + dy, col_c, shift)
 			end
 		end
 	end
@@ -658,17 +728,19 @@ function M.draw_crab(c, col, oy, crab, frame, map)
 			local speed = busy and 2 or 4
 			rows = part.frames[math.floor(frame / speed) % #part.frames + 1]
 		end
+		local shift = part.fixed and 0 or bob
 		for dy, line in ipairs(rows) do
+			local py = part.y + dy - 1
 			for dx = 1, #line do
 				local hex = part.legend[line:sub(dx, dx)]
 				if hex == "body" then
-					put(part.x + dx - 1, part.y + dy - 1, body_at(part.x + dx - 1), part.fixed and 0 or bob)
-				else
+					put(part.x + dx - 1, py, body_at(part.x + dx - 1), shift)
+				elseif hex then
 					if hex == "accent" then
 						hex = crab.accent or part.accent
 					end
 					if hex then
-						put(part.x + dx - 1, part.y + dy - 1, shade(hex, factor), part.fixed and 0 or bob)
+						put(part.x + dx - 1, py, shade(hex, factor), shift)
 					end
 				end
 			end
@@ -688,61 +760,101 @@ end
 function M.render(c)
 	local lines, sgr = {}, nil
 	local w = c.width
+	local px, text, rm = c.px, c.text, c.row_max
+	local use_rm = rm ~= nil and (next(rm) ~= nil or (next(px) == nil and next(text) == nil))
 	for row = 0, c.rows - 1 do
-		local out = {}
-		local function set(code)
-			if code ~= sgr then
-				out[#out + 1] = "\27[0m" .. code
-				sgr = code
-			end
-		end
-		for col = 0, c.cols - 1 do
-			local t = c.text[row * c.cols + col + 1]
-			if t then
-				set("\27[38;2;" .. t[2] .. "m" .. (t[3] and "\27[1m" or ""))
-				out[#out + 1] = t[1]
+		local last_col = use_rm and rm[row] or (c.cols - 1)
+		if not last_col then
+			if sgr ~= "" then
+				lines[#lines + 1] = "\27[0m\27[K"
+				sgr = ""
 			else
-				local cell, counts, empty = {}, {}, 0
-				for n = 0, 7 do
-					local p = c.px[(row * 4 + math.floor(n / 2)) * w + col * 2 + n % 2 + 1]
-					cell[n] = p
-					if p then
-						counts[p] = (counts[p] or 0) + 1
-					else
-						empty = empty + 1
-					end
-				end
-				local fg, fgn, bg, bgn = nil, 0, nil, 0
-				for color, n in pairs(counts) do
-					if n > fgn or (n == fgn and color < fg) then
-						bg, bgn, fg, fgn = fg, fgn, color, n
-					elseif n > bgn or (n == bgn and (bg == nil or color < bg)) then
-						bg, bgn = color, n
-					end
-				end
-				if not fg then
-					set("")
-					out[#out + 1] = " "
-				else
-					-- The terminal's background counts as a colour too, and wins a
-					-- tie, so a crab's edge doesn't take a neighbour's colour.
-					if empty >= bgn then
-						bg = nil
-					end
-					local mask = 0
-					for n = 0, 7 do
-						if cell[n] == fg then
-							mask = mask + 2 ^ n
-						end
-					end
-					set("\27[38;2;" .. fg .. (bg and (";48;2;" .. bg) or "") .. "m")
-					out[#out + 1] = glyphs[mask + 1]
+				lines[#lines + 1] = "\27[K"
+			end
+		else
+			local out, on = {}, 0
+			local function set(code)
+				if code ~= sgr then
+					on = on + 1
+					out[on] = "\27[0m" .. code
+					sgr = code
 				end
 			end
+			local text_row = row * c.cols + 1
+			local r0 = row * 4 * w + 1
+			local r1 = r0 + w
+			local r2 = r1 + w
+			local r3 = r2 + w
+			for col = 0, last_col do
+				local t = text[text_row + col]
+				if t then
+					set("\27[38;2;" .. t[2] .. "m" .. (t[3] and "\27[1m" or ""))
+					on = on + 1
+					out[on] = t[1]
+				else
+					local x2 = col * 2
+					local p0 = px[r0 + x2]
+					local p1 = px[r0 + x2 + 1]
+					local p2 = px[r1 + x2]
+					local p3 = px[r1 + x2 + 1]
+					local p4 = px[r2 + x2]
+					local p5 = px[r2 + x2 + 1]
+					local p6 = px[r3 + x2]
+					local p7 = px[r3 + x2 + 1]
+					local fg = p0 or p1 or p2 or p3 or p4 or p5 or p6 or p7
+					if not fg then
+						set("")
+						on = on + 1
+						out[on] = " "
+					elseif (not p0 or p0 == fg) and (not p1 or p1 == fg)
+						and (not p2 or p2 == fg) and (not p3 or p3 == fg)
+						and (not p4 or p4 == fg) and (not p5 or p5 == fg)
+						and (not p6 or p6 == fg) and (not p7 or p7 == fg) then
+						local mask = (p0 and 1 or 0) + (p1 and 2 or 0) + (p2 and 4 or 0) + (p3 and 8 or 0)
+							+ (p4 and 16 or 0) + (p5 and 32 or 0) + (p6 and 64 or 0) + (p7 and 128 or 0)
+						set("\27[38;2;" .. fg .. "m")
+						on = on + 1
+						out[on] = glyphs[mask + 1]
+					else
+						local counts, empty = {}, 0
+						local function tally(p)
+							if p then
+								counts[p] = (counts[p] or 0) + 1
+							else
+								empty = empty + 1
+							end
+						end
+						tally(p0); tally(p1); tally(p2); tally(p3)
+						tally(p4); tally(p5); tally(p6); tally(p7)
+						local fgn, bg, bgn = 0, nil, 0
+						fg = nil
+						for color, n in pairs(counts) do
+							if n > fgn or (n == fgn and color < fg) then
+								bg, bgn, fg, fgn = fg, fgn, color, n
+							elseif n > bgn or (n == bgn and (bg == nil or color < bg)) then
+								bg, bgn = color, n
+							end
+						end
+						-- The terminal's background counts as a colour too, and wins a
+						-- tie, so a crab's edge doesn't take a neighbour's colour.
+						if empty >= bgn then
+							bg = nil
+						end
+						local mask = (p0 == fg and 1 or 0) + (p1 == fg and 2 or 0)
+							+ (p2 == fg and 4 or 0) + (p3 == fg and 8 or 0)
+							+ (p4 == fg and 16 or 0) + (p5 == fg and 32 or 0)
+							+ (p6 == fg and 64 or 0) + (p7 == fg and 128 or 0)
+						set("\27[38;2;" .. fg .. (bg and (";48;2;" .. bg) or "") .. "m")
+						on = on + 1
+						out[on] = glyphs[mask + 1]
+					end
+				end
+			end
+			set("")
+			on = on + 1
+			out[on] = "\27[K"
+			lines[#lines + 1] = table.concat(out)
 		end
-		set("")
-		out[#out + 1] = "\27[K"
-		lines[#lines + 1] = table.concat(out)
 	end
 	return "\27[H" .. table.concat(lines, "\r\n")
 end
@@ -870,11 +982,42 @@ local pond = {
 	cols = 80,
 	rows = 6,
 	drawn = nil,
+	last_out = nil,
+	visible = true,
+	dirty = true,
 	main_pid = nil,
 	view = {},
 	--- Transcript path -> what's been read of its monitors.
 	monitors = {},
 }
+
+--- Whether any crab in the current view animates continuously (busy or sleeping).
+local function has_motion(view)
+	local m = view and view.main
+	if m and (m.state == "busy" or m.state == "sleep") then
+		return true
+	end
+	for _, crab in ipairs((view and view.crabs) or {}) do
+		if crab.state == "busy" or crab.state == "sleep" then
+			return true
+		end
+	end
+	return false
+end
+
+--- Whether an idle-only view is entering or leaving a crab blink on this frame.
+local function has_blink(view, frame)
+	if view and view.main and (frame % 20 == 0 or (frame - 1) % 20 == 0) then
+		return true
+	end
+	for n = 1, #((view and view.crabs) or {}) do
+		local f = frame + n
+		if f % 20 == 0 or (f - 1) % 20 == 0 then
+			return true
+		end
+	end
+	return false
+end
 
 --- An agent pane's crab, from its session and adapter theme.
 local function agent_crab(adapter, sess, record, now)
@@ -957,11 +1100,6 @@ end
 
 local function gather()
 	local now = os.time()
-	local size = block_call(pond.session_id, pond.block_id, "size")
-	if size and size.columns then
-		pond.cols, pond.rows = size.columns, size.rows
-	end
-
 	local view = call("session.view", { session_id = pond.session_id })
 	local tab
 	for _, w in ipairs(view and view.windows or {}) do
@@ -975,6 +1113,17 @@ local function gather()
 	end
 	if not tab then
 		return
+	end
+	-- Skip heavy polling and rendering while this pond lives in a background tab.
+	local visible = (not view.active_window_id) or (tab.window_id == view.active_window_id)
+	pond.visible = visible
+	if not visible then
+		return
+	end
+
+	local size = block_call(pond.session_id, pond.block_id, "size")
+	if size and size.columns then
+		pond.cols, pond.rows = size.columns, size.rows
 	end
 
 	local processes, ages = {}, {}
@@ -1056,30 +1205,46 @@ local function gather()
 	end
 	result.crabs = M.group(crabs)
 	pond.view = result
+	pond.dirty = true
 end
 
 local function tick()
 	local now = os.time()
 	local ok, err = pcall(function()
-		if now - pond.gathered >= 2 then
+		local motion = has_motion(pond.view)
+		local gather_every = not pond.visible and 1 or (motion and 2 or 4)
+		if now - pond.gathered >= gather_every then
 			pond.gathered = now
 			gather()
+			motion = has_motion(pond.view)
+		end
+		if not pond.visible then
+			return
 		end
 		local size = pond.cols .. "x" .. pond.rows
 		if size ~= pond.drawn then
 			pond.drawn = size
+			pond.last_out = nil
+			pond.dirty = true
 			io.write("\27[2J")
 		end
-		io.write(M.render(M.scene(pond.cols, pond.rows, pond.view, pond.frame, now)))
-		if io.stdout.flush then
-			io.stdout:flush()
+		if pond.dirty or motion or has_blink(pond.view, pond.frame) then
+			pond.dirty = false
+			local rendered = M.render(M.scene(pond.cols, pond.rows, pond.view, pond.frame, now))
+			if rendered ~= pond.last_out then
+				pond.last_out = rendered
+				io.write(rendered)
+				if io.stdout.flush then
+					io.stdout:flush()
+				end
+			end
 		end
 	end)
 	if not ok then
 		io.write("\27[H\27[2J" .. tostring(err))
 	end
 	pond.frame = pond.frame + 1
-	rex.after(0.25, tick)
+	rex.after(pond.visible and 0.25 or 1.0, tick)
 end
 
 if REX_CRAB_POND_TEST then
