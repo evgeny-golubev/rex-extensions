@@ -44,10 +44,12 @@ headings. Each frame is drawn in one go, so a pane resized in a background tab
 comes back whole and doesn't flicker.
 
 The main and turn boxes, the title and the effort bar take the agent's
-colours. Claude is coral with lavender subagents. Codex runs from blue to
-indigo, with periwinkle subagents. agy runs through Google's four colours,
+colours. Claude runs from terracotta to soft clay, with clay subagents.
+Codex runs from blue to indigo, with periwinkle subagents. agy runs through Google's four colours,
 with light blue subagents. Pi runs from pink to orchid, with blush
-subagents. OpenCode runs from slate to silver, with misty subagents.
+subagents. OpenCode runs from slate to silver, with misty subagents. The
+crab pond uses the same colours, from each adapter's `theme` in
+[`../agents/`](../agents/README.md).
 
 ![Four Info tabs with made-up data: a Codex session in blue and indigo, an agy session in Google's four colours, a Pi session in pink and an OpenCode session in silver, each with its subagent, open question, last turn and log](../docs/rex-sidecar-themes.png)
 
@@ -104,14 +106,14 @@ Info opens first. Its top line shows the time and date, such as
 
 | Box | What's in it |
 | --- | --- |
-| **Model · main** | Running or idle. The session's title and branch. Reasoning effort, permission mode and the number of requests. Context used against the model's window, and ⟲ with how often it was compacted. Your 5-hour and 7-day limits, with the time to each reset (↻). Claude's working time |
+| **Model · main** | Running or idle, with `code` before it in Claude's Code Mode. The session's title. The branch (`⎇`), read live from git, and `⑂` with the worktree's name when the folder is a linked worktree. Reasoning effort, permission mode and the number of requests. Context used against the model's window, and ⟲ with how often it was compacted. Your 5-hour and 7-day limits, with the time to each reset (↻). Claude's working time |
 | **ADVISOR** | The advisor tool's consults on a timeline: how long ago the last one was, and how long it took. Shows only once Claude has consulted it |
 | **GATE** | One dotted cell (`⣿`) per permission check. Green: allowed by a rule or the mode. Cyan: allowed by the auto-mode classifier. Blue: allowed by you. Red ✗: denied. Dim: made inside a subagent. Then the totals by family: click `file`, `shell` or `other`, or press `f`, `s` or `o`, to list that family's last 5 checks |
 | **AGENTS** | The latest 8 subagents as lanes on one time axis, newest first. A running one has a pulsing ● and a ticking clock. One that hasn't changed for 5 minutes without finishing, such as an idle team member, shows a grey ○. Click a lane for its type, context, steps, last 3 tool calls and the start of its answer |
 | **PROCESSES** | Claude's background tasks running right now, newest first, as Claude Code's own list shows them: a monitor by its description, a shell by its command. Green for a shell, blue for a monitor, with how long it has run. Hidden while none run |
 | **OPEN** | Questions and plans waiting for your answer, questions at the end of Claude's last reply, and unfinished tasks |
 | **Receipt** | The running turn, or the last one: how long it took, the agents it started, its edits and errors. Then tests and failed commands; click either to list the latest 8. A command counts as a test when it's `pytest`, `npm test`, `go test`, or a script named test or spec |
-| **LOG** | Your prompts, file writes and edits, agents starting and finishing, workflows, failed commands, denied checks, advisor consults and compactions. Each row has an icon and a colour for its kind: `›` prompt, `+` new file, `✎` edit, `-` delete, `▸` workflow, `✦` agent, `◆` advisor, `✗` error or denial, `⟲` compaction or interrupt, `•` anything else. Times are `HH:MM`, shown once per minute. Paths are cut to `folder/file`, and the same event in a row folds into one line with `×N` (prompts never fold). It fills the space below the other boxes, or a screen of its own when they fill the screen |
+| **LOG** | What the agent did, for all five agents. Each row has an icon and a colour for its kind; see [The log](#the-log). Times are `HH:MM`, shown once per minute. It fills the space below the other boxes, or a screen of its own when they fill the screen |
 
 - Context and usage limits depend on the agent: Claude Code and agy need their
   optional status line setup; Pi needs its extension for context % (no usage
@@ -124,6 +126,33 @@ Info opens first. Its top line shows the time and date, such as
 - Values that look like secrets are shown as `•••` in GATE, the lanes, the
   receipt, PROCESSES and the log: the value after `TOKEN=`, `--password` or
   `Authorization:`, bearer tokens, and long key-like strings.
+
+### The log
+
+| Icon | Kind |
+| --- | --- |
+| `›` | Your prompt, in bold |
+| `+` `✎` `-` | A file written, edited or deleted. Paths are cut to `folder/file` |
+| `$` | A command. It shows the agent's description of it when there is one; click the row to see the command itself |
+| `✓` | Tests that passed |
+| `◦` | A file read, or a look through files (grep, glob, a read-only command). Two or more in a row fold into `▸ read 4 files` or `▸ explored 5`; click to open them (`▾`) |
+| `↗` `◎` | A web page opened, a web search |
+| `⬡` | An MCP tool, as `server·tool` |
+| `▷` | A workflow |
+| `✦` | A subagent starting or finishing |
+| `♦` | An advisor consult |
+| `✗` | An error or a denied check, in red |
+| `⟲` | A compaction or an interrupt |
+| `•` | Anything else |
+
+Commands that only read, such as `ls`, `cat`, `grep`, `git log`, `sed`
+without `-i`, or several of them joined with `&&`, `;` or `|`, count as reads.
+A command that writes a file, deletes or runs a script doesn't. Leading
+`cd ... &&` and `name=...;` parts are dropped, and your home and the project
+folder are shortened. The same event in a row folds into one line with `×N`;
+prompts never fold. `sleep`, Rex's own `rex session rename` and Claude's
+reads of its own spilled tool output are left out, and so are Code Mode's
+`REPL` wrappers, since the calls inside them are logged.
 
 ## Artifacts
 
@@ -498,11 +527,12 @@ doesn't select text in it.
 
 ## Tab settings
 
-`,` lists every tab after Info, which always shows. A shown tab has `✓`.
+`,` lists every tab. A shown tab has `✓`. Info always shows, but can be
+moved like the others.
 
 - `j` `k` select a tab.
 - `Space`, or a click, shows or hides it.
-- `J` `K` move it.
+- `J` `K`, `Shift+↑` `Shift+↓`, or a click on `↑` `↓`, move it.
 - `Esc` or `,` closes the list.
 
 The result is saved in `settings.json` as
@@ -630,6 +660,9 @@ pkill -f 'rex-sidecar/watcher\.lua'; rex config reload
   including `Changes:` panes from before this extension was renamed.
 - rex-resume doesn't save sidecar panes. They come back with the resumed
   agent.
+- In a tab you aren't looking at, the pane pauses its animations and most of
+  its polling. While a turn runs, the turn box animates at about 60 frames a
+  second, patched in place.
 - Errors go to `~/.config/rex/state/rex-sidecar.log`. The pane shows its own.
 
 ## Where Info and Artifacts get their data

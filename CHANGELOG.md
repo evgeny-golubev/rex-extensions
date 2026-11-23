@@ -3,12 +3,75 @@
 Releases are tagged `vX.Y.Z` on GitHub. The skills keep their own versions,
 in each plugin's `plugin.json`.
 
-## Unreleased
+## v1.3.0 — 2026-11-23
 
-- **rex-view removed:** the rex-view skill plugin is gone from the repository
-  and the marketplace. Uninstall it with
-  `claude plugin uninstall rex-view@rex-extensions`. The sidecar's Search
-  Panel and Artifacts tab keep their viewer, now at `rex-sidecar/viewer`.
+A clearer LOG for all five agents, shared agent colours in the sidecar and
+the pond, a much lighter CPU and memory footprint, Code Mode support, and the
+rex-view plugin retired.
+
+### rex-sidecar
+
+- **LOG:** a calmer icon and colour per kind, for Claude, Codex, agy, Pi and
+  OpenCode alike: `$` commands, `✓` passing tests, `◦` reads and searches,
+  `↗` and `◎` web pages and searches, `⬡` MCP tools (`server·tool`), `▷`
+  workflows and `♦` advisor consults, besides prompts, writes, edits,
+  deletes, subagents, errors and compactions.
+  - A command shows the agent's description of it, when there is one; click
+    the row to see the command itself.
+  - Two or more reads in a row fold into `▸ read N files` or `▸ explored N`,
+    and a click opens them. Read-only shell commands count as reads, even
+    when joined with `&&`, `;` or `|`.
+  - Leading `cd ... &&` and `name=...;` parts are dropped, and your home and
+    the project folder are shortened.
+  - `sleep`, `rex session rename`, Claude's reads of its own spilled tool
+    output and Code Mode's `REPL` wrappers are left out.
+- **Code Mode:** a Claude session in Code Mode shows `code` before the
+  running or idle dot.
+- **Main box:** the branch (`⎇`) is read live from git, and a linked worktree
+  shows as `⑂` with its name. Effort and mode lose their labels.
+- **Turn box:** while a turn runs, it animates at about 60 frames a second,
+  patched in place, without the old 2-second stalls.
+- **Tab settings:** Info is listed too and can be moved, with `J` `K`,
+  `Shift+↑` `Shift+↓` or a click on `↑` `↓`. It still can't be hidden.
+- **Colours:** Claude now runs from terracotta to soft clay. Every adapter
+  declares its palette as a `theme` in `agents/`, and the sidecar and pond
+  both read it.
+- **Performance:** a pane in a hidden tab pauses its animations and most
+  polling. Finished tool calls and subagent calls are freed, which stopped a
+  leak of tens of MB in long sessions. Git is read without subprocesses when
+  the folder hasn't changed.
+
+### rex-crab-pond
+
+- Agent crabs and their titles take their agent's gradient: Codex is now blue
+  to indigo, not green, and its subagents periwinkle.
+- A pond in a hidden tab stops drawing and checking programs, and a visible
+  one skips frames where nothing moved. Rendering is about 4.6× faster.
+
+### Agents
+
+- agy's `lsof` lookup skips DNS, so it no longer stalls for up to half a
+  second.
+- The Pi extension also follows tree navigation, compactions and thinking
+  level changes.
+
+### rex-view removed
+
+- The rex-view skill plugin is gone from the repository and the marketplace.
+  Uninstall it with `claude plugin uninstall rex-view@rex-extensions`.
+- The sidecar's Search Panel and Artifacts tab keep their viewer, now at
+  `rex-sidecar/viewer`. The Search Panel picture is now
+  `docs/search-panel.png`.
+
+### Docs
+
+- New pictures of the sidecar, the agent colours and the crab pond.
+- The sidecar README has a new section on the log.
+
+### Thanks
+
+Thanks to Timofei Bogoliubov for the themes, the LOG, the 60 Hz turn box,
+Code Mode support and the performance work (#8 to #11).
 
 ## v1.2.2 — 2026-11-22
 

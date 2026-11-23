@@ -54,6 +54,11 @@ The first crab is the tab's main agent: the focused agent pane, or the last
 one that was. It shows the session's name, model and uptime. Other agents in
 the tab get crabs of their own.
 
+An agent crab's body and title run through its agent's colours, the same ones
+the sidecar uses: Claude from terracotta to soft clay, Codex from blue to
+indigo, agy through Google's four colours, Pi from pink to orchid, and
+OpenCode from slate to silver. Subagents get the agent's lighter colour.
+
 A Claude's outfit shows its model and effort:
 
 | Model | Outfit |
@@ -67,19 +72,19 @@ A Claude's outfit shows its model and effort:
 | Sonnet | Musician |
 | Haiku | Gardener |
 
-A Codex is green and named after its thread. Its outfit shows its reasoning
+A Codex is named after its thread. Its outfit shows its reasoning
 effort: a scientist for high or xhigh, a ninja for low or minimal, and a robot
 otherwise.
 
-An agy (Antigravity CLI) crab is Google blue, and its outfit shows its effort
+An agy (Antigravity CLI) crab's outfit shows its effort
 as a Codex's does. The effort comes from the model ID (`gemini-4-neon-high`),
 or from agy's status line script when the ID has none; without either, it's a
 robot. Each running agy subagent gets a light blue crab of its own.
 
-A Pi crab is pink, and its outfit shows its thinking level as a Codex's does.
+A Pi crab's outfit shows its thinking level as a Codex's does.
 Each pi-subagents run gets a light pink crab of its own.
 
-An OpenCode crab is silver-grey, dressed by its model's variant (high, low)
+An OpenCode crab is dressed by its model's variant (high, low)
 as a Codex is. Its subagents, OpenCode's child sessions, get lighter crabs.
 
 Agents are found by program name, in any case: `claude`, `Claude` and
@@ -87,9 +92,9 @@ Agents are found by program name, in any case: `claude`, `Claude` and
 
 ## Subagents
 
-A Claude subagent is a lighter peach crab, titled with the task Claude gave
+A Claude subagent is a soft clay crab, titled with the task Claude gave
 it. It counts as running while its transcript changed in the last 10 minutes.
-A Codex subagent is lighter green, and counts as running while its thread
+A Codex subagent is periwinkle, and counts as running while its thread
 changed in the last 5 minutes.
 
 The outfit comes from the first word of the subagent's type or task that names
@@ -225,6 +230,9 @@ bind a key, use `rex.bind` with `rex_crab_pond_show` or `rex_crab_pond_auto_show
 - A crab pane you close stays closed until the tab has no agent left, or you
   run Show Crabs Pane.
 - When the watcher starts, it replaces leftover crab panes with new ones.
+- A pond in a tab you aren't looking at stops drawing and checking programs,
+  and a visible one skips frames where nothing moved, so ponds cost little
+  CPU.
 - rex-resume doesn't save crab panes. They come back with the resumed agent.
 - Watcher errors go to `~/.config/rex/state/rex-crab-pond.log`. The pane shows
   its own errors.
