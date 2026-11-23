@@ -141,8 +141,6 @@ return function(P)
 			P.log(state, "main", tostring(input.query), "search")
 		elseif tool.name == "WebFetch" and not failed and input.url then
 			P.log(state, "main", P.short_url(input.url), "web")
-		elseif tool.name == "REPL" and not failed then
-			P.log(state, "main", "REPL", "workflow")
 		elseif tool.name == "SendMessage" and not failed then
 			local summary = type(input.summary) == "string" and input.summary:match("%S") and input.summary or nil
 			local raw_msg = input.message or input.content

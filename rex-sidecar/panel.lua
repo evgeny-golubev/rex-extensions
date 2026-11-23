@@ -131,24 +131,29 @@ local function first_line(s)
 	return (tostring(s or ""):match("^%s*([^\n]*)") or ""):gsub("%s+$", "")
 end
 
---- A command's first line, without a leading `cd DIR &&` (quoted or unquoted).
+--- A command's first line, without a leading `cd DIR &&` (quoted, mixed or unquoted).
 function M.command(cmd)
 	local s = first_line(cmd):gsub("%s+", " ")
-	s = s:gsub('^cd%s+"[^"]+"%s*2>/dev/null%s*&&%s*', "")
-	s = s:gsub("^cd%s+'[^']+'%s*2>/dev/null%s*&&%s*", "")
-	s = s:gsub('^cd%s+"[^"]+"%s*&&%s*', "")
-	s = s:gsub("^cd%s+'[^']+'%s*&&%s*", "")
-	s = s:gsub("^cd%s+%S+%s*2>/dev/null%s*&&%s*", "")
-	s = s:gsub("^cd%s+%S+%s*&&%s*", "")
-	return s
+	local rest = s:match("^cd%s+[^&;|]+&&%s*(.+)$")
+	return rest or s
 end
 
 --- Cleans a shell command for fallback log display when no human description is
---- available: strips leading `cd ... &&` and leading `var=...;` setup clauses.
-function M.display_command(cmd)
+--- available: strips leading `cd ... &&` and `var=...;` setup, and shortens
+--- the session root and $HOME paths so targets stay visible.
+function M.display_command(cmd, root)
 	local s = M.command(cmd)
 	while s:match("^[%a_][%w_]*=[^;]+;%s*%S") do
 		s = s:gsub("^[%a_][%w_]*=[^;]+;%s*", "")
+	end
+	if root and root ~= "" then
+		local esc_root = (root:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1"))
+		s = s:gsub(esc_root .. "/", "")
+	end
+	if home ~= "" then
+		local esc_home = (home:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1"))
+		s = s:gsub(esc_home .. "/", "~/")
+		s = s:gsub(esc_home, "~")
 	end
 	return s
 end
@@ -306,8 +311,9 @@ local read_bins = {
 	iostat = true, memory_pressure = true, pmset = true, top = true,
 	uname = true, whoami = true, id = true, date = true, readlink = true,
 	realpath = true, basename = true, dirname = true, jq = true,
+	test = true, ["["] = true,
 }
-local read_noop = { cd = true, echo = true, printf = true, ["true"] = true }
+local read_noop = { cd = true, echo = true, printf = true, ["true"] = true, done = true, fi = true }
 local read_git = {
 	status = true, log = true, diff = true, show = true, branch = true,
 	["rev-parse"] = true, ["ls-files"] = true, ["ls-tree"] = true,
@@ -363,7 +369,14 @@ end
 
 --- Classifies one shell segment as `"read"`, `"skip"` (cd/echo/var), or false.
 local function read_segment_kind(seg)
+	seg = seg:gsub("^do%s+", ""):gsub("^then%s+", ""):gsub("%s+done$", ""):gsub("%s+fi$", "")
 	if seg == "" then
+		return "skip"
+	end
+	if seg:match("^for%s+[%a_][%w_]*%s+in%s+") then
+		if seg:find("%$%(") or seg:find("`", 1, true) then
+			return false
+		end
 		return "skip"
 	end
 	-- Strip env prefixes only when followed by a command token.
@@ -391,13 +404,21 @@ local function read_segment_kind(seg)
 	if read_bins[bin] then
 		return "read"
 	end
-	if bin == "sed" and rest:match("^%-n%s") then
+	if bin == "sed" then
+		-- Any non-in-place sed invocation is pure read/transform output.
+		if rest:match("^%-i") or rest:match("%s%-i") or rest:find("--in-place", 1, true) then
+			return false
+		end
 		return "read"
 	end
 	if bin == "git" then
 		local sub = rest
-		while sub:match("^%-C%s+%S+%s+") do
-			sub = sub:gsub("^%-C%s+%S+%s+", "")
+		while true do
+			local next_sub = sub:gsub("^%-C%s+'[^']+'%s+", "")
+			if next_sub == sub then next_sub = sub:gsub('^%-C%s+"[^"]+"%s+', "") end
+			if next_sub == sub then next_sub = sub:gsub("^%-C%s+%S+%s+", "") end
+			if next_sub == sub then break end
+			sub = next_sub
 		end
 		local verb = sub:match("^(%S+)")
 		return (verb ~= nil and read_git[verb] == true) and "read" or false
@@ -606,7 +627,7 @@ function M.command_ran(state, command, failed, err, skip_log, description)
 	if desc == "" then
 		desc = nil
 	end
-	local shown = M.mask(M.display_command(command))
+	local shown = M.mask(M.display_command(command, state.root))
 	local detail = desc and M.mask(cmd) or nil
 	if test then
 		state.tests[#state.tests + 1] = { command = test, ok = not failed }
