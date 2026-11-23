@@ -374,6 +374,9 @@ local ok2, err2 = pcall(function()
 	local this_turn = plain({ P.turn_patch(state, "/src/app/panel.lua", "panel.lua") })
 	has(this_turn, "panel.lua", "edit in the turn")
 	equal(state.turn.files["/src/app/gone.lua"], nil, "failed write")
+	-- Completed tool inputs are released once tool_result arrives; only waiting questions stay.
+	equal(state.tools.e1, nil, "completed Edit input freed from state.tools")
+	equal(state.tools.q2 ~= nil, true, "unanswered AskUserQuestion kept in state.tools")
 
 	-- A prompt after the reply answers its questions.
 	P.feed(state, rex.json.encode({ type = "user", message = { content = "No third tab" } }) .. "\n")
@@ -394,6 +397,7 @@ local ok2, err2 = pcall(function()
 	-- Git info parsing: normal repo vs linked worktree, and main_box rendering.
 	local normal_git = P.parse_git_info("/src/app\n/src/app/.git\n/src/app/.git\nmain\n")
 	equal(normal_git.root .. " " .. normal_git.branch, "/src/app main", "normal repo root and branch")
+	equal(normal_git.git_dir, "/src/app/.git", "normal repo git_dir for zero-subprocess HEAD reads")
 	equal(normal_git.worktree, nil, "normal repo has no linked worktree")
 	local wt_git = P.parse_git_info("/src/worktrees/app/feat-ui\n/src/app/.git/worktrees/feat-ui\n/src/app/.git\nfeat/ui-refresh\n")
 	equal(wt_git.worktree, "feat-ui", "linked worktree folder name")
@@ -848,6 +852,7 @@ local ok2, err2 = pcall(function()
 	P.agent_record(agent, { type = "assistant", timestamp = stamp(42), message = { content = { { type = "text", text = "All good." } } } }, gated.gate)
 	agent.description, agent.type, agent.finished = "Review the parser", "Explore", true
 	equal(agent.steps, 2, "an agent's steps")
+	equal(next(agent.calls), nil, "subagent completed tool calls freed from memory")
 	equal(gated.gate.checks[#gated.gate.checks].sub, true, "an agent's check, as a subagent's")
 	local other = P.new_agent("a2")
 	other.description, other.start, other.last = "Map the hooks", P.epoch(stamp(30)), P.epoch(stamp(40))

@@ -137,6 +137,7 @@ return function(P)
 
 	local function tool_result(state, m)
 		local tool = state.tools[m.toolCallId]
+		state.tools[m.toolCallId] = nil
 		if not tool then
 			return
 		end

@@ -147,7 +147,7 @@ return function(U)
 		if hit and now - hit.at < M.cache_ttl then
 			return hit.sess
 		end
-		local r = U.exec({ "/usr/sbin/lsof", "-p", tostring(pane.pid), "-Fn" })
+		local r = U.exec({ "/usr/sbin/lsof", "-p", tostring(pane.pid), "-n", "-P", "-Fn" })
 		local id = r and r.ok and M.locked_id(r.stdout) or nil
 		local cwd = pane.cwd
 		if not id then

@@ -498,13 +498,17 @@ end
 --- its first load. Another repository starts at the top with nothing selected.
 function C.refresh()
 	if panel.root ~= changes.root then
-		changes.root, changes.selected = panel.root, {}
+		changes.root, changes.selected, changes.not_git_at = panel.root, {}, nil
 		panel.scroll[C.name] = 0
+	end
+	if changes.not_git_at and panel.tab ~= C.name and os.clock() - changes.not_git_at < 30 then
+		return
 	end
 	changes.folded_dirs = settings.folded_dirs(settings_dir, panel.root)
 	-- One status call: git status runs slowly in big repositories.
 	local r = sidecar.run({ "git", "-C", panel.root, "status", "--porcelain", "-b", "-z", "--untracked-files=all" })
 	changes.git = r and r.ok or false
+	changes.not_git_at = changes.git and nil or os.clock()
 	changes.files, changes.branch, changes.head = {}, nil, true
 	if changes.git then
 		local status = C.status(r.stdout)
