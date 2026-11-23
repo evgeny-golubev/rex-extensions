@@ -124,6 +124,46 @@ return function(P)
 			end
 		elseif tool.name == "Bash" then
 			P.command_ran(state, input.command, failed, (text:gsub("^Exit code (%d+)\n?", "exit %1: ")))
+		elseif tool.name == "Read" and not failed and input.file_path then
+			P.log(state, "main", "read " .. P.short_path(input.file_path, state.root), "explore")
+		elseif (tool.name == "Grep" or tool.name == "Glob") and not failed then
+			local what = input.pattern or input.path or ""
+			if what ~= "" then
+				P.log(state, "main", tool.name:lower() .. " " .. tostring(what), "explore")
+			end
+		elseif tool.name == "WebSearch" and not failed and input.query then
+			P.log(state, "main", tostring(input.query), "search")
+		elseif tool.name == "WebFetch" and not failed and input.url then
+			P.log(state, "main", P.short_url(input.url), "web")
+		elseif tool.name == "REPL" and not failed then
+			P.log(state, "main", "REPL", "workflow")
+		elseif tool.name == "SendMessage" and not failed then
+			local summary = type(input.summary) == "string" and input.summary:match("%S") and input.summary or nil
+			local raw_msg = input.message or input.content
+			if type(raw_msg) == "table" then
+				raw_msg = raw_msg.reason or raw_msg.content or raw_msg.type
+			end
+			local msg = type(raw_msg) == "string" and P.first_line(raw_msg) or nil
+			local to = type(input.to) == "string" and input.to or nil
+			local is_id = to and to:match("^a?[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]+$") ~= nil
+			local body = summary or msg
+			local label
+			if to and not is_id and body and body ~= "" then
+				label = to .. ": " .. body
+			elseif body and body ~= "" then
+				label = body
+			elseif to and not is_id then
+				label = to
+			end
+			if label then
+				P.log(state, "agent", "msg · " .. label, "agent")
+			end
+		elseif tool.name:match("^mcp__") and not failed then
+			if tool.name:find("navigate", 1, true) and input.url then
+				P.log(state, "main", P.short_url(input.url), "web")
+			else
+				P.log(state, "main", P.short_mcp(tool.name), "mcp")
+			end
 		end
 	end
 
@@ -236,6 +276,7 @@ return function(P)
 			add_prompt(state, tostring(r.attachment.prompt or ""))
 		elseif r.type == "system" and r.subtype == "compact_boundary" then
 			state.compactions = state.compactions + 1
+			P.log(state, "main", "Compacted context", "lifecycle")
 		elseif r.type == "system" and r.subtype == "turn_duration" then
 			state.claude_ms = state.claude_ms + (tonumber(r.durationMs) or 0)
 			if state.turn.at and not state.turn.ms then

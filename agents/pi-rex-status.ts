@@ -32,7 +32,7 @@ export default function (pi: ExtensionAPI) {
 		} catch {}
 	}
 
-	for (const event of ["session_start", "session_switch", "session_fork", "model_select", "turn_end"]) {
+	for (const event of ["session_start", "session_switch", "session_fork", "session_tree", "session_compact", "model_select", "thinking_level_select", "turn_end"]) {
 		pi.on(event as any, async (_event: any, ctx: any) => save(ctx));
 	}
 	pi.on("agent_start", async (_event, ctx) => {

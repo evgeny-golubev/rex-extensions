@@ -9,7 +9,16 @@
 -- Subagents (the pi-subagents package) are Pi sessions of their own, under
 -- <session>/<run>/run-<n>/. See agents/init.lua for the interface.
 return function(U)
-	local M = { id = "pi", name = "Pi" }
+	local M = {
+		id = "pi",
+		name = "Pi",
+		theme = {
+			accent = "#E06C9F", -- Pi Pink
+			agent = "#EE9BC0", -- Blush
+			clock = "#F472B6", -- Rose
+			gradient = { "#E06C9F", "#F472B6", "#C084FC" },
+		},
+	}
 
 	M.cache_ttl = 5
 

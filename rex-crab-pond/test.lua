@@ -284,7 +284,20 @@ ok, err = pcall(function()
 	equal(P.codex_outfit("gpt-test", "low"), "ninja", "codex low")
 	equal(P.agent_outfit("codex", "gpt-test", nil), "robot", "codex by adapter")
 	equal(P.agent_outfit("agy", "gemini-test", nil), "robot", "agy by adapter")
+	local A = dofile(dir .. "../agents/init.lua")
+	for _, adapter in ipairs(A.list) do
+		equal(P.colors[adapter.id], adapter.theme.accent, adapter.id .. " pond colour matches adapter theme")
+		equal(P.colors[adapter.id .. "_subagent"], adapter.theme.agent, adapter.id .. " subagent colour matches adapter theme")
+		equal(table.concat(P.gradients[adapter.id], ","), table.concat(adapter.theme.gradient, ","), adapter.id .. " gradient matches adapter theme")
+	end
+	equal(P.colors.codex, "#4B7BFF", "codex blue matches sidecar")
+	equal(P.colors.codex_subagent, "#93A8FF", "codex subagent periwinkle matches sidecar")
 	equal(P.colors.agy, "#4285F4", "agy's colour")
+	equal(#P.gradients.claude, 3, "claude Anthropic terracotta-clay gradient")
+	equal(#P.gradients.agy, 4, "agy Google 4-colour gradient")
+	equal(#P.gradients.codex, 2, "codex cobalt-indigo gradient")
+	equal(#P.gradients.pi, 3, "pi gradient")
+	equal(#P.gradients.opencode, 3, "opencode gradient")
 	equal(P.agent_outfit("pi", "claude-x", "high"), "scientist", "pi dressed by its thinking level")
 	equal(P.agent_outfit("opencode", "big", "low"), "ninja", "opencode dressed by its variant")
 	equal(P.colors.pi ~= nil and P.colors.opencode ~= nil, true, "pi and opencode colours")
@@ -365,6 +378,18 @@ ok, err = pcall(function()
 	hat = P.canvas(P.crab_cols, 3)
 	P.draw_crab(hat, 0, 0, { outfit = "builder", state = "busy", color = P.colors.build }, 0)
 	equal(has(hat, "242;209;58"), true, "default yellow hat")
+
+	-- Gradient crabs paint their body and label across the agent's palette stops.
+	local rainbow = P.canvas(P.crab_cols, 3)
+	P.draw_crab(rainbow, 0, 0, { outfit = "robot", state = "busy", color = P.colors.agy, gradient = P.gradients.agy }, 0)
+	equal(has(rainbow, "66;133;244"), true, "agy crab starts in Google Blue")
+	equal(has(rainbow, "52;168;83"), true, "agy crab ends in Google Green")
+	local rainbow_scene = P.render(P.scene(60, 4, {
+		main = { outfit = "robot", state = "busy", color = P.colors.agy, gradient = P.gradients.agy, name = "Antigravity" },
+		crabs = {},
+	}, 0, 0))
+	equal(rainbow_scene:find("38;2;66;133;244m", 1, true) ~= nil, true, "gradient label starts blue")
+	equal(rainbow_scene:find("38;2;52;168;83m", 1, true) ~= nil, true, "gradient label ends green")
 
 	-- Claude's background shells become crabs named by their programs.
 	local ps = {

@@ -2,7 +2,16 @@
 -- subagents and what its status line reported. See agents/init.lua for the
 -- interface every adapter has.
 return function(U)
-	local M = { id = "claude", name = "Claude" }
+	local M = {
+		id = "claude",
+		name = "Claude",
+		theme = {
+			accent = "#D97757", -- Anthropic Terracotta
+			agent = "#E89A7F", -- Soft Clay
+			clock = "#6A9BCC", -- Anthropic Slate Blue
+			gradient = { "#C96442", "#D97757", "#E89A7F" },
+		},
+	}
 
 	--- Where Claude Code keeps its files: CLAUDE_CONFIG_DIR, then ~/.claude.
 	local function config_dirs()

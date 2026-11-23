@@ -382,12 +382,29 @@ local ok2, err2 = pcall(function()
 	local activity = plain(P.info_lines(state, 60, { show = "tests" }))
 	has(activity, "tests 1 ✓0 ✗1", "test totals in the receipt")
 	has(activity, "✗ rex do test.lua", "failed test, listed")
-	hasnt(activity, "cat test.lua", "a command that only names a test file")
+	equal(#state.tests, 1, "a command that only names a test file")
+	hasnt(activity:match("╭ turns.-╰[^\n]+") or "", "cat test.lua", "a command that only names a test file")
 	has(plain(P.info_lines(state, 60, { show = "failed" })), "exit 1: boom: parser", "failure, listed")
 	hasnt(plain(P.info_lines(state, 60)), "exit 1: boom", "lists closed by default")
-	has(activity, "claude 2m", "Claude time")
+	has(activity, "2m", "active time")
 	has(activity, "ctx 41k", "context")
-	has(activity, "Panel tabs · main", "title and branch")
+	has(activity, "Panel tabs", "session title")
+	has(activity, "⎇ main", "branch on its own line")
+
+	-- Git info parsing: normal repo vs linked worktree, and main_box rendering.
+	local normal_git = P.parse_git_info("/src/app\n/src/app/.git\n/src/app/.git\nmain\n")
+	equal(normal_git.root .. " " .. normal_git.branch, "/src/app main", "normal repo root and branch")
+	equal(normal_git.worktree, nil, "normal repo has no linked worktree")
+	local wt_git = P.parse_git_info("/src/worktrees/app/feat-ui\n/src/app/.git/worktrees/feat-ui\n/src/app/.git\nfeat/ui-refresh\n")
+	equal(wt_git.worktree, "feat-ui", "linked worktree folder name")
+	equal(wt_git.repo, "app", "linked worktree parent repo name")
+	equal(wt_git.branch, "feat/ui-refresh", "linked worktree branch")
+	local wt_view = plain(P.info_lines(state, 70, { branch = wt_git.branch, worktree = wt_git.worktree, repo = wt_git.repo }))
+	has(wt_view, "⎇ feat/ui-refresh", "live git branch overrides transcript branch")
+	has(wt_view, "⑂ app/feat-ui", "worktree shown beside branch")
+	local same_wt = plain(P.info_lines(state, 70, { branch = "feat-ui", worktree = "feat-ui", repo = "app" }))
+	has(same_wt, "⎇ feat-ui", "branch when worktree matches branch name")
+	has(same_wt, "⑂ app wt", "compact worktree badge without repeating branch name")
 	has(activity, "✗ 1 denied", "the rejected command, denied at the gate")
 	has(activity, "f: file 0  s: shell 1  o: other 0", "gate families")
 
@@ -666,10 +683,11 @@ local ok2, err2 = pcall(function()
 		rate_limits = limits, cost = { total_cost_usd = 3.456 }, context_window = { context_window_size = 1000000 } } }))
 	has(usage, "Opus 5.5 · main", "the model's name")
 	has(usage, "○ idle", "idle")
-	has(usage, "effort ▮▮▮▯▯ high", "effort cells")
-	has(usage, "mode auto", "permission mode")
+	has(usage, "▮▮▮▯▯ high", "effort cells")
+	has(usage, "auto", "permission mode")
 	has(usage, "12 req", "requests")
-	has(usage, "ctx ▰▰▱▱▱▱▱▱ 25% 250k/1.0M", "context against the window")
+	has(usage, "ctx ▰▰▱▱▱▱▱▱ 25%", "context gauge")
+	has(usage, "250k/1.0M", "context against the window")
 	has(usage, "⟲ 2", "compaction count separated from the icon")
 	hasnt(usage, "$", "no money")
 	has(usage, "5h ▰▰▰▱▱ 58% ↻5m", "5-hour window and its reset")
@@ -725,7 +743,7 @@ local ok2, err2 = pcall(function()
 	equal(levels.effort, "medium", "a subagent's level is ignored")
 	P.record(levels, { type = "assistant", message = { content = {} } })
 	equal(levels.effort, "medium", "kept when a record has none")
-	has(plain(P.info_lines(levels, 60)), "effort ▮▮▯▯▯ medium", "the effort in the main box")
+	has(plain(P.info_lines(levels, 60)), "▮▮▯▯▯ medium", "the effort in the main box")
 	hasnt(plain(P.info_lines(P.new_state(), 60)), "effort", "no level known")
 
 	-- Responses: a turn's last text, whole.
@@ -789,10 +807,18 @@ local ok2, err2 = pcall(function()
 	has(plain(P.info_lines(tested, 30, { now = 400 })), "▾ ✓ last turn", "narrow: a heading, no box")
 	hasnt(plain(P.info_lines(tested, 30, { now = 400 })), "╭", "no frame when narrow")
 	tested.turn.ms = nil
-	local running = plain(P.info_lines(tested, 60, { now = 130 }))
+	local running_lines = P.info_lines(tested, 60, { now = 130, clock = 10.0 })
+	local running = plain(running_lines)
 	has(running, " turn 30s", "a running turn's clock")
 	has(running, "● running", "running, in the main box")
-	equal(P.info_lines(tested, 60, { now = 130 }).ticking, true, "the clock ticks")
+	equal(running_lines.ticking, true, "the clock ticks")
+	equal(running_lines.fast, true, "active turn enables 60 Hz header patching")
+	equal(type(running_lines.turn_header), "table", "turn_header descriptor recorded for single-row patching")
+	local box_a = P.turn_box_lines(running_lines.turn_header, 60, 112.4, 10.0, true)
+	local box_b = P.turn_box_lines(running_lines.turn_header, 60, 112.5, 10.016, true)
+	has(plain({ box_a[1] }), "turn 12.4s", "precise sub-second elapsed timer under 60s")
+	equal(#box_a >= 3, true, "turn_box_lines renders top, body, and bottom border")
+	equal(box_a[1] ~= box_b[1] and box_a[#box_a] ~= box_b[#box_b], true, "60 Hz gradient sweeps top and bottom borders in unison")
 
 	-- The gate: a cell a check, the verdicts, the families and their checks.
 	local gated = P.new_state()
@@ -950,21 +976,106 @@ local ok2, err2 = pcall(function()
 	hasnt(compact_plain, "/very/deep/path", "long directory prefixes dropped")
 	has(compact_plain, "+ out/new.lua", "write icon and compact path")
 	has(compact_plain, "- out/old.lua", "delete icon and compact path")
-	has(compact_plain, "▸ build", "workflow icon")
-	has(compact_plain, hm1 .. " ◆ consulted", "new minute prints its HH:MM and advisor icon")
+	has(compact_plain, "▷ build", "workflow icon")
+	has(compact_plain, hm1 .. " ♦ consulted", "new minute prints its HH:MM and advisor icon")
 	has(compact_plain, "      ⟲ Compacted context", "lifecycle icon in the same minute")
 	local compact_ansi = table.concat(compact_raw, "\n")
-	has(compact_ansi, "\27[38;5;221m✎", "edit category in gold")
-	has(compact_ansi, "\27[38;5;114m+", "write category in mint")
-	has(compact_ansi, "\27[38;5;80m▸", "workflow category in teal")
-	has(compact_ansi, "\27[38;5;141m◆", "advisor category in purple")
+	has(compact_ansi, "\27[38;2;212;178;106m✎", "edit category in muted sand")
+	has(compact_ansi, "\27[38;2;134;189;134m+", "write category in soft sage-mint")
+	has(compact_ansi, "\27[38;2;107;168;160m▷", "workflow category in soft teal")
+	has(compact_ansi, "\27[38;2;169;142;212m♦", "advisor category in muted purple")
+
+	-- Rich log categories across all agents + clickable exploration burst expansion.
+	equal(P.short_url("https://developers.openai.com/codex/cli/"), "developers.openai.com/codex/cli", "short_url")
+	equal(P.short_mcp("mcp__claude_ai_Atlassian_MCP__createJiraIssue"), "atlassian·createJiraIssue", "short_mcp strips noisy prefixes")
+	equal(P.is_read_command("git -C /src status"), true, "git status is read-only exploration")
+	equal(P.is_read_command("which codex"), false, "which is a regular command")
+	equal(P.is_read_command("pgrep -lf gopls; kill 123"), false, "chained command with mutating step is not read-only")
+	equal(P.is_read_command("cat a.txt > b.txt"), false, "output redirection is not read-only")
+	local rich = P.new_state("codex")
+	rich.log = {
+		{ at = t0, who = "main", text = "› check codex" },
+		{ at = t0 + 1, who = "main", text = "read skills/SKILL.md", kind = "explore" },
+		{ at = t0 + 2, who = "main", text = "read src/a.lua", kind = "explore" },
+		{ at = t0 + 3, who = "main", text = "read src/b.lua", kind = "explore" },
+		{ at = t0 + 4, who = "main", text = "which codex", kind = "cmd" },
+		{ at = t0 + 5, who = "main", text = "developers.openai.com/codex/cli", kind = "web" },
+		{ at = t0 + 6, who = "main", text = "atlassian·createJiraIssue", kind = "mcp" },
+		{ at = t0 + 7, who = "main", text = "pytest -q", kind = "test_ok" },
+	}
+	local collapsed_view = P.info_lines(rich, 60, { rows = 40 })
+	local collapsed_plain = plain(collapsed_view)
+	has(collapsed_plain, "▸ read 3 files", "consecutive reads collapse into clickable summary")
+	hasnt(collapsed_plain, "SKILL.md", "collapsed burst hides individual reads")
+	has(collapsed_plain, "$ which codex", "command icon")
+	has(collapsed_plain, "↗ developers.openai.com/codex/cli", "web open icon")
+	has(collapsed_plain, "⬡ atlassian·createJiraIssue", "mcp tool icon")
+	has(collapsed_plain, "✓ pytest -q", "passing test icon")
+	local group_id
+	for _, a in pairs(collapsed_view.actions) do
+		if a.kind == "log_group" then
+			group_id = a.id
+		end
+	end
+	equal(group_id, 2, "collapsed exploration burst has clickable log_group action")
+	local expanded_plain = plain(P.info_lines(rich, 60, { rows = 40, open_logs = { [group_id] = true } }))
+	has(expanded_plain, "▾ read 3 files", "expanded exploration burst header")
+	has(expanded_plain, "◦ read skills/SKILL.md", "expanded burst shows individual read items")
+	has(expanded_plain, "◦ read src/b.lua", "expanded burst shows all items")
+	-- Monotonic log IDs keep expanded burst IDs stable even when the 300-entry ring buffer trims.
+	local ring = P.new_state()
+	for k = 1, 298 do
+		P.log(ring, "main", "cmd " .. k, "cmd")
+	end
+	P.log(ring, "main", "read a.lua", "explore")
+	P.log(ring, "main", "read b.lua", "explore")
+	local before_id
+	for _, a in pairs(P.info_lines(ring, 60, { rows = 40 }).actions) do
+		if a.kind == "log_group" then before_id = a.id end
+	end
+	P.log(ring, "main", "cmd 301", "cmd")
+	local after_id
+	for _, a in pairs(P.info_lines(ring, 60, { rows = 40 }).actions) do
+		if a.kind == "log_group" then after_id = a.id end
+	end
+	equal(after_id, before_id, "log_group id stays stable after ring-buffer trim")
+	-- Codex parsed_cmd read + web.search Extension + McpToolCall logging.
+	local cx_log = P.new_state("codex")
+	P.record(cx_log, { type = "event_msg", payload = { type = "item_completed", item = {
+		type = "CommandExecution", command = { "/bin/zsh", "-lc", "cat /x/SKILL.md" },
+		parsed_cmd = { { type = "read", name = "SKILL.md", path = "/x/SKILL.md" } },
+		status = "completed", exit_code = 0,
+	} } })
+	P.record(cx_log, { type = "event_msg", payload = { type = "item_completed", item = {
+		type = "CommandExecution", command = { "/bin/zsh", "-lc", "which codex" },
+		status = "completed", exit_code = 0,
+	} } })
+	P.record(cx_log, { type = "event_msg", payload = { type = "item_completed", item = {
+		type = "Extension", kind = "web.search", action = { type = "openPage", url = "https://developers.openai.com/codex/cli" },
+	} } })
+	local cx_log_plain = plain(P.info_lines(cx_log, 60, { rows = 40 }))
+	has(cx_log_plain, "◦ read x/SKILL.md", "single codex read shows file directly without needing expand")
+	has(cx_log_plain, "$ which codex", "codex shell command logged")
+	has(cx_log_plain, "↗ developers.openai.com/codex/cli", "codex web.search openPage logged")
+	-- Claude SendMessage: hide opaque hex agent IDs, prefer summary/message; keep readable names.
+	local sm = P.new_state("claude")
+	P.record(sm, use("sm1", "SendMessage", { to = "a788bf8a9b8107fe1", summary = "Follow-up config questions", message = "Long body" }))
+	P.record(sm, result("sm1", "ok"))
+	P.record(sm, use("sm2", "SendMessage", { to = "disco-search", message = "Keep dob only" }))
+	P.record(sm, result("sm2", "ok"))
+	local sm_plain = plain(P.info_lines(sm, 70, { rows = 40 }))
+	has(sm_plain, "✦ msg · Follow-up config questions", "SendMessage uses summary instead of hex ID")
+	hasnt(sm_plain, "a788bf8a9b8107fe1", "opaque hex agent ID hidden from log")
+	has(sm_plain, "✦ msg · disco-search: Keep dob only", "named agent keeps name + message preview")
 
 	-- The advisor's consults.
 	local advised = P.new_state()
+	advised.prompts[1] = { text = "start", seq = 1, at = "1970-01-01T00:00:00Z" }
 	advised.consults = { { id = "s1", at = 100, done = 127 } }
 	local advice = plain(P.info_lines(advised, 60, { now = 134 }))
 	has(advice, "ADVISOR · on call", "the advisor box")
 	has(advice, "consults 1", "consults")
+	has(advice, "─╴♦╶─", "advisor diamond centered with tight half-cell breaks")
 	has(advice, "last 7s ago · took 27s", "the last consult")
 	hasnt(plain(P.info_lines(P.new_state(), 60)), "ADVISOR", "no box without consults")
 
@@ -1313,7 +1424,7 @@ do
 	has(info, "Parser fix", "session name without an AI title")
 	has(info, "ctx", "codex context shown")
 	has(info, "5h", "codex limits shown")
-	has(info, "codex ", "codex working time label")
+	has(info, "1m", "codex working time")
 	hasnt(info, "SHOULD NOT APPEAR", "raw model items skipped")
 	has(plain(P.info_lines(P.new_state("codex"), 60, { agent_name = "Codex" })), "Nothing from Codex yet.", "empty codex session")
 	-- The session's limits win over the transcript's; its window comes from the transcript.
@@ -1447,12 +1558,24 @@ do
 	local sub = P.new_agent("sub-1", "agy")
 	P.agent_record(sub, step("PLANNER_RESPONSE", { input_tokens = 500, content = "Looks good", tool_calls = { { name = "read_file", args = { Path = "/src/app/a.ts" } } } }))
 	equal(sub.steps .. " " .. sub.context .. " " .. sub.answer, "1 500 Looks good", "agy subagent transcript parsed")
-	-- Native themes: AGY uses Google truecolor gradient, Codex uses cobalt->indigo.
+	-- Native themes come from agents/<id>.lua through P.compile_theme.
+	for _, adapter in ipairs(P.agents.list) do
+		equal(P.themes[adapter.id] ~= nil, true, adapter.id .. " theme compiled from adapter")
+	end
+	local custom = P.compile_theme({ accent = "#112233", gradient = { "#010203", "#040506" } })
+	equal(custom.accent, "\27[38;2;17;34;51m", "compile_theme converts hex accent")
+	equal(custom.agent, "\27[38;2;17;34;51m", "compile_theme falls back agent to accent")
+	equal(#custom.gradient, 2, "compile_theme converts hex gradient stops")
+	local cl_theme = P.new_state("claude")
+	cl_theme.model = "claude-opus-5-5"
+	local cl_info = table.concat(P.info_lines(cl_theme, 60, { now = os.time() }), "\n")
+	has(cl_info, "38;2;201;100;66", "claude uses Anthropic Deep Clay truecolor gradient")
+	has(cl_info, "38;2;106;155;204", "claude clock uses Anthropic Slate Blue")
 	local agy_info = table.concat(P.info_lines(ax2, 60, { now = os.time(), model_label = "Gemini 4 Neon (High)", mode = "auto", status = { window = 1048576, limits = {} } }), "\n")
 	has(agy_info, "38;2;66;133;244", "agy uses Google Blue truecolor gradient")
 	has(agy_info, "38;2;52;168;83", "agy gradient reaches Google Green")
 	has(plain({ agy_info }), "Gemini 4 Neon · main", "redundant effort suffix stripped from title")
-	has(plain({ agy_info }), "mode auto", "statusline mode shown")
+	has(plain({ agy_info }), "auto", "statusline mode shown")
 	local cx_theme = P.new_state("codex")
 	cx_theme.model = "gpt-5-codex"
 	local cx_info = table.concat(P.info_lines(cx_theme, 60, { now = os.time() }), "\n")
@@ -2505,28 +2628,59 @@ return {
 	equal(P.spawn("tab Notes", function() end), true, "no refresh before the interval")
 	P.step_tasks()
 
-	-- Tab settings: a hidden tab and a moved one, saved in settings.json.
+	-- Tab settings: hiding, reordering with J/K, Shift+arrows, and clickable ↑↓, including Info.
 	P.key("1")
 	P.key(",")
 	has(plain(P.current().lines), "✓ Info  always shown", "Info always shows")
-	P.key("j")
 	P.key(" ")
-	P.key("j")
-	P.key("K")
+	equal(P.panel.hidden_tabs.Info, nil, "Info cannot be hidden")
+	P.key("j") -- Changes
+	P.key("j") -- Artifacts
+	P.key(" ") -- hide Artifacts
+	P.key("j") -- Tasks
+	P.key("K") -- move Tasks above Artifacts
 	has(plain(P.current().lines), "○ Artifacts", "a hidden tab")
+	-- Clickable ↑↓ buttons and Shift+arrows reorder tabs too (including Info).
+	local tv = P.current()
+	local tasks_row
+	for line_no, a in pairs(tv.actions) do
+		for _, r in ipairs(a.ranges or {}) do
+			if r.action.kind == "show_tab" and r.action.name == "Tasks" then
+				tasks_row = line_no
+			end
+		end
+	end
+	local up_action
+	for _, r in ipairs(tv.actions[tasks_row].ranges) do
+		if r.action.kind == "move_tab" and r.action.step == -1 then
+			up_action = r.action
+		end
+	end
+	equal(up_action ~= nil, true, "clickable ↑ action on movable tab")
+	P.act(up_action) -- move Tasks above Changes (now Info, Tasks, Changes, Artifacts, ...)
+	P.key("shift_down") -- move Tasks back below Changes (now Info, Changes, Tasks, Artifacts, ...)
 	P.key("escape")
 	equal(table.concat(P.tabs, " "), "Info Changes a-broken.lua Notes Faulty d-info.lua", "the tabs shown, in order")
 	local f = assert(io.open(panel_base .. "settings.json", "rb"))
 	local saved = rex.json.decode(f:read("*a"))
 	f:close()
 	equal(saved.tabs.hidden.Artifacts, true, "the hidden tab, saved")
-	equal(saved.tabs.order[2], "Tasks", "the order, saved")
+	equal(saved.tabs.order[3], "Tasks", "the order, saved")
 	equal(saved.tabs.hidden.Tasks, true, "a tab hidden by default, saved hidden")
 	P.key(",")
-	P.key("j")
-	P.key(" ")
+	P.key("j") -- Changes
+	P.key("j") -- Tasks
+	P.key(" ") -- show Tasks
 	equal(P.tabs[3], "Tasks", "a tab hidden by default, shown")
-	P.key(" ")
+	-- Info itself can also be moved down in the tab order.
+	P.key("k") -- Changes
+	P.key("k") -- Info
+	P.key("J") -- move Info to position 2
+	equal(P.tabs[1] .. " " .. P.tabs[2], "Changes Info", "Info can be reordered")
+	P.key("K") -- move Info back to position 1
+	P.key("j")
+	P.key("j")
+	P.key(" ") -- re-hide Tasks
 	P.key("escape")
 	P.key("1")
 	for i = #P.tabs, 1, -1 do

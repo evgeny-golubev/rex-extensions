@@ -479,7 +479,9 @@ local function load_scope()
 	end
 	if load == scope_loads then
 		changes.third, changes.scope, changes.data = third, scope, data
-		panel.cache = nil
+		if panel.tab == C.name then
+			panel.cache = nil
+		end
 	end
 end
 

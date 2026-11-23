@@ -4,6 +4,7 @@
 --
 -- Every adapter has:
 --   id, name                 "claude", "Claude"
+--   theme                    { accent, agent, clock, gradient } hex colour strings
 --   matches(p)               whether a process from Rex's `process` call is it
 --   session(pane)            the pane's session, or nil; `pane` has pid, cwd,
 --                            session_id and block_id
@@ -74,6 +75,12 @@ function A.session(process, session_id, block_id)
 		sess.agent = adapter
 	end
 	return adapter, sess
+end
+
+--- The theme for an adapter or adapter ID, falling back to Claude's.
+function A.theme(agent)
+	local adapter = type(agent) == "table" and agent or A.by_id[agent]
+	return (adapter and adapter.theme) or A.claude.theme
 end
 
 return A

@@ -96,6 +96,18 @@ return function(P)
 				state.turn.edits = state.turn.edits + 1
 				P.log(state, "main", (f.created and "Write" or "Edit") .. " → " .. P.short_path(path, state.root))
 			end
+		elseif (name == "read" or name == "grep" or name == "glob") and not failed then
+			local target = input.path or input.filePath or input.pattern
+			if target then
+				local shown = (name == "read") and P.short_path(absolute(state, target), state.root) or tostring(target)
+				P.log(state, "main", (name == "read" and "read " or (name .. " ")) .. shown, "explore")
+			end
+		elseif name == "execute" and not failed then
+			P.log(state, "main", "execute", "workflow")
+		elseif name == "webfetch" and not failed and input.url then
+			P.log(state, "main", P.short_url(input.url), "web")
+		elseif name == "websearch" and not failed and input.query then
+			P.log(state, "main", tostring(input.query), "search")
 		elseif name == "subagent" or name == "task" then
 			state.turn.agents = state.turn.agents + 1
 			P.log(state, "agent", "done · " .. tostring(input.description or input.agent or "subagent"))
@@ -152,6 +164,7 @@ return function(P)
 			P.command_ran(state, tostring(d.command or ""), exit ~= nil and exit ~= 0, tostring(d.output or ""))
 		elseif r.type == "compaction" then
 			state.compactions = state.compactions + 1
+			P.log(state, "main", "Compacted context", "lifecycle")
 		elseif r.type == "question" then
 			local s = type(d.state) == "table" and d.state or {}
 			local id = tostring(d.id or r.id)

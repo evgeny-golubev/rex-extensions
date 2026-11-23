@@ -157,6 +157,9 @@ return function(P)
 			P.add_hunks(state, path, hunks, created)
 			state.turn.edits = state.turn.edits + 1
 			P.log(state, "main", (created and "Write" or "Edit") .. " → " .. P.short_path(path, state.root))
+		elseif tool.name == "read" and not failed and type(input.path) == "string" then
+			local path = (input.path:sub(1, 1) == "/" or not state.root) and input.path or (state.root .. "/" .. input.path:gsub("^%./", ""))
+			P.log(state, "main", "read " .. P.short_path(path, state.root), "explore")
 		elseif tool.name == "subagent" and not failed then
 			P.log(state, "agent", "done · " .. tostring(input.agent or "subagent"))
 		end
@@ -176,6 +179,7 @@ return function(P)
 			state.title = r.name
 		elseif r.type == "compaction" then
 			state.compactions = state.compactions + 1
+			P.log(state, "main", "Compacted context", "lifecycle")
 		elseif r.type == "message" and type(r.message) == "table" then
 			local m = r.message
 			if m.role == "user" then
