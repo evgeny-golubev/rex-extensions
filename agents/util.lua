@@ -70,4 +70,10 @@ function U.sqlite(db, query)
 	return ok and type(rows) == "table" and rows or nil
 end
 
+--- A hex colour ("#D97757") as { r, g, b }.
+function U.rgb(hex)
+	local r, g, b = tostring(hex or ""):match("#?(%x%x)(%x%x)(%x%x)")
+	return { tonumber(r, 16) or 0, tonumber(g, 16) or 0, tonumber(b, 16) or 0 }
+end
+
 return U

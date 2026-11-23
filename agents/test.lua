@@ -389,6 +389,24 @@ local ok, err = pcall(function()
 	equal(#kids .. " " .. kids[1].type .. " " .. tostring(kids[1].running), "1 explore true", "a child session still busy")
 	rows_for = nil
 	U.home = real_home
+
+	-- Themes: every adapter declares one hex palette for sidecar and pond.
+	local c = U.rgb("#D97757")
+	equal(c[1] .. "," .. c[2] .. "," .. c[3], "217,119,87", "hex to rgb")
+	for _, adapter in ipairs(A.list) do
+		local t = adapter.theme
+		equal(type(t), "table", adapter.id .. " has a theme")
+		equal(t.accent:match("^#%x%x%x%x%x%x$") ~= nil, true, adapter.id .. " accent hex")
+		equal(t.agent:match("^#%x%x%x%x%x%x$") ~= nil, true, adapter.id .. " agent hex")
+		equal(t.clock:match("^#%x%x%x%x%x%x$") ~= nil, true, adapter.id .. " clock hex")
+		equal(type(t.gradient) == "table" and #t.gradient >= 2, true, adapter.id .. " gradient stops")
+		for _, stop in ipairs(t.gradient) do
+			equal(stop:match("^#%x%x%x%x%x%x$") ~= nil, true, adapter.id .. " gradient stop hex")
+		end
+		equal(A.theme(adapter), t, adapter.id .. " theme by adapter")
+		equal(A.theme(adapter.id), t, adapter.id .. " theme by id")
+	end
+	equal(A.theme("unknown"), claude.theme, "unknown id falls back to claude theme")
 end)
 U.exec, U.home = real_exec, real_home
 real_exec({ "rm", "-rf", tmp })

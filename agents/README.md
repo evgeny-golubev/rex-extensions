@@ -365,6 +365,7 @@ Every adapter has these fields:
 | Field | What it is |
 | --- | --- |
 | `id`, `name` | `"codex"`, `"Codex"` |
+| `theme` | Hex palette `{ accent, agent, clock, gradient }` shared by `rex-sidecar` and `rex-crab-pond` |
 | `matches(p)` | Whether a process from `process` is this agent |
 | `session(pane)` | The pane's session, or nil. `pane` has `pid`, `cwd`, `session_id` and `block_id` |
 | `subagents(sess, now)` | The session's subagents, oldest first |

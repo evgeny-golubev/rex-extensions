@@ -8,7 +8,16 @@
 --      started.
 -- See agents/init.lua for the interface every adapter has.
 return function(U)
-	local M = { id = "codex", name = "Codex" }
+	local M = {
+		id = "codex",
+		name = "Codex",
+		theme = {
+			accent = "#4B7BFF", -- Codex Blue
+			agent = "#93A8FF", -- Periwinkle
+			clock = "#60A5FA", -- Sky
+			gradient = { "#3B82F6", "#6366F1" },
+		},
+	}
 
 	local terminal = "com.superlogical.terminal"
 	--- A subagent whose thread moved within this many seconds is running.

@@ -9,7 +9,16 @@
 -- are copied, once each is final, to ~/.config/rex/state/opencode/<id>.jsonl;
 -- see M.sync. Subagents are child sessions. See agents/init.lua.
 return function(U)
-	local M = { id = "opencode", name = "OpenCode" }
+	local M = {
+		id = "opencode",
+		name = "OpenCode",
+		theme = {
+			accent = "#C9D1D9", -- Silver
+			agent = "#E4E8EC", -- Mist
+			clock = "#94A3B8", -- Slate
+			gradient = { "#94A3B8", "#C9D1D9", "#E4E8EC" },
+		},
+	}
 
 	M.cache_ttl = 3
 

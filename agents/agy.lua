@@ -11,7 +11,16 @@
 -- come from conversation_summaries.db.
 -- See agents/init.lua for the interface every adapter has.
 return function(U)
-	local M = { id = "agy", name = "Antigravity" }
+	local M = {
+		id = "agy",
+		name = "Antigravity",
+		theme = {
+			accent = "#4285F4", -- Google Blue
+			agent = "#8AB4F8", -- Light Blue
+			clock = "#4285F4",
+			gradient = { "#4285F4", "#EA4335", "#FBBC05", "#34A853" },
+		},
+	}
 
 	--- How long a pane's session lookup is reused, in seconds.
 	M.cache_ttl = 5
