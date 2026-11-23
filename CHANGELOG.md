@@ -3,6 +3,13 @@
 Releases are tagged `vX.Y.Z` on GitHub. The skills keep their own versions,
 in each plugin's `plugin.json`.
 
+## Unreleased
+
+- **rex-view removed:** the rex-view skill plugin is gone from the repository
+  and the marketplace. Uninstall it with
+  `claude plugin uninstall rex-view@rex-extensions`. The sidecar's Search
+  Panel and Artifacts tab keep their viewer, now at `rex-sidecar/viewer`.
+
 ## v1.2.2 — 2026-11-22
 
 - **rex-sidecar:** Pi and OpenCode panes get colours of their own, like Codex

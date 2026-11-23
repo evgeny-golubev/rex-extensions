@@ -176,11 +176,11 @@ or click **Search Panel** on Artifacts. A float lists everything the agent's
 replies mention, as Artifacts does, with the category after each row. It reads
 the focused pane's agent, or the first supported agent in the tab.
 
-![The Search Panel float listing files, Jira keys, a pull request and links, with made-up data](../docs/rex-view.png)
+![The Search Panel float listing files, Jira keys, a pull request and links, with made-up data](../docs/search-panel.png)
 
 | Row | `Enter` | `Ctrl+E` |
 | --- | --- | --- |
-| A text file that exists: absolute, `~/`, or relative to the agent's folder, with an optional `:line` | Views it in the [rex-view](../plugins/rex-view/README.md) viewer, at the line | Edits it in your editor, in the float |
+| A text file that exists: absolute, `~/`, or relative to the agent's folder, with an optional `:line` | Views it in a viewer, at the line | Edits it in your editor, in the float |
 | An image: png, jpg, gif or webp | Views it | Views it |
 | An `http` or `https` link | Opens it in your browser | Opens it |
 | Text a link pattern matches | Opens the link it makes | Opens it |
@@ -188,7 +188,7 @@ the focused pane's agent, or the first supported agent in the tab.
 Type to filter. `Ctrl+Y` copies the path or link, and `Esc` closes. Folders
 aren't listed. The list needs [fzf](https://github.com/junegunn/fzf); without
 it, rows are numbered and you type a number. Each float replaces the one
-before, including a rex-view float Claude opened.
+before.
 
 ### Editor
 
@@ -585,8 +585,7 @@ unlock extra Info fields or improve session matching:
 | **OpenCode** | None | Works out of the box with OpenCode 2.x. [Details →](../agents/README.md#opencode) |
 
 See [dependencies by feature](../README.md#dependencies-by-feature)
-for optional diff, Markdown and search tools. The Search Panel uses bundled
-rex-view scripts without requiring the Claude Code plugin to be installed.
+for optional diff, Markdown and search tools.
 
 This isn't a native Rex extension format: a config module starts a separate,
 event-driven `rex do` watcher. To load a changed `watcher.lua`, stop the
@@ -678,7 +677,6 @@ its child sessions.
 | The pane stays closed | Run **Show Sidecar Pane** with an agent tab focused. A manually closed pane stays closed until the agent restarts; check auto-show for new panes. |
 | Last Turn is empty but files changed | Shell edits may not produce file-change events. Use Uncommitted inside a git repository. |
 | Info is missing boxes | Empty boxes are hidden. Check the agent-specific limits above and status line setup before treating this as a parsing failure. |
-| Search Panel cannot open a viewer | Keep `plugins/rex-view/` in the checkout even if you do not install its Claude Code plugin. |
 | Task tabs are absent | Press `,` and show Tasks or Reminders. Follow that provider's setup above. |
 | New watcher code is not loaded | Stop the watcher with the command under Install, then reload config. |
 

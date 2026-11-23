@@ -6,11 +6,6 @@
   },
   "plugins": [
     {
-      "name": "rex-view",
-      "source": "./plugins/rex-view",
-      "description": "Show images, Markdown, documents and source code in a floating pane over the Rex tab Claude runs in, through leaf when it is installed"
-    },
-    {
       "name": "rex-sidecar-task-list",
       "source": "./plugins/rex-sidecar-task-list",
       "description": "Set up the rex-sidecar Google Tasks or Reminders tab step by step, and keep its task lists in step with the work done in a Claude Code session"

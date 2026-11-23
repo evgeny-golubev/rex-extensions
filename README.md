@@ -15,15 +15,12 @@ Antigravity CLI (`agy`), [Pi](https://github.com/badlogic/pi-mono) and
   shows up as a pixel crab.
 - **Lose nothing on a restart.** After a reboot, your conversations and
   programs come back in their panes.
-- **Let the agent show you things.** Pictures, reports and code open in a
-  floating pane.
 
 | | Name | What you get | Runs as |
 | --- | --- | --- | --- |
 | Extension | [rex-sidecar](#rex-sidecar) | What the agent changed, a dashboard of its work, what its replies mention, and your tasks | A pane beside the agent |
 | Extension | [rex-crab-pond](#rex-crab-pond) | Agents, subagents and programs as animated crabs | A strip along the tab's bottom |
 | Extension | [rex-resume](#rex-resume) | Claude Code, Codex, agy, Pi and OpenCode conversations, and programs like nvim, back after a restart | A background watcher |
-| Skill | [rex-view](#rex-view) | Claude shows pictures, Markdown and code in a floating pane | Plugin 0.5.1 |
 | Skill | [rex-sidecar-task-list](#rex-sidecar-task-list) | Claude keeps your task list in step with the work you do together | Plugin 0.2.0 |
 
 **Contents:** [Extensions](#extensions) · [Skills](#skills) ·
@@ -52,7 +49,7 @@ when the agent exits.
 | **Artifacts** | The documents, PRs, Jira issues and links the agent's replies mention. The **Search Panel** (`Cmd+Ctrl+Alt+Shift+O`) lists them all in a float |
 | **Tasks** (Google Tasks) and **Reminders** | Your day's work, rated A, B and C, with estimates and a daily review. Hidden until you show them |
 
-![The Search Panel float, listing files, Jira keys, pull requests and links, with made-up data](docs/rex-view.png)
+![The Search Panel float, listing files, Jira keys, pull requests and links, with made-up data](docs/search-panel.png)
 
 [Tabs, keys and setup →](rex-sidecar/README.md)
 
@@ -85,13 +82,6 @@ nvim. It has nothing on screen.
 
 Skills are Claude Code plugins, installed from this repository. Claude uses
 them when they fit what you ask. They need nothing in `init.lua`.
-
-### rex-view
-
-Ask Claude to show you a file: "show me that screenshot" or "open the README
-in a pane". It opens in a floating pane over Claude's tab, and `q` closes it.
-
-[Details →](plugins/rex-view/README.md)
 
 ### rex-sidecar-task-list
 
@@ -176,7 +166,6 @@ Quick commands for the three optional setups:
 
 ```sh
 claude plugin marketplace add evgeny-golubev/rex-extensions
-claude plugin install rex-view@rex-extensions
 claude plugin install rex-sidecar-task-list@rex-extensions
 ```
 
@@ -195,7 +184,6 @@ Skills:
 
 ```sh
 claude plugin marketplace update rex-extensions
-claude plugin update rex-view@rex-extensions
 claude plugin update rex-sidecar-task-list@rex-extensions
 ```
 
@@ -231,7 +219,7 @@ Claude Code plugins.
 | Sidecar: Changes, Info and Artifacts | Yes | Yes, with the limits below | Yes, from its conversation transcript | Yes, from its session file | Yes, from its database |
 | Crab pond: agent panes | Yes | Yes | Yes, with subagents | Yes, with subagents | Yes, with subagents |
 | Resume conversations | `claude --resume` | `codex resume` | `agy --conversation` | `pi --session` | `opencode --session` |
-| rex-view and rex-sidecar-task-list plugins | Yes | Not packaged for this agent | Not packaged for this agent | Not packaged for this agent | Not packaged for this agent |
+| rex-sidecar-task-list plugin | Yes | Not packaged for this agent | Not packaged for this agent | Not packaged for this agent | Not packaged for this agent |
 
 The Info fields depend on what each agent records. Codex has no GATE approval
 history or per-pane background process list, and its OPEN box only shows
@@ -253,8 +241,8 @@ limits](agents/README.md) for session discovery and agent-specific behavior.
 | agy usage quota, permission mode, and context and effort for models whose ID doesn't give them | The [bundled agy status line script](agents/README.md#antigravity-cli-agy), with `jq` |
 | Diffs, Markdown, pictures and documents in a reader | [`leaf`](https://leaf.dipxsy.app) (`brew install deepanshumishraa/tap/leaf`); the sidecar offers to install it |
 | Highlighted diffs without leaf | [`delta`](https://github.com/dandavison/delta) (`brew install git-delta`); without it, [`bat`](https://github.com/sharkdp/bat) colours them |
-| Colours in rex-view | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
-| Formatted Markdown in rex-view without leaf | [`glow`](https://github.com/charmbracelet/glow) (`brew install glow`) |
+| Colours in the Search Panel's viewer | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
+| Formatted Markdown in the Search Panel's viewer without leaf | [`glow`](https://github.com/charmbracelet/glow) (`brew install glow`) |
 | The Search Panel | [`fzf`](https://github.com/junegunn/fzf) (`brew install fzf`), and `jq` |
 | PR scope and PR titles | [`gh`](https://cli.github.com), signed in (`brew install gh`, `gh auth login`) |
 
@@ -314,11 +302,10 @@ are in `~/.config/rex/state/opencode/` and can be deleted.
 ### Skills
 
 ```sh
-claude plugin uninstall rex-view@rex-extensions
 claude plugin uninstall rex-sidecar-task-list@rex-extensions
 ```
 
-Restart Claude Code, or run `/reload-plugins`. This removes the plugins;
+Restart Claude Code, or run `/reload-plugins`. This removes the plugin;
 your Google Tasks and Apple Reminders remain with their providers.
 
 ## Privacy
@@ -343,7 +330,6 @@ agents/                           Claude Code, Codex, agy, Pi and OpenCode adapt
 rex-sidecar/                      extension
 rex-crab-pond/                    extension
 rex-resume/                       extension
-plugins/rex-view/                 skill, as a plugin
 plugins/rex-sidecar-task-list/    skills, as a plugin
 docs/                             pictures
 ```
@@ -355,7 +341,6 @@ rex do ~/.config/rex/extensions/agents/test.lua
 rex do ~/.config/rex/extensions/rex-sidecar/test.lua
 rex do ~/.config/rex/extensions/rex-crab-pond/test.lua
 rex do ~/.config/rex/extensions/rex-resume/test.lua
-rex do ~/.config/rex/extensions/plugins/rex-view/test.lua
 ```
 
 The tests mock Rex and don't touch live sessions.

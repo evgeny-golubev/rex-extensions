@@ -1,14 +1,14 @@
 #!/bin/bash
 # The Rex View picker, in a float: view-picker <rex> <session> <claude block>
 # The Search Panel: what all of Claude's replies mention. Enter views a file or image in the
-# rex-view viewer, or opens a link in the browser; Ctrl-E edits a text file in
+# viewer, or opens a link in the browser; Ctrl-E edits a text file in
 # the editor, here in the float; Ctrl-Y copies.
 export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 rex_bin=$1
 session=$2
 claude=$3
 here=$(cd "$(dirname "$0")" && pwd)
-viewer="$here/../plugins/rex-view/skills/rex-view/scripts/viewer"
+viewer="$here/viewer"
 settings="$here/settings.json"
 
 list=$(mktemp -t rex-view)

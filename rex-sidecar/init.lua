@@ -54,7 +54,7 @@ rex.action({
 })
 
 -- Rex View: the Search Panel, a picker for the files, images and links in Claude's replies,
--- in a float over the tab. Its floats are labelled like rex-view's, so each
+-- in a float over the tab. Its floats share the "View: " label, so each
 -- replaces the one before.
 local agents = dofile(base .. "../agents/init.lua")
 local terminal = "com.superlogical.terminal"

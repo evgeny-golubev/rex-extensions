@@ -6,7 +6,7 @@ local mentions = dofile(sidecar.dir .. "mentions.lua")
 local width, clip = sidecar.width, sidecar.clip
 local colours = sidecar.colours
 local reset, bold, dim, red, teal = colours.reset, colours.bold, colours.dim, colours.red, colours.teal
-local viewer = sidecar.dir .. "../plugins/rex-view/skills/rex-view/scripts/viewer"
+local viewer = sidecar.dir .. "viewer"
 
 local A = { name = "Artifacts", interval = 2 }
 

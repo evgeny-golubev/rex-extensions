@@ -2769,4 +2769,23 @@ do
 	equal(SL.leaf_ask(base), false, "don't ask again is kept")
 	real.exec({ "rm", "-rf", base })
 end
+-- The viewer hands documents and pictures to leaf; REX_LEAF stands in for it.
+do
+	local viewer = dir .. "viewer"
+	local function missing(leaf, ...)
+		return real.exec({ "/usr/bin/env", "REX_LEAF=" .. leaf, viewer, "--leaf-missing", ... }).code == 0
+	end
+	equal(missing("", "/a/Notes.MD"), true, "Markdown without leaf: offer it")
+	equal(missing("/bin/echo", "/a/notes.md"), false, "Markdown with leaf")
+	equal(missing("", "/a/notes.md", "4"), false, "a line stays with bat, so leaf isn't missed")
+	equal(missing("", "/a/main.lua"), false, "code stays with bat")
+	equal(missing("", "/a/shot.png"), true, "a picture without leaf")
+	local tmp = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "")
+	local f = assert(io.open(tmp .. "/a.md", "w"))
+	f:write("# a\n")
+	f:close()
+	local opened = real.exec({ "/usr/bin/env", "REX_LEAF=/bin/echo", viewer, tmp .. "/a.md" })
+	equal(opened.stdout, "open " .. tmp .. "/a.md\n", "leaf opens the document")
+	real.exec({ "rm", "-rf", tmp })
+end
 return "rex-sidecar: all tests passed"
