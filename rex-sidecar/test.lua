@@ -1030,6 +1030,14 @@ local ok2, err2 = pcall(function()
 	equal(sh_id ~= nil, true, "described shell command has clickable peek action")
 	local sh_open = plain(P.info_lines(sh, 64, { rows = 40, open_logs = { [sh_id] = true } }))
 	has(sh_open, "$ d=~/out; python3 summarize.py", "clicking described shell command reveals raw command")
+	-- Code mode (repl-mode) detection and main card header badge.
+	P.record(sh, { type = "permission-mode", permissionMode = "auto" })
+	P.record(sh, { type = "repl-mode", replMode = true })
+	equal(sh.code_mode, true, "repl-mode true sets code_mode")
+	has(plain(P.info_lines(sh, 64, { rows = 40 })), "code · ○ idle", "code mode badge shown before status indicator")
+	P.record(sh, { type = "repl-mode", replMode = false })
+	equal(sh.code_mode, false, "repl-mode false clears code_mode")
+	hasnt(plain(P.info_lines(sh, 64, { rows = 40 })), "code · ○ idle", "code mode badge hidden when off")
 	local rich = P.new_state("codex")
 	rich.log = {
 		{ at = t0, who = "main", text = "› check codex" },

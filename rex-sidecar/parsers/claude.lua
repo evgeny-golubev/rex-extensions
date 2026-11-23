@@ -271,6 +271,8 @@ return function(P)
 			user(state, r)
 		elseif r.type == "permission-mode" then
 			state.mode = r.permissionMode or state.mode
+		elseif r.type == "repl-mode" then
+			state.code_mode = r.replMode == true
 		elseif r.type == "ai-title" then
 			state.title = r.aiTitle or state.title
 		elseif r.type == "attachment" and type(r.attachment) == "table" and r.attachment.type == "queued_command"

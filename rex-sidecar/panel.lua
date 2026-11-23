@@ -1360,6 +1360,9 @@ local function main_box(out, state, cols, o)
 	local theme = theme_of(state)
 	local running = M.running(state)
 	local right = running and (theme.accent .. "● running" .. reset) or (dim .. "○ idle" .. reset)
+	if state.code_mode then
+		right = theme.clock .. "code" .. reset .. dim .. " · " .. reset .. right
+	end
 	local effort = state.effort or o.effort
 	local label = o.model_label or M.model_name(state.model) or who
 	if effort and type(label) == "string" then
@@ -2446,6 +2449,7 @@ local function gather_sig()
 		tostring(panel.sess and panel.sess.model_label),
 		tostring(panel.sess and panel.sess.effort),
 		tostring(panel.sess and panel.sess.mode),
+		tostring(st.code_mode),
 		tostring(panel.sess and panel.sess.working),
 		tostring(panel.status and panel.status.window),
 		tostring(#(panel.processes or {})),
