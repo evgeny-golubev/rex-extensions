@@ -141,8 +141,6 @@ return function(P)
 			P.log(state, "main", tostring(input.query), "search")
 		elseif tool.name == "WebFetch" and not failed and input.url then
 			P.log(state, "main", P.short_url(input.url), "web")
-		elseif tool.name == "REPL" and not failed then
-			P.log(state, "main", "REPL", "workflow")
 		elseif tool.name == "SendMessage" and not failed then
 			local summary = type(input.summary) == "string" and input.summary:match("%S") and input.summary or nil
 			local raw_msg = input.message or input.content
@@ -273,6 +271,8 @@ return function(P)
 			user(state, r)
 		elseif r.type == "permission-mode" then
 			state.mode = r.permissionMode or state.mode
+		elseif r.type == "repl-mode" then
+			state.code_mode = r.replMode == true
 		elseif r.type == "ai-title" then
 			state.title = r.aiTitle or state.title
 		elseif r.type == "attachment" and type(r.attachment) == "table" and r.attachment.type == "queued_command"
