@@ -72,7 +72,7 @@ return function(P)
 		local meta = type(s.metadata) == "table" and s.metadata or {}
 		local failed = s.status == "error"
 		local id = tostring(part.id or (state.seq .. ":" .. name))
-		state.tools[id] = { name = name, input = input }
+		state.tools[id] = nil
 		state.waiting[id] = nil
 		if failed then
 			state.turn.errors = state.turn.errors + 1
@@ -153,6 +153,7 @@ return function(P)
 			state.root = d.directory or state.root
 		elseif r.type == "user" then
 			state.waiting = {}
+			state.tools = {}
 			local text = tostring(d.text or ""):gsub("^%s+", ""):gsub("%s+$", "")
 			if text ~= "" then
 				P.add_prompt(state, text)
@@ -201,7 +202,6 @@ return function(P)
 		for _, part in ipairs(type(r.parts) == "table" and r.parts or {}) do
 			if part.type == "tool" then
 				local s = type(part.state) == "table" and part.state or {}
-				a.calls[tostring(part.id)] = { name = part.name, input = s.input }
 				P.agent_tool(a, part.name, P.tool_target(part.name, s.input))
 			elseif part.type == "text" and type(part.text) == "string" and part.text:match("%S") then
 				a.answer = part.text

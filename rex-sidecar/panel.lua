@@ -747,38 +747,108 @@ local function rgb(r, g, b)
 	return string.format("\27[38;2;%d;%d;%dm", r, g, b)
 end
 
---- Interpolates a truecolor ANSI foreground code along `stops` at t in [0, 1].
-local function gradient_at(stops, t)
-	t = math.max(0, math.min(1, t))
+local gradient_luts = setmetatable({}, { __mode = "k" })
+
+--- Builds (once per gradient table) a 256-entry lookup table of truecolor ANSI
+--- foreground codes so 60 Hz gradient sweeps do zero per-cell lerp or formatting.
+local function gradient_lut(stops)
+	local lut = gradient_luts[stops]
+	if lut then
+		return lut
+	end
+	lut = {}
 	local span = #stops - 1
 	if span <= 0 then
-		return rgb(stops[1][1], stops[1][2], stops[1][3])
+		local solid = rgb(stops[1][1], stops[1][2], stops[1][3])
+		for idx = 0, 255 do
+			lut[idx] = solid
+		end
+	else
+		for idx = 0, 255 do
+			local pos = (idx / 255) * span
+			local i = math.min(span, math.floor(pos) + 1)
+			local f = pos - (i - 1)
+			local a, b = stops[i], stops[i + 1]
+			lut[idx] = rgb(
+				math.floor(a[1] + (b[1] - a[1]) * f + 0.5),
+				math.floor(a[2] + (b[2] - a[2]) * f + 0.5),
+				math.floor(a[3] + (b[3] - a[3]) * f + 0.5)
+			)
+		end
 	end
-	local pos = t * span
-	local i = math.min(span, math.floor(pos) + 1)
-	local f = pos - (i - 1)
-	local a, b = stops[i], stops[i + 1]
-	return rgb(
-		math.floor(a[1] + (b[1] - a[1]) * f + 0.5),
-		math.floor(a[2] + (b[2] - a[2]) * f + 0.5),
-		math.floor(a[3] + (b[3] - a[3]) * f + 0.5)
-	)
+	gradient_luts[stops] = lut
+	return lut
+end
+
+--- Interpolates a truecolor ANSI foreground code along `stops` at t in [0, 1].
+local function gradient_at(stops, t)
+	if t <= 0 then
+		return gradient_lut(stops)[0]
+	elseif t >= 1 then
+		return gradient_lut(stops)[255]
+	end
+	return gradient_lut(stops)[math.floor(t * 255 + 0.5)]
 end
 
 --- Colours each UTF-8 glyph of plain `text` along `stops` across columns [from_col .. total_cols].
 --- When `phase` is given, smoothly shifts the gradient in a seamless ping-pong wave.
 local function paint_gradient(text, stops, from_col, total_cols, prefix, phase)
-	local out, col, denom = {}, from_col, math.max(1, total_cols - 1)
+	local lut = gradient_lut(stops)
+	local out, n, col, denom = {}, 0, from_col, math.max(1, total_cols - 1)
+	local prev_c
 	prefix = prefix or ""
+	if prefix ~= "" then
+		n = 1
+		out[1] = prefix
+	end
 	for ch in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
 		local t = (col - 1) / denom
 		if phase then
 			t = 1 - math.abs((t - phase) % 2 - 1)
 		end
-		out[#out + 1] = prefix .. gradient_at(stops, t) .. ch
+		local idx = t <= 0 and 0 or (t >= 1 and 255 or math.floor(t * 255 + 0.5))
+		local c = lut[idx]
+		if c ~= prev_c then
+			n = n + 1
+			out[n] = c
+			prev_c = c
+		end
+		n = n + 1
+		out[n] = ch
 		col = col + 1
 	end
-	return table.concat(out) .. reset
+	n = n + 1
+	out[n] = reset
+	return table.concat(out)
+end
+
+--- Fast-path gradient fill for `count` copies of a single glyph (e.g. `"─"`),
+--- avoiding `string.rep` + UTF-8 regex scanning on every 60 Hz animation frame.
+local function paint_rule(glyph, count, stops, from_col, total_cols, phase)
+	if count <= 0 then
+		return ""
+	end
+	local lut = gradient_lut(stops)
+	local out, n, denom = {}, 0, math.max(1, total_cols - 1)
+	local prev_c
+	for i = 0, count - 1 do
+		local t = (from_col + i - 1) / denom
+		if phase then
+			t = 1 - math.abs((t - phase) % 2 - 1)
+		end
+		local idx = t <= 0 and 0 or (t >= 1 and 255 or math.floor(t * 255 + 0.5))
+		local c = lut[idx]
+		if c ~= prev_c then
+			n = n + 1
+			out[n] = c
+			prev_c = c
+		end
+		n = n + 1
+		out[n] = glyph
+	end
+	n = n + 1
+	out[n] = reset
+	return table.concat(out)
 end
 
 local orange, lavender, mint, purple = "\27[38;5;209m", "\27[38;5;147m", "\27[38;5;114m", "\27[38;5;141m"
@@ -856,8 +926,8 @@ local function box_top(colour, title, right, cols, folded, gradient, phase)
 	local left, close = folded and "╶ " or "╭ ", folded and "╴" or "╮"
 	if gradient then
 		local left_s = paint_gradient(left, gradient, 1, cols, "", phase)
-		local fill_s = paint_gradient(string.rep("─", fill), gradient, 4 + title_w, cols, "", phase)
-		local close_s = paint_gradient(close, gradient, cols, cols, "", phase)
+		local fill_s = paint_rule("─", fill, gradient, 4 + title_w, cols, phase)
+		local close_s = paint_rule(close, 1, gradient, cols, cols, phase)
 		return left_s .. title .. " " .. fill_s .. tail .. close_s
 	end
 	return colour .. left .. reset .. title .. " " .. colour .. string.rep("─", fill) .. reset .. tail .. colour .. close .. reset
@@ -897,7 +967,7 @@ function M.box(out, actions, cols, colour, title, right, body, folded, gradient)
 		end
 	end
 	if gradient then
-		out[#out + 1] = paint_gradient("╰" .. string.rep("─", cols - 2) .. "╯", gradient, 1, cols)
+		out[#out + 1] = left_c .. "╰" .. paint_rule("─", cols - 2, gradient, 2, cols) .. right_c .. "╯" .. reset
 	else
 		out[#out + 1] = colour .. "╰" .. string.rep("─", cols - 2) .. "╯" .. reset
 	end
@@ -1077,7 +1147,7 @@ function M.turn_box_lines(th, cols, now, clock, precise)
 		lines[#lines + 1] = left_c .. "│ " .. reset .. inner .. right_c .. " │" .. reset
 	end
 	if th.gradient then
-		lines[#lines + 1] = paint_gradient("╰" .. string.rep("─", cols - 2) .. "╯", th.gradient, 1, cols, "", phase)
+		lines[#lines + 1] = left_c .. "╰" .. paint_rule("─", cols - 2, th.gradient, 2, cols, phase) .. right_c .. "╯" .. reset
 	else
 		lines[#lines + 1] = th.colour .. "╰" .. string.rep("─", cols - 2) .. "╯" .. reset
 	end
@@ -1975,6 +2045,8 @@ local panel = {
 	open_agents = {},
 	--- Log exploration burst ID -> true when expanded on Info.
 	open_logs = {},
+	--- Whether this sidecar's tab is the session's active window.
+	visible = true,
 	--- "tests" or "failed" when the receipt shows that list.
 	show = nil,
 	--- The tab's last built view; cleared by anything that changes it.
@@ -2076,10 +2148,23 @@ function M.parse_git_info(text)
 	end
 	return {
 		root = root,
+		git_dir = (git_dir and git_dir ~= "") and git_dir or nil,
 		branch = (branch and branch ~= "") and branch or nil,
 		worktree = worktree,
 		repo = repo,
 	}
+end
+
+--- Reads the current branch directly from `<git_dir>/HEAD` without spawning git.
+--- Returns the branch name on a symbolic ref, or nil when detached/unreadable.
+local function read_head_branch(git_dir)
+	local f = git_dir and io.open(git_dir .. "/HEAD", "rb")
+	if not f then
+		return nil
+	end
+	local line = f:read("*l")
+	f:close()
+	return line and line:match("^ref:%s*refs/heads/(.+)$") or nil
 end
 
 --- Keeps the pane pointed at the agent's repository, branch and worktree.
@@ -2088,10 +2173,24 @@ local function follow(cwd)
 	if not target then
 		return
 	end
+	local now = os.clock()
+	if target == panel.cwd then
+		if panel.git_dir then
+			local branch = read_head_branch(panel.git_dir)
+			if branch then
+				panel.branch = branch
+				return
+			end
+		elseif panel.git_checked and now - panel.git_checked < 30 then
+			return
+		end
+	end
 	panel.cwd = target
+	panel.git_checked = now
 	local r = run({ "git", "-C", target, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir", "--git-common-dir", "--abbrev-ref", "HEAD" })
 	local info = r and r.ok and M.parse_git_info(r.stdout) or nil
 	local root = info and info.root or target
+	panel.git_dir = info and info.git_dir or nil
 	panel.branch = info and info.branch or nil
 	panel.worktree = info and info.worktree or nil
 	panel.repo = info and info.repo or nil
@@ -2108,14 +2207,24 @@ end
 
 --- The session's subagents, as its agent lists them, oldest first. A
 --- finished one is read no more.
-local function read_agents(state, sess)
+local function read_agents(state, sess, moved)
 	state.agents = state.agents or {}
-	local done = {}
+	local done, active = {}, false
 	for id, a in pairs(state.agents) do
-		done[id] = a.finished or nil
+		if a.finished then
+			done[id] = true
+		else
+			active = true
+		end
 	end
+	local now = os.time()
+	if state.agent_list and not moved and not active and not M.running(state) and not (sess and sess.working)
+		and state.agents_checked and now - state.agents_checked < 10 then
+		return
+	end
+	state.agents_checked = now
 	local status = state.subagent_status or {}
-	for _, sub in ipairs(sess.agent.subagents(sess, os.time(), done)) do
+	for _, sub in ipairs(sess.agent.subagents(sess, now, done)) do
 		local a = state.agents[sub.id]
 		if not a then
 			a = M.new_agent(sub.id, sess.agent.id)
@@ -2134,6 +2243,9 @@ local function read_agents(state, sess)
 				M.read_agent(a, sub.transcript, state.gate)
 			end
 			a.finished = finished
+			if finished then
+				a.calls = {}
+			end
 		end
 	end
 	local list = {}
@@ -2185,7 +2297,34 @@ local function gather_sig()
 	}, "\0")
 end
 
+--- Checks whether this pane lives in the session's active tab (`session.view`).
+local function check_visible()
+	if not (panel.session_id and panel.block_id) then
+		return true
+	end
+	local ok, view = pcall(rex.call, "session.view", { session_id = panel.session_id })
+	if not (ok and type(view) == "table" and view.active_window_id) then
+		return true
+	end
+	for _, w in ipairs(view.windows or {}) do
+		for _, layer in ipairs(w.layers or {}) do
+			for _, b in ipairs(layer.blocks or {}) do
+				if b.block_id == panel.block_id then
+					return w.window_id == view.active_window_id
+				end
+			end
+		end
+	end
+	return true
+end
+
 local function gather()
+	local was_visible = panel.visible
+	panel.visible = check_visible()
+	if not panel.visible and panel.gathered then
+		panel.gather_changed = false
+		return
+	end
 	local before = gather_sig()
 	local size = rex.block.call(terminal, "size", { session_id = panel.session_id, block_id = panel.block_id })
 	if size and size.columns and (size.columns ~= panel.cols or size.rows ~= panel.rows) then
@@ -2213,6 +2352,7 @@ local function gather()
 			state.path = path
 			panel.open_logs = {}
 		end
+		local prev_offset = state.offset
 		if M.read_new(state, path) == "reset" then
 			state = M.new_state(adapter.id)
 			state.path = path
@@ -2220,17 +2360,26 @@ local function gather()
 		end
 		panel.state = state
 		panel.status = sess.status
-		read_agents(state, sess)
+		read_agents(state, sess, state.offset ~= prev_offset)
 		panel.processes = {}
 		if pid and next(state.tasks_bg) ~= nil then
 			local ps = run({ "/bin/ps", "-axo", "pid=,ppid=,etime=,comm=" })
 			-- The tasks come from the transcript, as Claude Code lists them, each
 			-- with a live shell of Claude's.
-			local live = (ps and ps.ok) and M.processes(pid, ps.stdout, state.monitors, os.time()) or {}
-			if #live > 0 then
+			if ps and ps.ok then
 				local now = os.time()
+				local live = M.processes(pid, ps.stdout, state.monitors, now)
+				local kept = {}
 				for _, t in ipairs(M.running_tasks(state, now, live)) do
+					kept[t.id] = true
 					panel.processes[#panel.processes + 1] = { name = t.name, kind = t.monitor and "monitor" or "shell", age = t.at and (now - t.at) or 0 }
+				end
+				-- Prune stale background tasks whose shell already exited (e.g. after restart)
+				-- so we don't keep spawning `/bin/ps` every 2 seconds forever.
+				for id, t in pairs(state.tasks_bg) do
+					if not kept[id] and ((t.expires and now > t.expires) or (t.at and now - t.at > 15)) then
+						state.tasks_bg[id] = nil
+					end
 				end
 			end
 		end
@@ -2238,7 +2387,7 @@ local function gather()
 
 	local first = not panel.gathered
 	panel.gathered = true
-	panel.gather_changed = first or gather_sig() ~= before
+	panel.gather_changed = first or (not was_visible and panel.visible) or gather_sig() ~= before
 end
 
 -- Tab plugins ---------------------------------------------------------------
@@ -2343,13 +2492,13 @@ function M.load_plugins(path)
 end
 
 --- Starts the refresh of each shown plugin tab that is due, as a task. Non-active
---- tabs refresh at most every 5 seconds so background git polls stay light.
+--- tabs refresh at most every 15 seconds so background git polls stay light.
 local function refresh_plugins(now)
 	for name, p in pairs(plugins) do
 		if p.tab.refresh and not panel.hidden_tabs[name] and now >= p.due and spawn("tab " .. name, p.tab.refresh) then
 			local interval = p.tab.interval or 60
-			if name ~= panel.tab and interval < 5 then
-				interval = 5
+			if name ~= panel.tab and interval < 15 then
+				interval = 15
 			end
 			p.due = now + interval
 		end
@@ -2584,7 +2733,7 @@ local function patch_turn_header(now_clock)
 		local row = 2 + pinned + (idx - s)
 		if row >= 3 + pinned and row <= panel.rows and line ~= c.lines[idx] then
 			c.lines[idx] = line
-			chunks[#chunks + 1] = "\27[" .. row .. ";1H" .. M.clip(line, cols) .. "\27[K"
+			chunks[#chunks + 1] = "\27[" .. row .. ";1H" .. line .. "\27[K"
 		end
 	end
 	if #chunks == 0 then
@@ -2875,39 +3024,52 @@ M.load_plugins(home .. "/.config/rex/sidecar-tabs/")
 -- 50 ms per tick. Modes 1000 and 1006 report clicks and the wheel.
 exec({ "/bin/sh", "-c", "stty -icanon -echo min 0 time 0 </dev/tty" })
 io.write("\27[?1049h\27[?1000h\27[?1006h\27[?25l\27[2J")
-local gathered, drawn, animated, dirty, typed, watched, sized, last_minute, last_badges = 0, 0, 0, false, 0, 0, 0, "", ""
+local gathered, drawn, animated, dirty, typed, watched, sized, min_checked, last_minute, last_badges = 0, 0, 0, false, 0, 0, 0, 0, "", ""
 while true do
 	local now = os.clock()
-	local fast = panel.cache and panel.cache.fast
+	local visible = panel.visible
+	local fast = visible and panel.cache and panel.cache.fast
 	if panel.float and now - watched >= 0.25 then
 		watched = now
 		pcall(watch_float)
 	end
-	if now - sized >= 0.5 then
+	if visible and now - sized >= 1.0 then
 		sized = now
 		local ok, resized = pcall(sync_size)
 		if ok and resized then
 			dirty = true
 		end
 	end
-	if now - gathered >= 2 and now - typed >= 1 and spawn("gather", gather) then
+	local gather_every = visible and 2 or 1.5
+	if now - gathered >= gather_every and now - typed >= 1 and spawn("gather", gather) then
 		gathered = now
-		-- Other panes change the tab settings too.
-		arrange()
+		if visible then
+			-- Other panes change the tab settings too.
+			arrange()
+		end
 	end
-	if now - typed >= 1 then
+	if visible and now - typed >= 1 then
 		refresh_plugins(now)
 	end
 	local ended, ended_names = step_tasks(fast and 0.004 or 0.02)
 	if ended then
-		local need_draw = panel.tab ~= "Info"
+		local need_draw = panel.visible and panel.tab ~= "Info"
 		if not need_draw and ended_names.gather and panel.gather_changed then
 			need_draw = true
 		end
-		local bsig = badge_sig()
-		if bsig ~= last_badges then
-			last_badges = bsig
-			need_draw = true
+		local plugin_ended = false
+		for name in pairs(ended_names) do
+			if name ~= "gather" then
+				plugin_ended = true
+				break
+			end
+		end
+		if panel.visible and plugin_ended then
+			local bsig = badge_sig()
+			if bsig ~= last_badges then
+				last_badges = bsig
+				need_draw = true
+			end
 		end
 		if need_draw then
 			panel.cache = nil
@@ -2916,20 +3078,27 @@ while true do
 	end
 	-- Full screen refreshes at 1 Hz only for subagent/process clocks or minute ticks;
 	-- active turn box patches in place at ~60 Hz without touching panel.cache.
-	local minute = os.date("%H:%M")
-	if minute ~= last_minute then
-		last_minute = minute
-		panel.cache = nil
-		dirty = true
-	elseif panel.cache and panel.cache.other_ticking and now - drawn >= 1 then
-		panel.cache = nil
-		dirty = true
-	elseif panel.cache and panel.cache.fast and not dirty and now - animated >= 0.016 then
-		animated = now
-		pcall(patch_turn_header, now)
+	if visible then
+		if now - min_checked >= 1 then
+			min_checked = now
+			local minute = os.date("%H:%M")
+			if minute ~= last_minute then
+				last_minute = minute
+				panel.cache = nil
+				dirty = true
+			end
+		end
+		if not dirty and panel.cache and panel.cache.other_ticking and now - drawn >= 1 then
+			panel.cache = nil
+			dirty = true
+		elseif not dirty and fast and now - animated >= 0.016 then
+			animated = now
+			pcall(patch_turn_header, now)
+		end
 	end
 	local k = io.read(1)
 	if k then
+		panel.visible = true
 		local ok, err = pcall(key, k)
 		if not ok then
 			panel.notice = tostring(err)
@@ -2946,6 +3115,6 @@ while true do
 		end
 	end
 	if not k then
-		rex.sleep((panel.cache and panel.cache.fast) and 0.016 or 0.05)
+		rex.sleep(fast and 0.016 or (panel.visible and 0.05 or 0.15))
 	end
 end

@@ -66,11 +66,15 @@ return function(P)
 	end
 
 	local function tool_result(state, item, record)
-		local tool = state.tools[item.tool_use_id]
+		local id = item.tool_use_id
+		local tool = state.tools[id]
+		state.tools[id] = nil
+		local monitor_name = state.monitor_names[id]
+		state.monitor_names[id] = nil
 		if not tool then
 			return
 		end
-		state.waiting[item.tool_use_id] = nil
+		state.waiting[id] = nil
 		local text = result_text(item)
 		local failed = item.is_error == true
 		local decision = record.permissionDecision
@@ -84,7 +88,7 @@ return function(P)
 			local at = P.epoch(state.at)
 			if at then
 				local list = state.monitors
-				list[#list + 1] = { description = state.monitor_names[item.tool_use_id] or "monitor", at = at, expires = at + extra.timeoutMs / 1000 }
+				list[#list + 1] = { description = monitor_name or "monitor", at = at, expires = at + extra.timeoutMs / 1000 }
 				if #list > 100 then
 					table.remove(list, 1)
 				end
@@ -323,11 +327,16 @@ return function(P)
 					a.answer = item.text
 				end
 			end
-		elseif r.type == "user" and type(r.permissionDecision) == "table" and gate then
+		elseif r.type == "user" then
+			local decision = type(r.permissionDecision) == "table" and gate and r.permissionDecision or nil
 			for _, item in ipairs(content) do
 				if item.type == "tool_result" then
-					local call = a.calls[item.tool_use_id] or {}
-					P.gate_check(gate, r.permissionDecision, call.name or "tool", call.input, true)
+					local call = a.calls[item.tool_use_id]
+					a.calls[item.tool_use_id] = nil
+					if decision then
+						call = call or {}
+						P.gate_check(gate, decision, call.name or "tool", call.input, true)
+					end
 				end
 			end
 		end

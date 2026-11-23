@@ -111,7 +111,6 @@ return function(P)
 		local name = tostring(call.name or "")
 		local args = type(call.args) == "table" and call.args or {}
 		local id = state.seq .. ":" .. n
-		state.tools[id] = { name = name, input = args }
 		state.agy_pending = state.agy_pending or {}
 		state.agy_pending[#state.agy_pending + 1] = { id = id, name = name, args = args }
 		local lower = name:lower()
@@ -219,6 +218,7 @@ return function(P)
 		if r.type == "USER_INPUT" then
 			-- An answer ends the questions asked before it.
 			state.waiting = {}
+			state.tools = {}
 			state.agy_pending = {}
 			P.add_prompt(state, R.prompt_text(r.content))
 		elseif r.type == "CHECKPOINT" then
