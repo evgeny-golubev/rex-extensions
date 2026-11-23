@@ -130,13 +130,35 @@ return function(P)
 			end
 			local output = tostring(item.aggregated_output or "")
 			local why = output:match("%S") and output or ("status " .. tostring(item.status))
-			P.command_ran(state, R.command_text(item.command), failed, (code and ("exit " .. code .. ": ") or "") .. why)
+			local pc = type(item.parsed_cmd) == "table" and #item.parsed_cmd == 1 and type(item.parsed_cmd[1]) == "table" and item.parsed_cmd[1] or nil
+			local is_parsed_read = not failed and pc and (pc.type == "read" or pc.type == "search" or pc.type == "list_files")
+			if is_parsed_read then
+				local target = pc.path and P.short_path(pc.path, state.root) or pc.name or pc.cmd or ""
+				P.log(state, "main", "read " .. tostring(target), "explore")
+			end
+			P.command_ran(state, R.command_text(item.command), failed, (code and ("exit " .. code .. ": ") or "") .. why, is_parsed_read)
+		elseif t == "Extension" then
+			if item.kind == "web.search" then
+				local act = type(item.action) == "table" and item.action or {}
+				if act.type == "openPage" and act.url then
+					P.log(state, "main", P.short_url(act.url), "web")
+				elseif item.query and tostring(item.query) ~= "" then
+					local q = tostring(item.query)
+					if q:match("^https?://") then
+						P.log(state, "main", P.short_url(q), "web")
+					else
+						P.log(state, "main", q, "search")
+					end
+				end
+			end
 		elseif t == "FileChange" then
 			file_change(state, item)
 		elseif t == "McpToolCall" then
 			if item.status == "failed" then
 				state.turn.errors = state.turn.errors + 1
-				P.log(state, "main", "✗ " .. tostring(item.server) .. "." .. tostring(item.tool))
+				P.log(state, "main", "✗ " .. tostring(item.server) .. "." .. tostring(item.tool), "error")
+			elseif item.status == "completed" then
+				P.log(state, "main", P.short_mcp(item.tool, item.server), "mcp")
 			end
 		elseif t == "SubAgentActivity" then
 			if item.agent_thread_id then
@@ -154,6 +176,7 @@ return function(P)
 			end
 		elseif t == "ContextCompaction" then
 			state.compactions = state.compactions + 1
+			P.log(state, "main", "Compacted context", "lifecycle")
 		end
 	end
 

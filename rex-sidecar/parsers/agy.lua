@@ -125,10 +125,19 @@ return function(P)
 		elseif name == "invoke_subagent" then
 			state.turn.agents = state.turn.agents + 1
 			local label = tostring(args.Role or args.TypeName or "subagent")
-			P.log(state, "main", "Agent → " .. label)
+			P.log(state, "agent", "started · " .. label, "agent")
 		elseif name == "run_workflow" then
 			local desc = tostring(args.Description or "workflow")
 			P.log(state, "main", "Workflow → " .. desc)
+		elseif name == "read_file" then
+			local path = edit_path(args)
+			if path then
+				P.log(state, "main", "read " .. P.short_path(path, state.root), "explore")
+			end
+		elseif name == "search_web" and args.query then
+			P.log(state, "main", tostring(args.query), "search")
+		elseif name == "call_mcp_tool" and args.ToolName then
+			P.log(state, "main", P.short_mcp(args.ToolName, args.ServerName), "mcp")
 		elseif lower:find("write", 1, true) or lower:find("replace", 1, true) or lower:find("edit", 1, true)
 			or lower:find("create", 1, true) then
 			local path = edit_path(args)

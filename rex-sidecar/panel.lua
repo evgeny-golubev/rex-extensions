@@ -232,13 +232,90 @@ end
 -- Transcript ----------------------------------------------------------------
 
 --- Adds an event to the session log, which keeps the latest 300. `who` is
---- main, agent, gate or advisor.
-function M.log(state, who, text)
+--- main, agent, gate or advisor; optional `kind` classifies the event
+--- semantically (write, edit, delete, cmd, test_ok, error, gate, web, search,
+--- mcp, workflow, agent, advisor, explore, lifecycle).
+function M.log(state, who, text, kind)
 	local log = state.log
-	log[#log + 1] = { at = M.epoch(state.at), who = who, text = first_line(text) }
+	state.log_seq = (state.log_seq or 0) + 1
+	log[#log + 1] = { id = state.log_seq, at = M.epoch(state.at), who = who, text = first_line(text), kind = kind }
 	if #log > 300 then
 		table.remove(log, 1)
 	end
+end
+
+--- Strips scheme and trailing slash from a URL for compact log display.
+function M.short_url(url)
+	return tostring(url or ""):gsub("^https?://", ""):gsub("/+$", "")
+end
+
+--- Shortens an MCP tool name (e.g. mcp__claude_ai_Atlassian_MCP__createJiraIssue
+--- or server + tool) to a compact `server·tool` label.
+function M.short_mcp(name, server)
+	local srv, tool = server, name
+	if not srv then
+		local raw_srv, raw_tool = tostring(name or ""):match("^mcp__([^_].-)__(.+)$")
+		if raw_srv then
+			srv, tool = raw_srv, raw_tool
+		end
+	end
+	if srv then
+		srv = tostring(srv)
+			:gsub("^claude_ai_", "")
+			:gsub("^plugin_engineering_", "")
+			:gsub("^plugin_", "")
+			:gsub("_MCP$", "")
+			:gsub("_mcp$", "")
+			:lower()
+		return srv .. "·" .. tostring(tool or "")
+	end
+	return tostring(name or "")
+end
+
+local read_bins = {
+	ls = true, cat = true, head = true, tail = true, find = true, fd = true,
+	rg = true, grep = true, ag = true, wc = true, stat = true, file = true,
+	tree = true, pwd = true, ps = true, pgrep = true, lsof = true,
+}
+local read_git = {
+	status = true, log = true, diff = true, show = true, branch = true,
+	["rev-parse"] = true, ["ls-files"] = true, ["ls-tree"] = true,
+}
+
+--- Whether a shell command is pure read-only inspection (routed into the
+--- collapsible exploration bucket instead of cluttering `$` commands).
+function M.is_read_command(command)
+	local cmd = M.command(command):gsub("^%s+", "")
+	if cmd == "" then
+		return false
+	end
+	cmd = cmd:gsub("^cd%s+[^&;]+&&%s*", "")
+	while cmd:match("^[%a_][%w_]*=%S+%s+") do
+		cmd = cmd:gsub("^[%a_][%w_]*=%S+%s+", "")
+	end
+	if cmd:find("[;&>]") then
+		return false
+	end
+	local bin, rest = cmd:match("^(%S+)%s*(.*)$")
+	if not bin then
+		return false
+	end
+	bin = bin:match("[^/]+$") or bin
+	if read_bins[bin] then
+		return true
+	end
+	if bin == "sed" and rest:match("^%-n%s") then
+		return true
+	end
+	if bin == "git" then
+		local sub = rest
+		while sub:match("^%-C%s+%S+%s+") do
+			sub = sub:gsub("^%-C%s+%S+%s+", "")
+		end
+		local verb = sub:match("^(%S+)")
+		return verb ~= nil and read_git[verb] == true
+	end
+	return false
 end
 
 --- A background task Claude started: a shell named by its command, as Claude
@@ -405,8 +482,9 @@ function M.add_hunks(state, path, hunks, created)
 end
 
 --- A shell command finished: a test run is recorded, and a failure with the
---- first line of its error.
-function M.command_ran(state, command, failed, err)
+--- first line of its error. Set `skip_log` when the caller already logged it
+--- (e.g. a Codex parsed read command).
+function M.command_ran(state, command, failed, err, skip_log)
 	local cmd = M.command(command)
 	local test = M.test_command(command)
 	if test then
@@ -414,7 +492,17 @@ function M.command_ran(state, command, failed, err)
 	end
 	if failed then
 		state.failures[#state.failures + 1] = { command = cmd, error = first_line(err) }
-		M.log(state, "main", "✗ " .. M.mask(cmd))
+		if not skip_log then
+			M.log(state, "main", "✗ " .. M.mask(cmd), "error")
+		end
+	elseif not skip_log and cmd ~= "" then
+		if test then
+			M.log(state, "main", M.mask(test), "test_ok")
+		elseif M.is_read_command(cmd) then
+			M.log(state, "main", M.mask(cmd), "explore")
+		elseif not cmd:match("^sleep%s") and cmd ~= "true" then
+			M.log(state, "main", M.mask(cmd), "cmd")
+		end
 	end
 end
 
@@ -507,7 +595,7 @@ function M.read_new(state, path)
 	end
 	f:seek("set", state.offset)
 	while true do
-		local chunk = f:read(1048576)
+		local chunk = f:read(32768)
 		if not chunk then
 			break
 		end
@@ -545,7 +633,12 @@ end
 --- runs tail, "waiting" when it only sleeps, or "shell".
 function M.processes(claude_pid, ps, monitors, now)
 	local children = {}
+	local n = 0
 	for line in tostring(ps or ""):gmatch("[^\n]+") do
+		n = n + 1
+		if n % 128 == 0 and coroutine.running() then
+			coroutine.yield()
+		end
 		local pid, ppid, etime, comm = line:match("^%s*(%d+)%s+(%d+)%s+(%S+)%s+(.+)$")
 		if pid then
 			local p = { pid = tonumber(pid), age = M.etime(etime), name = (comm:match("[^/]+$") or comm):gsub("^%-", "") }
@@ -673,11 +766,16 @@ local function gradient_at(stops, t)
 end
 
 --- Colours each UTF-8 glyph of plain `text` along `stops` across columns [from_col .. total_cols].
-local function paint_gradient(text, stops, from_col, total_cols, prefix)
+--- When `phase` is given, smoothly shifts the gradient in a seamless ping-pong wave.
+local function paint_gradient(text, stops, from_col, total_cols, prefix, phase)
 	local out, col, denom = {}, from_col, math.max(1, total_cols - 1)
 	prefix = prefix or ""
 	for ch in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-		out[#out + 1] = prefix .. gradient_at(stops, (col - 1) / denom) .. ch
+		local t = (col - 1) / denom
+		if phase then
+			t = 1 - math.abs((t - phase) % 2 - 1)
+		end
+		out[#out + 1] = prefix .. gradient_at(stops, t) .. ch
 		col = col + 1
 	end
 	return table.concat(out) .. reset
@@ -686,41 +784,37 @@ end
 local orange, lavender, mint, purple = "\27[38;5;209m", "\27[38;5;147m", "\27[38;5;114m", "\27[38;5;141m"
 local gold, teal, blue, grey = "\27[38;5;221m", "\27[38;5;80m", "\27[38;5;75m", "\27[38;5;245m"
 local aqua = "\27[38;5;87m"
-local codex_blue, codex_periwinkle, codex_sky = rgb(75, 123, 255), rgb(147, 168, 255), rgb(96, 165, 250)
-local codex_gradient = {
-	{ 59, 130, 246 }, -- Codex Cobalt Blue #3B82F6
-	{ 99, 102, 241 }, -- Codex Indigo      #6366F1
-}
-local google_blue, google_light_blue = rgb(66, 133, 244), rgb(138, 180, 248)
-local google_gradient = {
-	{ 66, 133, 244 }, -- Google Blue   #4285F4
-	{ 234, 67, 53 }, -- Google Red    #EA4335
-	{ 251, 188, 5 }, -- Google Yellow #FBBC05
-	{ 52, 168, 83 }, -- Google Green  #34A853
-}
-local pi_pink, pi_blush, pi_rose = rgb(224, 108, 159), rgb(238, 155, 192), rgb(244, 114, 182)
-local pi_gradient = {
-	{ 224, 108, 159 }, -- Pi Pink     #E06C9F
-	{ 244, 114, 182 }, -- Pi Rose     #F472B6
-	{ 192, 132, 252 }, -- Soft Orchid #C084FC
-}
-local opencode_silver, opencode_mist, opencode_slate = rgb(201, 209, 217), rgb(228, 232, 236), rgb(148, 163, 184)
-local opencode_gradient = {
-	{ 148, 163, 184 }, -- Slate  #94A3B8
-	{ 201, 209, 217 }, -- Silver #C9D1D9
-	{ 228, 232, 236 }, -- Mist   #E4E8EC
-}
+local function hex_ansi(hex)
+	local c = agents.util.rgb(hex)
+	return rgb(c[1], c[2], c[3])
+end
 
-M.themes = {
-	claude = { accent = orange, agent = lavender, clock = teal },
-	codex = { accent = codex_blue, agent = codex_periwinkle, clock = codex_sky, gradient = codex_gradient },
-	agy = { accent = google_blue, agent = google_light_blue, clock = google_blue, gradient = google_gradient },
-	pi = { accent = pi_pink, agent = pi_blush, clock = pi_rose, gradient = pi_gradient },
-	opencode = { accent = opencode_silver, agent = opencode_mist, clock = opencode_slate, gradient = opencode_gradient },
-}
+--- Compiles an agent's hex theme ({ accent, agent, clock, gradient }) into
+--- ANSI codes and RGB gradient stops for the sidecar.
+function M.compile_theme(spec)
+	local grad
+	if type(spec.gradient) == "table" and #spec.gradient > 0 then
+		grad = {}
+		for i, hex in ipairs(spec.gradient) do
+			grad[i] = agents.util.rgb(hex)
+		end
+	end
+	return {
+		accent = hex_ansi(spec.accent),
+		agent = hex_ansi(spec.agent or spec.accent),
+		clock = hex_ansi(spec.clock or spec.accent),
+		gradient = grad,
+	}
+end
+
+M.themes = {}
+for _, adapter in ipairs(agents.list) do
+	M.themes[adapter.id] = M.compile_theme(agents.theme(adapter))
+end
 
 local function theme_of(state)
-	return M.themes[state and state.parser] or M.themes.claude
+	local id = state and state.parser
+	return (id and M.themes[id]) or M.themes.claude
 end
 
 M.colours = {
@@ -750,7 +844,7 @@ end
 
 --- A box's top line, or its only line when folded: the title on the left and
 --- `right` at the end, joined by the border.
-local function box_top(colour, title, right, cols, folded, gradient)
+local function box_top(colour, title, right, cols, folded, gradient, phase)
 	local tail = right ~= "" and (" " .. right .. " ") or ""
 	local room = cols - 5 - M.width(tail)
 	if room < 4 then
@@ -761,9 +855,9 @@ local function box_top(colour, title, right, cols, folded, gradient)
 	local fill = cols - 4 - title_w - M.width(tail)
 	local left, close = folded and "╶ " or "╭ ", folded and "╴" or "╮"
 	if gradient then
-		local left_s = paint_gradient(left, gradient, 1, cols)
-		local fill_s = paint_gradient(string.rep("─", fill), gradient, 4 + title_w, cols)
-		local close_s = paint_gradient(close, gradient, cols, cols)
+		local left_s = paint_gradient(left, gradient, 1, cols, "", phase)
+		local fill_s = paint_gradient(string.rep("─", fill), gradient, 4 + title_w, cols, "", phase)
+		local close_s = paint_gradient(close, gradient, cols, cols, "", phase)
 		return left_s .. title .. " " .. fill_s .. tail .. close_s
 	end
 	return colour .. left .. reset .. title .. " " .. colour .. string.rep("─", fill) .. reset .. tail .. colour .. close .. reset
@@ -807,7 +901,7 @@ function M.box(out, actions, cols, colour, title, right, body, folded, gradient)
 	else
 		out[#out + 1] = colour .. "╰" .. string.rep("─", cols - 2) .. "╯" .. reset
 	end
-	return head
+	return head, #out
 end
 
 --- A box that folds: a click on its top line, or Enter on it after n and p,
@@ -827,9 +921,26 @@ local function section(out, cols, name, opts, body)
 		title = (out.focus == name and "\27[7m" or bold) .. colour .. title .. reset
 	end
 	local right = opts.status or ((opts.right or "") ~= "" and (dim .. opts.right .. reset)) or ""
-	local head = M.box(out, out.actions, cols, colour, title, right, body, folded, gradient)
+	local head, bottom = M.box(out, out.actions, cols, colour, title, right, body, folded, gradient)
 	out.actions[head] = { kind = "fold", name = name }
 	out.sections[#out.sections + 1] = { name = name, line = head }
+	return head, bottom or head
+end
+
+--- Places `left` on the left and `right` flush-right when both fit with at
+--- least two spaces between them; otherwise puts them on separate lines.
+local function spread(out, left, right, n)
+	if left and right then
+		local gap = n - M.width(left) - M.width(right)
+		if gap >= 2 then
+			out[#out + 1] = left .. string.rep(" ", gap) .. right
+		else
+			out[#out + 1] = left
+			out[#out + 1] = right
+		end
+	elseif left or right then
+		out[#out + 1] = left or right
+	end
 end
 
 --- Joins parts with two spaces into as few lines of n columns as they fit.
@@ -925,8 +1036,52 @@ end
 
 local spinner = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
 
-local function spin(now)
-	return spinner[math.floor(now) % #spinner + 1]
+local function spin(clock)
+	return spinner[math.floor(clock * 12) % #spinner + 1]
+end
+
+--- Renders the active turn box's top header line with an animated gradient wave.
+function M.turn_header_line(th, cols, now, clock, precise)
+	local elapsed = math.max(0, (now or 0) - th.at)
+	local span = (precise and elapsed < 60) and string.format("%.1fs", elapsed) or M.span(elapsed)
+	local raw = spin(clock) .. " turn " .. span
+	if th.folded or cols < M.box_min then
+		raw = fold_marks[th.folded] .. raw
+	end
+	local phase = clock * 0.45
+	local title
+	if th.gradient and not th.focus then
+		title = paint_gradient(raw, th.gradient, 3, cols, bold, phase)
+	else
+		title = (th.focus and "\27[7m" or bold) .. th.colour .. raw .. reset
+	end
+	if cols < M.box_min then
+		return title .. reset
+	end
+	return box_top(th.colour, title, "", cols, th.folded, th.gradient, phase)
+end
+
+--- Renders every line of the active turn box (top, framed body rows, bottom)
+--- with the same animated gradient phase so the whole box sweeps in unison.
+function M.turn_box_lines(th, cols, now, clock, precise)
+	local lines = { M.turn_header_line(th, cols, now, clock, precise) }
+	if th.folded or cols < M.box_min then
+		return lines
+	end
+	local phase = clock * 0.45
+	local left_t = 1 - math.abs((0 - phase) % 2 - 1)
+	local right_t = 1 - math.abs((1 - phase) % 2 - 1)
+	local left_c = th.gradient and gradient_at(th.gradient, left_t) or th.colour
+	local right_c = th.gradient and gradient_at(th.gradient, right_t) or th.colour
+	for _, inner in ipairs(th.body or {}) do
+		lines[#lines + 1] = left_c .. "│ " .. reset .. inner .. right_c .. " │" .. reset
+	end
+	if th.gradient then
+		lines[#lines + 1] = paint_gradient("╰" .. string.rep("─", cols - 2) .. "╯", th.gradient, 1, cols, "", phase)
+	else
+		lines[#lines + 1] = th.colour .. "╰" .. string.rep("─", cols - 2) .. "╯" .. reset
+	end
+	return lines
 end
 
 local function time_left(seconds)
@@ -998,51 +1153,84 @@ local function main_box(out, state, cols, o)
 	end
 	section(out, cols, "Main", { colour = theme.accent, gradient = theme.gradient, title = label .. " · main", status = right }, function(n)
 		local first_line = #out
-		local about = {}
-		if state.title or o.session_name then
-			about[#about + 1] = state.title or o.session_name
+		local title = state.title or o.session_name
+		if title then
+			out[#out + 1] = title
 		end
-		local branch = state.branch or o.branch
-		if branch then
-			about[#about + 1] = dim .. branch .. reset
+		local branch = o.branch or (state.branch ~= "HEAD" and state.branch or nil)
+		local worktree = o.worktree
+		if branch or worktree then
+			local left_git = branch and (theme.clock .. "⎇ " .. reset .. branch) or nil
+			local right_git
+			if worktree then
+				local wt_label = worktree == branch
+					and (o.repo and (o.repo .. " wt") or "worktree")
+					or ((o.repo and (dim .. o.repo .. "/" .. reset) or "") .. worktree)
+				right_git = gold .. "⑂ " .. reset .. wt_label
+			end
+			spread(out, left_git, right_git, n)
 		end
-		if #about > 0 then
-			out[#out + 1] = table.concat(about, dim .. " · " .. reset)
-		end
+
+		local meter_lines = {}
 		local mode = state.mode or o.mode
 		local e = efforts[tostring(effort or "")]
-		flow(out, {
-			e and ("effort " .. cells(e / 5, 5, theme.accent, "▮", "▯", theme.gradient) .. " " .. bold .. effort .. reset),
-			mode and ("mode " .. mode),
-			state.requests > 0 and (state.requests .. " req"),
-		}, n)
+		local status_left = {}
+		if e then
+			status_left[#status_left + 1] = cells(e / 5, 5, theme.accent, "▮", "▯", theme.gradient) .. " " .. bold .. effort .. reset
+		end
+		if mode then
+			status_left[#status_left + 1] = dim .. mode .. reset
+		end
+		local status_right = {}
+		if state.requests > 0 then
+			status_right[#status_right + 1] = dim .. state.requests .. " req" .. reset
+		end
+		if state.claude_ms > 0 then
+			status_right[#status_right + 1] = dim .. duration(state.claude_ms) .. reset
+		end
+		spread(
+			meter_lines,
+			#status_left > 0 and table.concat(status_left, dim .. " · " .. reset) or nil,
+			#status_right > 0 and table.concat(status_right, dim .. " · " .. reset) or nil,
+			n
+		)
+
 		local window = tonumber(status.window) or tonumber(recorded.window)
 		local ctx = state.context
-		local parts = {}
+		local ctx_left, ctx_right
 		if ctx and window and window > 0 then
 			local percent = ctx / window * 100
-			parts[#parts + 1] = "ctx " .. cells(percent / 100, 8, level_colour(percent)) .. " " .. bold .. math.floor(percent + 0.5) .. "%" .. reset
-				.. " " .. dim .. M.tokens(ctx) .. "/" .. M.tokens(window) .. reset
+			ctx_left = dim .. "ctx " .. reset .. cells(percent / 100, 8, level_colour(percent)) .. " " .. bold .. math.floor(percent + 0.5) .. "%" .. reset
+			ctx_right = dim .. M.tokens(ctx) .. "/" .. M.tokens(window) .. reset
 		elseif ctx then
-			parts[#parts + 1] = "ctx " .. M.tokens(ctx)
+			ctx_left = dim .. "ctx " .. reset .. M.tokens(ctx)
 		end
 		if state.compactions > 0 then
-			parts[#parts + 1] = "⟲ " .. state.compactions
+			local comp = dim .. "⟲ " .. state.compactions .. reset
+			ctx_right = ctx_right and (ctx_right .. "  " .. comp) or comp
 		end
-		flow(out, parts, n)
-		parts = {}
+		spread(meter_lines, ctx_left, ctx_right, n)
+
+		local limit_strs = {}
 		for _, limit in ipairs(limits) do
 			if tonumber(limit.used) then
 				local left = limit.resets_at and limit.resets_at - now or nil
 				local used = (left and left <= 0) and 0 or limit.used
-				parts[#parts + 1] = limit.label .. " " .. cells(used / 100, 5, level_colour(used)) .. " " .. math.floor(used + 0.5) .. "%"
+				limit_strs[#limit_strs + 1] = dim .. limit.label .. " " .. reset .. cells(used / 100, 5, level_colour(used))
+					.. " " .. math.floor(used + 0.5) .. "%"
 					.. ((left and left > 0) and (dim .. " ↻" .. time_left(left) .. reset) or "")
 			end
 		end
-		if state.claude_ms > 0 then
-			parts[#parts + 1] = dim .. who:lower() .. " " .. duration(state.claude_ms) .. reset
+		if #limit_strs == 2 then
+			spread(meter_lines, limit_strs[1], limit_strs[2], n)
+		elseif #limit_strs > 0 then
+			flow(meter_lines, limit_strs, n)
 		end
-		flow(out, parts, n)
+
+		if #out > first_line and #meter_lines > 0 then
+			out[#out + 1] = ""
+		end
+		add(out, meter_lines)
 		if #out == first_line then
 			out[#out + 1] = dim .. "Nothing from " .. who .. " yet." .. reset
 		end
@@ -1060,16 +1248,27 @@ local function advisor_box(out, state, cols, o)
 	section(out, cols, "Advisor", { colour = purple, title = "ADVISOR · " .. (open and "consulting" or "on call"), right = "consults " .. #consults }, function(n)
 		local from = (state.prompts[1] and M.epoch(state.prompts[1].at)) or consults[1].at or o.now
 		local span = math.max(1, o.now - from)
-		local line = {}
-		for i = 1, n do
-			line[i] = "─"
-		end
+		local marks = {}
 		for _, c in ipairs(consults) do
 			if c.at then
-				line[math.max(1, math.min(n, math.floor((c.at - from) / span * (n - 1)) + 1))] = "◆"
+				marks[math.max(1, math.min(n, math.floor((c.at - from) / span * (n - 1)) + 1))] = true
 			end
 		end
-		out[#out + 1] = purple .. table.concat(line) .. reset
+		local line = {}
+		for i = 1, n do
+			if marks[i] then
+				line[i] = purple .. "♦" .. reset
+			elseif marks[i - 1] and marks[i + 1] then
+				line[i] = " "
+			elseif marks[i + 1] then
+				line[i] = dim .. purple .. "╴" .. reset
+			elseif marks[i - 1] then
+				line[i] = dim .. purple .. "╶" .. reset
+			else
+				line[i] = dim .. purple .. "─" .. reset
+			end
+		end
+		out[#out + 1] = table.concat(line)
 		local facts = {}
 		if last.at then
 			facts[#facts + 1] = open and ("consulting " .. M.span(o.now - last.at)) or ("last " .. M.span(o.now - (last.done or last.at)) .. " ago")
@@ -1283,13 +1482,15 @@ local function receipt_box(out, state, cols, o)
 	local running = M.running(state)
 	local title
 	if running then
-		title = theme.accent .. spin(o.now) .. " turn " .. M.span(o.now - turn.at) .. reset
+		title = theme.accent .. spin(o.clock or o.now) .. " turn " .. M.span(o.now - turn.at) .. reset
 	elseif turn.ms then
 		title = mint .. "✓" .. reset .. bold .. " last turn " .. M.span(turn.ms / 1000)
 	else
 		title = "turns"
 	end
-	section(out, cols, "Receipt", { colour = theme.accent, gradient = theme.gradient, title = title, right = "" }, function(n)
+	local body_padded = {}
+	local head, bottom = section(out, cols, "Receipt", { colour = theme.accent, gradient = theme.gradient, title = title, right = "" }, function(n)
+		local first = #out + 1
 		if turn.at then
 			local function count(k, one)
 				return k .. " " .. one .. (k == 1 and "" or "s")
@@ -1328,11 +1529,42 @@ local function receipt_box(out, state, cols, o)
 				out[#out + 1] = "  " .. dim .. M.mask(f.error) .. reset
 			end
 		end
+		if running and cols >= M.box_min then
+			for i = first, #out do
+				body_padded[#body_padded + 1] = pad(out[i], n)
+			end
+		end
 	end)
+	if running then
+		local th = {
+			line = head,
+			bottom = bottom,
+			at = turn.at,
+			colour = theme.accent,
+			gradient = theme.gradient,
+			folded = out.folded.Receipt == true,
+			focus = out.focus == "Receipt",
+			body = body_padded,
+		}
+		local animated = M.turn_box_lines(th, cols, o.now, o.clock or o.now, o.precise)
+		for i, l in ipairs(animated) do
+			out[head + i - 1] = l
+		end
+		out.turn_header = th
+	end
 end
 
+local log_mint = rgb(134, 189, 134) -- soft sage-mint (+, ✓)
+local log_sand = rgb(212, 178, 106) -- warm muted sand (✎)
+local log_rose = rgb(217, 107, 107) -- soft coral-red (-, ✗)
+local log_cyan = rgb(122, 168, 184) -- calm slate-cyan ($)
+local log_teal = rgb(107, 168, 160) -- soft teal (▷)
+local log_blue = rgb(122, 158, 194) -- soft slate-blue (↗, ◎)
+local log_mcp = rgb(164, 152, 196) -- muted lavender (⬡)
+local log_adv = rgb(169, 142, 212) -- muted purple (♦)
+
 --- Formats a file path as a compact parent/filename with dimmed parent and
---- category-coloured basename so edits pop without filling the line with prefixes.
+--- softly coloured basename so edits stay readable without bright clutter.
 local function style_log_path(path, colour, budget)
 	local parts = {}
 	for part in path:gmatch("[^/]+") do
@@ -1346,16 +1578,58 @@ local function style_log_path(path, colour, budget)
 	return colour .. base .. reset
 end
 
---- Turns a raw log entry into a 1-col category icon, coloured body, and accent colour.
+--- Styles a `server·tool` MCP label with dimmed server prefix and calm tool name.
+local function style_log_mcp(text)
+	local srv, tool = text:match("^([^·]+)·(.+)$")
+	if srv then
+		return dim .. srv .. "·" .. reset .. tool
+	end
+	return text
+end
+
+--- Styles a URL (`host/path`) with calm host and dimmed path.
+local function style_log_url(text)
+	local host, rest = text:match("^([^/]+)(/.*)$")
+	if host then
+		return host .. dim .. rest .. reset
+	end
+	return text
+end
+
+--- Turns a raw log entry into a 1-col category icon, calm body, and badge colour.
 local function format_log_entry(e, theme, budget)
 	local text = tostring(e.text or "")
-	local who = e.who
-	if who == "gate" then
-		return red .. "✗" .. reset, red .. text:gsub("^✗%s*", "") .. reset, red
-	elseif who == "advisor" then
-		return purple .. "◆" .. reset, purple .. text .. reset, purple
-	elseif who == "agent" then
-		return theme.agent .. "✦" .. reset, theme.agent .. text .. reset, theme.agent
+	local who, kind = e.who, e.kind
+	if who == "gate" or kind == "gate" then
+		return log_rose .. "✗" .. reset, log_rose .. text:gsub("^✗%s*", "") .. reset, log_rose
+	elseif who == "advisor" or kind == "advisor" then
+		return log_adv .. "♦" .. reset, text, log_adv
+	elseif who == "agent" or kind == "agent" then
+		local phase, rest = text:match("^(%a+)%s*·%s*(.+)$")
+		local body = phase and (dim .. phase .. " · " .. reset .. rest) or text
+		return theme.agent .. "✦" .. reset, body, theme.agent
+	elseif kind == "test_ok" then
+		return log_mint .. "✓" .. reset, text, log_mint
+	elseif kind == "cmd" then
+		return log_cyan .. "$" .. reset, text, log_cyan
+	elseif kind == "web" then
+		return log_blue .. "↗" .. reset, style_log_url(text), log_blue
+	elseif kind == "search" then
+		return log_blue .. "◎" .. reset, text, log_blue
+	elseif kind == "mcp" then
+		return log_mcp .. "⬡" .. reset, style_log_mcp(text), log_mcp
+	elseif kind == "workflow" then
+		return log_teal .. "▷" .. reset, text, log_teal
+	elseif kind == "error" then
+		return log_rose .. "✗" .. reset, log_rose .. bold .. text:gsub("^✗%s*", "") .. reset, log_rose
+	elseif kind == "lifecycle" then
+		return grey .. "⟲" .. reset, dim .. text .. reset, grey
+	elseif kind == "explore" then
+		local rpath = text:match("^read%s+(.+)$")
+		if rpath then
+			return dim .. "◦" .. reset, dim .. "read " .. (rpath:match("[^/]+/[^/]+$") or rpath) .. reset, grey
+		end
+		return dim .. "◦" .. reset, dim .. text .. reset, grey
 	end
 	local prompt = text:match("^›%s*(.+)$")
 	if prompt then
@@ -1363,21 +1637,21 @@ local function format_log_entry(e, theme, budget)
 	end
 	local err = text:match("^✗%s*(.+)$")
 	if err then
-		return red .. "✗" .. reset, red .. bold .. err .. reset, red
+		return log_rose .. "✗" .. reset, log_rose .. bold .. err .. reset, log_rose
 	end
 	local verb, rest = text:match("^([%a]+)%s*→%s*(.+)$")
 	if verb then
 		local v = verb:lower()
 		if v == "write" or v == "create" then
-			return mint .. "+" .. reset, style_log_path(rest, mint, budget), mint
+			return log_mint .. "+" .. reset, style_log_path(rest, log_mint, budget), log_mint
 		elseif v == "delete" or v == "remove" then
-			return red .. "-" .. reset, style_log_path(rest, red, budget), red
+			return log_rose .. "-" .. reset, style_log_path(rest, log_rose, budget), log_rose
 		elseif v == "edit" or v == "replace" or v == "update" or v == "multiedit" then
-			return gold .. "✎" .. reset, style_log_path(rest, gold, budget), gold
+			return log_sand .. "✎" .. reset, style_log_path(rest, log_sand, budget), log_sand
 		elseif v == "workflow" then
-			return teal .. "▸" .. reset, teal .. rest .. reset, teal
+			return log_teal .. "▷" .. reset, rest, log_teal
 		elseif v == "agent" then
-			return theme.agent .. "✦" .. reset, theme.agent .. rest .. reset, theme.agent
+			return theme.agent .. "✦" .. reset, rest, theme.agent
 		end
 		return theme.accent .. "•" .. reset, style_log_path(rest, theme.accent, budget), theme.accent
 	end
@@ -1387,8 +1661,24 @@ local function format_log_entry(e, theme, budget)
 	return theme.accent .. "•" .. reset, text, theme.accent
 end
 
---- The session log, newest at the bottom: collapses consecutive identical
---- non-prompt entries (×N), groups HH:MM timestamps, and colour-codes categories.
+--- Summary label for a collapsed exploration burst (e.g. "read 4 files" or "explored 5").
+local function explore_summary(items)
+	local all_reads = true
+	for _, it in ipairs(items) do
+		if not tostring(it.text or ""):match("^read%s+") then
+			all_reads = false
+			break
+		end
+	end
+	if all_reads then
+		return "read " .. #items .. " files"
+	end
+	return "explored " .. #items
+end
+
+--- The session log, newest at the bottom: groups HH:MM timestamps, collapses
+--- consecutive exploration bursts (clickable to expand) and identical repeats
+--- (×N), and uses a calm semantic icon palette.
 local function log_box(out, state, cols, o)
 	local log = state.log
 	if #log == 0 then
@@ -1405,14 +1695,22 @@ local function log_box(out, state, cols, o)
 		local e = log[i]
 		local prev = grouped[#grouped]
 		local is_prompt = tostring(e.text or ""):match("^›") ~= nil
-		if not is_prompt and prev and prev.who == e.who and prev.text == e.text then
+		if e.kind == "explore" then
+			if prev and prev.kind == "explore" then
+				prev.items[#prev.items + 1] = e
+				prev.at = e.at or prev.at
+			else
+				grouped[#grouped + 1] = { at = e.at, who = e.who, kind = "explore", group_id = e.id or i, items = { e }, count = 1 }
+			end
+		elseif not is_prompt and prev and prev.kind ~= "explore" and prev.who == e.who and prev.text == e.text and prev.kind == e.kind then
 			prev.count = prev.count + 1
 			prev.at = e.at or prev.at
 		else
-			grouped[#grouped + 1] = { at = e.at, who = e.who, text = e.text, count = 1 }
+			grouped[#grouped + 1] = { at = e.at, who = e.who, text = e.text, kind = e.kind, count = 1 }
 		end
 	end
 	local theme = theme_of(state)
+	local open_logs = o.open_logs or {}
 	section(out, cols, "Log", { colour = grey, title = "LOG", right = tostring(#log) }, function(n)
 		local last_hm
 		for i = math.max(1, #grouped - room + 1), #grouped do
@@ -1420,13 +1718,35 @@ local function log_box(out, state, cols, o)
 			local hm = e.at and os.date("%H:%M", e.at) or "--:--"
 			local when = hm ~= last_hm and (dim .. hm .. reset) or "     "
 			last_hm = hm
-			local suffix = e.count > 1 and (" ×" .. e.count) or ""
-			local budget = math.max(8, n - 8 - M.width(suffix))
-			local icon, body, badge_c = format_log_entry(e, theme, budget)
-			if suffix ~= "" then
-				body = M.clip(body, budget) .. reset .. dim .. badge_c .. suffix .. reset
+			if e.kind == "explore" then
+				if #e.items == 1 then
+					local icon, body = format_log_entry(e.items[1], theme, math.max(8, n - 8))
+					out[#out + 1] = when .. " " .. icon .. " " .. body
+				else
+					local is_open = open_logs[e.group_id] == true
+					local arrow = is_open and "▾" or "▸"
+					out[#out + 1] = when .. " " .. dim .. arrow .. " " .. explore_summary(e.items) .. reset
+					out.actions[#out] = { kind = "log_group", id = e.group_id }
+					if is_open then
+						local start_j = math.max(1, #e.items - 11)
+						if start_j > 1 then
+							out[#out + 1] = "        " .. dim .. "… " .. (start_j - 1) .. " earlier" .. reset
+						end
+						for j = start_j, #e.items do
+							local icon, body = format_log_entry(e.items[j], theme, math.max(8, n - 10))
+							out[#out + 1] = "        " .. icon .. " " .. body
+						end
+					end
+				end
+			else
+				local suffix = e.count > 1 and (" ×" .. e.count) or ""
+				local budget = math.max(8, n - 8 - M.width(suffix))
+				local icon, body, badge_c = format_log_entry(e, theme, budget)
+				if suffix ~= "" then
+					body = M.clip(body, budget) .. reset .. dim .. badge_c .. suffix .. reset
+				end
+				out[#out + 1] = when .. " " .. icon .. " " .. body
 			end
-			out[#out + 1] = when .. " " .. icon .. " " .. body
 		end
 	end)
 end
@@ -1461,11 +1781,14 @@ function M.info_lines(state, cols, opts)
 	open_box(out, state, cols)
 	receipt_box(out, state, cols, o)
 	log_box(out, state, cols, o)
-	out.ticking = M.running(state)
+	local running = M.running(state)
+	local other = #(o.processes or {}) > 0
 	for _, a in ipairs(o.agents or {}) do
-		out.ticking = out.ticking or M.agent_running(a, o.now)
+		other = other or M.agent_running(a, o.now)
 	end
-	out.ticking = out.ticking or #(o.processes or {}) > 0
+	out.fast = running
+	out.other_ticking = other
+	out.ticking = running or other
 	return out
 end
 
@@ -1650,6 +1973,8 @@ local panel = {
 	gate_open = nil,
 	--- Subagent ID -> true when its lane is open on Info.
 	open_agents = {},
+	--- Log exploration burst ID -> true when expanded on Info.
+	open_logs = {},
 	--- "tests" or "failed" when the receipt shows that list.
 	show = nil,
 	--- The tab's last built view; cleared by anything that changes it.
@@ -1704,23 +2029,26 @@ local function run(argv, limit)
 end
 
 --- Steps every task: one waiting on a command once, and one working for up to
---- 20 ms. True when one ended, as the view then needs building again.
-local function step_tasks()
-	local ended = false
+--- `budget` seconds (4 ms while animating at 60 Hz, 20 ms otherwise). Returns
+--- true and a table of ended task names when any finished.
+local function step_tasks(budget)
+	local ended, names = false, {}
+	local limit = budget or 0.02
+	local start = os.clock()
 	for name, co in pairs(tasks) do
-		local start = os.clock()
 		repeat
 			local ok, why = coroutine.resume(co)
 			if not ok then
 				panel.notice = tostring(why)
 			end
-		until coroutine.status(co) == "dead" or why == "wait" or os.clock() - start > 0.02
+		until coroutine.status(co) == "dead" or why == "wait" or os.clock() - start > limit
 		if coroutine.status(co) == "dead" then
 			tasks[name] = nil
 			ended = true
+			names[name] = true
 		end
 	end
-	return ended
+	return ended, names
 end
 
 M.spawn, M.run, M.step_tasks = spawn, run, step_tasks
@@ -1731,16 +2059,42 @@ agents.util.exec = function(argv)
 end
 
 
---- Moves the pane to the repository of the directory Claude works in.
+--- Parses `git rev-parse --path-format=absolute --show-toplevel --git-dir --git-common-dir --abbrev-ref HEAD`.
+function M.parse_git_info(text)
+	local lines = {}
+	for line in each_line(tostring(text or "") .. "\n") do
+		lines[#lines + 1] = line:gsub("%s+$", "")
+	end
+	local root, git_dir, common_dir, branch = lines[1], lines[2], lines[3], lines[4]
+	if not (root and root ~= "") then
+		return nil
+	end
+	local worktree, repo
+	if git_dir and common_dir and git_dir ~= "" and common_dir ~= "" and git_dir ~= common_dir then
+		worktree = root:match("[^/]+$") or root
+		repo = (common_dir:gsub("/%.git/?$", "")):match("[^/]+$")
+	end
+	return {
+		root = root,
+		branch = (branch and branch ~= "") and branch or nil,
+		worktree = worktree,
+		repo = repo,
+	}
+end
+
+--- Keeps the pane pointed at the agent's repository, branch and worktree.
 local function follow(cwd)
-	if not cwd or cwd == panel.cwd then
+	local target = cwd or panel.root
+	if not target then
 		return
 	end
-	panel.cwd = cwd
-	local r = run({ "git", "-C", cwd, "rev-parse", "--show-toplevel" })
-	local root = r and r.ok and (r.stdout:gsub("%s+$", "")) or cwd
-	local br = run({ "git", "-C", root, "rev-parse", "--abbrev-ref", "HEAD" })
-	panel.branch = br and br.ok and (br.stdout:gsub("%s+$", "")) or nil
+	panel.cwd = target
+	local r = run({ "git", "-C", target, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir", "--git-common-dir", "--abbrev-ref", "HEAD" })
+	local info = r and r.ok and M.parse_git_info(r.stdout) or nil
+	local root = info and info.root or target
+	panel.branch = info and info.branch or nil
+	panel.worktree = info and info.worktree or nil
+	panel.repo = info and info.repo or nil
 	if root ~= panel.root then
 		panel.root = root
 		rex.call("session.set_block_label", {
@@ -1793,7 +2147,46 @@ local function read_agents(state, sess)
 end
 
 
+--- Compact fingerprint of everything gather() changes on Info, so an unchanged
+--- background poll skips rebuilding and redrawing the screen.
+local function gather_sig()
+	local st = panel.state
+	local folded = {}
+	for k in pairs(panel.folded or {}) do
+		folded[#folded + 1] = k
+	end
+	table.sort(folded)
+	local agent_sig = {}
+	for _, a in ipairs(st.agent_list or {}) do
+		agent_sig[#agent_sig + 1] = a.id .. ":" .. (a.steps or 0) .. ":" .. tostring(a.finished)
+	end
+	local lim_sig = {}
+	for _, l in ipairs((panel.status and panel.status.limits) or {}) do
+		lim_sig[#lim_sig + 1] = tostring(l.label) .. "=" .. tostring(l.used) .. ":" .. tostring(l.resets_at)
+	end
+	return table.concat({
+		tostring(st.path),
+		tostring(st.offset),
+		tostring(st.seq),
+		tostring(panel.branch),
+		tostring(panel.worktree),
+		tostring(panel.repo),
+		tostring(panel.sess and panel.sess.name),
+		tostring(panel.sess and panel.sess.model_label),
+		tostring(panel.sess and panel.sess.effort),
+		tostring(panel.sess and panel.sess.mode),
+		tostring(panel.sess and panel.sess.working),
+		tostring(panel.status and panel.status.window),
+		tostring(#(panel.processes or {})),
+		table.concat(folded, ","),
+		table.concat(agent_sig, ","),
+		table.concat(lim_sig, ","),
+		tostring(panel.cols) .. "x" .. tostring(panel.rows),
+	}, "\0")
+end
+
 local function gather()
+	local before = gather_sig()
 	local size = rex.block.call(terminal, "size", { session_id = panel.session_id, block_id = panel.block_id })
 	if size and size.columns and (size.columns ~= panel.cols or size.rows ~= panel.rows) then
 		panel.cols, panel.rows = size.columns, size.rows
@@ -1818,6 +2211,7 @@ local function gather()
 		if path ~= state.path then
 			state = M.new_state(adapter.id)
 			state.path = path
+			panel.open_logs = {}
 		end
 		if M.read_new(state, path) == "reset" then
 			state = M.new_state(adapter.id)
@@ -1827,20 +2221,24 @@ local function gather()
 		panel.state = state
 		panel.status = sess.status
 		read_agents(state, sess)
-		local ps = pid and run({ "/bin/ps", "-axo", "pid=,ppid=,etime=,comm=" })
-		-- The tasks come from the transcript, as Claude Code lists them, each
-		-- with a live shell of Claude's.
-		local live = (ps and ps.ok) and M.processes(pid, ps.stdout, state.monitors, os.time()) or {}
 		panel.processes = {}
-		if #live > 0 then
-			local now = os.time()
-			for _, t in ipairs(M.running_tasks(state, now, live)) do
-				panel.processes[#panel.processes + 1] = { name = t.name, kind = t.monitor and "monitor" or "shell", age = t.at and (now - t.at) or 0 }
+		if pid and next(state.tasks_bg) ~= nil then
+			local ps = run({ "/bin/ps", "-axo", "pid=,ppid=,etime=,comm=" })
+			-- The tasks come from the transcript, as Claude Code lists them, each
+			-- with a live shell of Claude's.
+			local live = (ps and ps.ok) and M.processes(pid, ps.stdout, state.monitors, os.time()) or {}
+			if #live > 0 then
+				local now = os.time()
+				for _, t in ipairs(M.running_tasks(state, now, live)) do
+					panel.processes[#panel.processes + 1] = { name = t.name, kind = t.monitor and "monitor" or "shell", age = t.at and (now - t.at) or 0 }
+				end
 			end
 		end
 	end
 
+	local first = not panel.gathered
 	panel.gathered = true
+	panel.gather_changed = first or gather_sig() ~= before
 end
 
 -- Tab plugins ---------------------------------------------------------------
@@ -1864,35 +2262,50 @@ local function has_tab(name)
 	return name == "Info"
 end
 
---- Puts the tabs to show in M.tabs: Info, then the others in the saved order,
---- and after them, in the order added, those the saved order doesn't name.
---- A tab with `hidden` set is hidden until the saved order names it. A
---- hidden open tab gives way to Info.
+--- Puts the tabs to show in M.tabs in the saved order, followed by any new
+--- tabs in the order added. Info is placed first when the saved order doesn't
+--- name it, and is always shown. A tab with `hidden` set is hidden until the
+--- saved order names it. A hidden open tab gives way to Info.
 local function arrange()
 	local saved, hidden = settings.tabs(settings_dir)
+	hidden.Info = nil
+	local has_saved_info = false
+	for _, name in ipairs(saved) do
+		if name == "Info" then
+			has_saved_info = true
+			break
+		end
+	end
+	local initial = has_saved_info and saved or { "Info" }
+	local sources = has_saved_info and { saved, M.tab_names } or { initial, saved, M.tab_names }
 	local order, listed = {}, {}
-	for i, list in ipairs({ saved, M.tab_names }) do
+	for i, list in ipairs(sources) do
 		for _, name in ipairs(list) do
-			if not listed[name] and has_tab(name) and name ~= "Info" then
+			if not listed[name] and has_tab(name) then
 				listed[name] = true
 				order[#order + 1] = name
-				if i == 2 and plugins[name].tab.hidden then
+				if i == #sources and name ~= "Info" and plugins[name].tab.hidden then
 					hidden[name] = true
 				end
 			end
 		end
 	end
-	local tabs = { "Info" }
+	local tabs = {}
 	for _, name in ipairs(order) do
 		if not hidden[name] then
 			tabs[#tabs + 1] = name
 		end
 	end
+	local changed = not panel.tab_order or table.concat(order, "\0") ~= table.concat(panel.tab_order, "\0")
+		or table.concat(tabs, "\0") ~= table.concat(M.tabs, "\0")
 	panel.tab_order, panel.hidden_tabs, M.tabs = order, hidden, tabs
 	if hidden[panel.tab] then
 		panel.tab = "Info"
+		changed = true
 	end
-	panel.cache = nil
+	if changed then
+		panel.cache = nil
+	end
 end
 
 --- Loads each Lua file in `path` as a tab, added after the others in file
@@ -1929,12 +2342,16 @@ function M.load_plugins(path)
 	arrange()
 end
 
---- Starts the refresh of each shown plugin tab that is due, as a task. The
---- next is due `interval` seconds, 60 by default, after this one starts.
+--- Starts the refresh of each shown plugin tab that is due, as a task. Non-active
+--- tabs refresh at most every 5 seconds so background git polls stay light.
 local function refresh_plugins(now)
 	for name, p in pairs(plugins) do
 		if p.tab.refresh and not panel.hidden_tabs[name] and now >= p.due and spawn("tab " .. name, p.tab.refresh) then
-			p.due = now + (p.tab.interval or 60)
+			local interval = p.tab.interval or 60
+			if name ~= panel.tab and interval < 5 then
+				interval = 5
+			end
+			p.due = now + interval
 		end
 	end
 end
@@ -1952,29 +2369,49 @@ local function plugin_view(tab)
 	return { lines = v.lines or {}, pinned = pinned, hits = v.hits or {}, actions = v.actions or {}, sections = v.sections or {}, selected = v.selected }
 end
 
---- The tab settings, in place of the open tab's view: Info, then each other
---- tab in its order, shown or hidden. `at` is the selected tab's place.
+--- The tab settings, in place of the open tab's view: every tab in its order,
+--- shown or hidden, with clickable ↑ ↓ move buttons. `at` is the selected row.
 local function tabs_view(cols, at)
 	local lines, actions = {}, {}
-	M.box(lines, actions, cols, grey, bold .. "Tabs" .. reset, "", function()
-		lines[#lines + 1] = "  " .. green .. "✓" .. reset .. " Info" .. dim .. "  always shown" .. reset
-		for i, name in ipairs(panel.tab_order) do
+	local order = panel.tab_order
+	M.box(lines, actions, cols, grey, bold .. "Tabs" .. reset, "", function(n)
+		for i, name in ipairs(order) do
+			local is_info = name == "Info"
 			local mark = panel.hidden_tabs[name] and (dim .. "○" .. reset) or (green .. "✓" .. reset)
-			lines[#lines + 1] = (i == at and (cyan .. "› " .. reset) or "  ") .. mark .. " " .. name
-			actions[#lines] = { kind = "show_tab", name = name }
+			local left = (i == at and (cyan .. "› " .. reset) or "  ") .. mark .. " " .. name
+				.. (is_info and (dim .. "  always shown" .. reset) or "")
+			local up = i > 1 and (cyan .. "↑" .. reset) or " "
+			local dn = i < #order and (cyan .. "↓" .. reset) or " "
+			local left_w = math.max(4, n - 4)
+			lines[#lines + 1] = pad(left, left_w) .. " " .. up .. " " .. dn
+			local ranges = {
+				{ from = 1, to = left_w, action = { kind = "show_tab", name = name, at = i } },
+			}
+			if i > 1 then
+				ranges[#ranges + 1] = { from = left_w + 1, to = left_w + 2, action = { kind = "move_tab", at = i, step = -1 } }
+			end
+			if i < #order then
+				ranges[#ranges + 1] = { from = left_w + 3, to = left_w + 4, action = { kind = "move_tab", at = i, step = 1 } }
+			end
+			actions[#lines] = { ranges = ranges }
 		end
 	end)
 	lines[#lines + 1] = ""
-	lines[#lines + 1] = dim .. "Space shows or hides  J K move  Esc closes" .. reset
-	return { lines = lines, pinned = {}, hits = {}, actions = actions, sections = {}, selected = at + 2 }
+	lines[#lines + 1] = dim .. "Space toggle · J/K · Shift+↑↓ · click ↑↓ move · Esc close" .. reset
+	return { lines = lines, pinned = {}, hits = {}, actions = actions, sections = {}, selected = at + 1 }
 end
 
---- Shows or hides a tab, and saves the choice.
-local function toggle_tab(name)
-	if name then
+--- Shows or hides a tab, and saves the choice. Info is always shown.
+local function toggle_tab(name, at)
+	if at then
+		panel.arranging = at
+	end
+	if name and name ~= "Info" then
 		panel.hidden_tabs[name] = not panel.hidden_tabs[name] or nil
 		pcall(settings.set_tabs, settings_dir, panel.tab_order, panel.hidden_tabs)
 		arrange()
+	else
+		panel.cache = nil
 	end
 end
 
@@ -1998,8 +2435,8 @@ local function tabs_key(k)
 		panel.arranging = math.max(1, math.min(#panel.tab_order, at + step))
 	elseif k == " " or k == "\r" or k == "\n" then
 		toggle_tab(panel.tab_order[at])
-	elseif k == "J" or k == "K" then
-		move_tab(at, k == "J" and 1 or -1)
+	elseif k == "J" or k == "K" or k == "shift_down" or k == "shift_up" then
+		move_tab(at, (k == "J" or k == "shift_down") and 1 or -1)
 	elseif k == "escape" or k == "," then
 		panel.arranging = nil
 	else
@@ -2007,6 +2444,8 @@ local function tabs_key(k)
 	end
 	return true
 end
+
+local epoch_base = os.time() - os.clock()
 
 local function build(tab)
 	if panel.arranging then
@@ -2023,6 +2462,7 @@ local function build(tab)
 	if not panel.state.path then
 		lines = { dim .. "No " .. agent_name() .. " session found for this pane." .. reset }
 	else
+		local now_clock = os.clock()
 		lines = M.info_lines(panel.state, panel.cols - 1, {
 			status = panel.status,
 			agent_name = agent_name(),
@@ -2031,17 +2471,33 @@ local function build(tab)
 			effort = panel.sess and panel.sess.effort,
 			mode = panel.sess and panel.sess.mode,
 			branch = panel.branch,
+			worktree = panel.worktree,
+			repo = panel.repo,
 			folded = panel.folded,
 			focus = panel.focus.Info,
 			agents = panel.state.agent_list,
 			gate = panel.gate_open,
 			open_agents = panel.open_agents,
+			open_logs = panel.open_logs,
 			show = panel.show,
 			rows = M.page(panel.rows, 0),
 			processes = panel.processes,
+			now = epoch_base + now_clock,
+			clock = now_clock,
+			precise = true,
 		})
 	end
-	return { lines = lines, pinned = {}, hits = {}, actions = lines.actions or {}, sections = lines.sections or {}, ticking = lines.ticking }
+	return {
+		lines = lines,
+		pinned = {},
+		hits = {},
+		actions = lines.actions or {},
+		sections = lines.sections or {},
+		ticking = lines.ticking,
+		other_ticking = lines.other_ticking,
+		fast = lines.fast,
+		turn_header = lines.turn_header,
+	}
 end
 
 --- The tab's view, built again only after something cleared it.
@@ -2091,6 +2547,50 @@ local function draw()
 	local clear = panel.clear_screen and "\27[2J" or ""
 	panel.clear_screen = nil
 	io.write("\27[?2026h" .. clear .. frame .. "\27[?2026l")
+	if io.stdout.flush then
+		io.stdout:flush()
+	end
+end
+
+local function badge_sig()
+	local parts = {}
+	for _, name in ipairs(M.tabs) do
+		local p = plugins[name]
+		if p and p.tab.badge then
+			local ok, b = pcall(p.tab.badge)
+			if ok and b then
+				parts[#parts + 1] = name .. "=" .. tostring(b)
+			end
+		end
+	end
+	return table.concat(parts, "\0")
+end
+
+--- Patches the visible rows of the active turn box in place (~60 Hz) without
+--- invalidating panel.cache or redrawing the rest of the screen.
+local function patch_turn_header(now_clock)
+	local c = panel.cache
+	local th = c and c.turn_header
+	if not th or panel.tab ~= "Info" or panel.arranging then
+		return
+	end
+	local s = panel.scroll[panel.tab] or 0
+	local pinned = #(c.pinned or {})
+	local cols = panel.cols - 1
+	local lines = M.turn_box_lines(th, cols, epoch_base + now_clock, now_clock, true)
+	local chunks = {}
+	for i, line in ipairs(lines) do
+		local idx = th.line + i - 1
+		local row = 2 + pinned + (idx - s)
+		if row >= 3 + pinned and row <= panel.rows and line ~= c.lines[idx] then
+			c.lines[idx] = line
+			chunks[#chunks + 1] = "\27[" .. row .. ";1H" .. M.clip(line, cols) .. "\27[K"
+		end
+	end
+	if #chunks == 0 then
+		return
+	end
+	io.write("\27[?2026h" .. table.concat(chunks) .. "\27[?2026l")
 	if io.stdout.flush then
 		io.stdout:flush()
 	end
@@ -2229,7 +2729,9 @@ end
 local function act(action)
 	local plugin = plugins[panel.tab]
 	if action.kind == "show_tab" then
-		toggle_tab(action.name)
+		toggle_tab(action.name, action.at)
+	elseif action.kind == "move_tab" then
+		move_tab(action.at, action.step)
 	elseif plugin and not panel.arranging and action.kind ~= "tab" and action.kind ~= "fold" then
 		if plugin.tab.act then
 			plugin.tab.act(action)
@@ -2245,22 +2747,36 @@ local function act(action)
 	elseif action.kind == "agent" then
 		panel.open_agents[action.id] = not panel.open_agents[action.id] or nil
 		panel.cache = nil
+	elseif action.kind == "log_group" then
+		panel.open_logs[action.id] = not panel.open_logs[action.id] or nil
+		panel.cache = nil
 	elseif action.kind == "show" then
 		panel.show = panel.show ~= action.what and action.what or nil
 		panel.cache = nil
 	end
 end
 
+local function read_esc_byte()
+	for _ = 1, 5 do
+		local c = io.read(1)
+		if c then
+			return c
+		end
+		rex.sleep(0.002)
+	end
+	return nil
+end
+
 --- Reads the rest of an escape sequence that started with ESC, as a key name
 --- (arrows and page keys) or, for the mouse, a table.
 local function escape()
-	local intro = io.read(1)
+	local intro = read_esc_byte()
 	if intro ~= "[" and intro ~= "O" then
 		return nil
 	end
 	local body = ""
 	while #body < 32 do
-		local c = io.read(1)
+		local c = read_esc_byte()
 		if not c then
 			return nil
 		end
@@ -2273,7 +2789,7 @@ local function escape()
 	if button then
 		return { button = tonumber(button), x = tonumber(x), y = tonumber(y), press = kind == "M" }
 	end
-	return ({ A = "up", B = "down", C = "right", D = "left", ["5~"] = "pageup", ["6~"] = "pagedown" })[body]
+	return ({ A = "up", B = "down", C = "right", D = "left", ["1;2A"] = "shift_up", ["1;2B"] = "shift_down", ["5~"] = "pageup", ["6~"] = "pagedown" })[body]
 end
 
 --- SGR mouse report: bit 64 marks the wheel, and the low two bits the button.
@@ -2354,21 +2870,20 @@ end
 M.load_plugins(dir .. "tabs/")
 M.load_plugins(home .. "/.config/rex/sidecar-tabs/")
 
--- Keys arrive one at a time, and a read gives up after a tenth of a second,
--- so the loop steps the tasks and redraws without waiting for a key. Modes 1000 and 1006 report
--- clicks and the wheel. A trackpad sends dozens of reports a second, so input
--- is drawn at most every 50 ms and once it stops, and the refresh waits for a
--- second without keys. os.clock is wall time in this runtime.
-exec({ "/bin/sh", "-c", "stty -icanon -echo min 0 time 1 </dev/tty" })
+-- Keys are read non-blocking (min 0 time 0) so an active turn box can
+-- animate at ~60 Hz via an in-place box patch while idle panes sleep
+-- 50 ms per tick. Modes 1000 and 1006 report clicks and the wheel.
+exec({ "/bin/sh", "-c", "stty -icanon -echo min 0 time 0 </dev/tty" })
 io.write("\27[?1049h\27[?1000h\27[?1006h\27[?25l\27[2J")
-local gathered, drawn, dirty, typed, watched, sized = 0, 0, false, 0, 0, 0
+local gathered, drawn, animated, dirty, typed, watched, sized, last_minute, last_badges = 0, 0, 0, false, 0, 0, 0, "", ""
 while true do
 	local now = os.clock()
+	local fast = panel.cache and panel.cache.fast
 	if panel.float and now - watched >= 0.25 then
 		watched = now
 		pcall(watch_float)
 	end
-	if now - sized >= 0.2 then
+	if now - sized >= 0.5 then
 		sized = now
 		local ok, resized = pcall(sync_size)
 		if ok and resized then
@@ -2383,14 +2898,35 @@ while true do
 	if now - typed >= 1 then
 		refresh_plugins(now)
 	end
-	if step_tasks() then
-		panel.cache = nil
-		dirty = true
+	local ended, ended_names = step_tasks(fast and 0.004 or 0.02)
+	if ended then
+		local need_draw = panel.tab ~= "Info"
+		if not need_draw and ended_names.gather and panel.gather_changed then
+			need_draw = true
+		end
+		local bsig = badge_sig()
+		if bsig ~= last_badges then
+			last_badges = bsig
+			need_draw = true
+		end
+		if need_draw then
+			panel.cache = nil
+			dirty = true
+		end
 	end
-	-- Running clocks tick once a second.
-	if panel.cache and panel.cache.ticking and os.clock() - drawn >= 1 then
+	-- Full screen refreshes at 1 Hz only for subagent/process clocks or minute ticks;
+	-- active turn box patches in place at ~60 Hz without touching panel.cache.
+	local minute = os.date("%H:%M")
+	if minute ~= last_minute then
+		last_minute = minute
 		panel.cache = nil
 		dirty = true
+	elseif panel.cache and panel.cache.other_ticking and now - drawn >= 1 then
+		panel.cache = nil
+		dirty = true
+	elseif panel.cache and panel.cache.fast and not dirty and now - animated >= 0.016 then
+		animated = now
+		pcall(patch_turn_header, now)
 	end
 	local k = io.read(1)
 	if k then
@@ -2403,9 +2939,13 @@ while true do
 	end
 	if dirty and (not k or os.clock() - drawn >= 0.05) then
 		dirty, drawn = false, os.clock()
+		last_badges = badge_sig()
 		local ok, err = pcall(draw)
 		if not ok then
 			io.write("\27[H\27[2J" .. tostring(err))
 		end
+	end
+	if not k then
+		rex.sleep((panel.cache and panel.cache.fast) and 0.016 or 0.05)
 	end
 end
