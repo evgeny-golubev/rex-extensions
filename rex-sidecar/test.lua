@@ -995,8 +995,34 @@ local ok2, err2 = pcall(function()
 	equal(P.short_mcp("mcp__claude_ai_Atlassian_MCP__createJiraIssue"), "atlassian·createJiraIssue", "short_mcp strips noisy prefixes")
 	equal(P.is_read_command("git -C /src status"), true, "git status is read-only exploration")
 	equal(P.is_read_command("which codex"), false, "which is a regular command")
+	equal(P.is_read_command("cd '/Users/me/My App' 2>/dev/null && ls; grep -rn 'a|b' . 2>/dev/null | head -5"), true, "compound read-only command is exploration")
+	equal(P.is_read_command("uptime; echo; sysctl -n hw.ncpu; df -h / 2>/dev/null"), true, "compound system inspection is exploration")
 	equal(P.is_read_command("pgrep -lf gopls; kill 123"), false, "chained command with mutating step is not read-only")
 	equal(P.is_read_command("cat a.txt > b.txt"), false, "output redirection is not read-only")
+	equal(P.is_read_command("cat >> out.md <<'EOF'\nhi\nEOF"), false, "multiline/heredoc command is not read-only")
+	equal(P.command("cd '/a/My App' && git diff"), "git diff", "quoted cd prefix stripped")
+	equal(P.display_command("d=~/out/2026; python3 run.py"), "python3 run.py", "leading var setup stripped for fallback display")
+	-- Claude Bash description + click-to-peek raw command + plumbing filtering.
+	local sh = P.new_state("claude")
+	P.record(sh, use("b_ren", "Bash", { command = 'rex session rename "$REX_SESSION" foo', description = "Name session" }))
+	P.record(sh, result("b_ren", "ok"))
+	P.record(sh, use("b_rd", "Read", { file_path = "/Users/u/.claude/projects/p/s/tool-results/abc123.txt" }))
+	P.record(sh, result("b_rd", "ok"))
+	P.record(sh, use("b_desc", "Bash", { command = "d=~/out; python3 summarize.py", description = "Summarise hot threads" }))
+	P.record(sh, result("b_desc", "ok"))
+	local sh_view = P.info_lines(sh, 64, { rows = 40 })
+	local sh_plain = plain(sh_view)
+	hasnt(sh_plain, "Name session", "rex session rename omitted from log")
+	hasnt(sh_plain, "tool-results", "internal tool-results spill read omitted")
+	has(sh_plain, "$ Summarise hot threads", "Bash description shown instead of raw command")
+	hasnt(sh_plain, "python3 summarize.py", "raw command hidden until clicked")
+	local sh_id
+	for _, a in pairs(sh_view.actions) do
+		if a.kind == "log_group" then sh_id = a.id end
+	end
+	equal(sh_id ~= nil, true, "described shell command has clickable peek action")
+	local sh_open = plain(P.info_lines(sh, 64, { rows = 40, open_logs = { [sh_id] = true } }))
+	has(sh_open, "$ d=~/out; python3 summarize.py", "clicking described shell command reveals raw command")
 	local rich = P.new_state("codex")
 	rich.log = {
 		{ at = t0, who = "main", text = "› check codex" },

@@ -83,7 +83,7 @@ return function(P)
 			if bad and not failed then
 				state.turn.errors = state.turn.errors + 1
 			end
-			P.command_ran(state, tostring(input.command or ""), bad, (exit and ("exit " .. exit .. ": ") or "") .. text_of(s.content))
+			P.command_ran(state, tostring(input.command or ""), bad, (exit and ("exit " .. exit .. ": ") or "") .. text_of(s.content), false, input.description)
 		elseif name == "write" and not failed and (input.path or input.filePath) then
 			local path = absolute(state, input.path or input.filePath)
 			P.add_hunks(state, path, created_hunks(input.content), true)

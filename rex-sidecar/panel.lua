@@ -131,9 +131,26 @@ local function first_line(s)
 	return (tostring(s or ""):match("^%s*([^\n]*)") or ""):gsub("%s+$", "")
 end
 
---- A command's first line, without a leading `cd DIR &&`.
+--- A command's first line, without a leading `cd DIR &&` (quoted or unquoted).
 function M.command(cmd)
-	return (first_line(cmd):gsub("^cd %S+ && ", ""):gsub("%s+", " "))
+	local s = first_line(cmd):gsub("%s+", " ")
+	s = s:gsub('^cd%s+"[^"]+"%s*2>/dev/null%s*&&%s*', "")
+	s = s:gsub("^cd%s+'[^']+'%s*2>/dev/null%s*&&%s*", "")
+	s = s:gsub('^cd%s+"[^"]+"%s*&&%s*', "")
+	s = s:gsub("^cd%s+'[^']+'%s*&&%s*", "")
+	s = s:gsub("^cd%s+%S+%s*2>/dev/null%s*&&%s*", "")
+	s = s:gsub("^cd%s+%S+%s*&&%s*", "")
+	return s
+end
+
+--- Cleans a shell command for fallback log display when no human description is
+--- available: strips leading `cd ... &&` and leading `var=...;` setup clauses.
+function M.display_command(cmd)
+	local s = M.command(cmd)
+	while s:match("^[%a_][%w_]*=[^;]+;%s*%S") do
+		s = s:gsub("^[%a_][%w_]*=[^;]+;%s*", "")
+	end
+	return s
 end
 
 local secret_words = { "token", "secret", "password", "passwd", "pwd", "auth", "key", "credential", "cookie" }
@@ -234,11 +251,19 @@ end
 --- Adds an event to the session log, which keeps the latest 300. `who` is
 --- main, agent, gate or advisor; optional `kind` classifies the event
 --- semantically (write, edit, delete, cmd, test_ok, error, gate, web, search,
---- mcp, workflow, agent, advisor, explore, lifecycle).
-function M.log(state, who, text, kind)
+--- mcp, workflow, agent, advisor, explore, lifecycle); optional `detail` holds
+--- the underlying command to reveal on click when `text` is a human description.
+function M.log(state, who, text, kind, detail)
 	local log = state.log
 	state.log_seq = (state.log_seq or 0) + 1
-	log[#log + 1] = { id = state.log_seq, at = M.epoch(state.at), who = who, text = first_line(text), kind = kind }
+	log[#log + 1] = {
+		id = state.log_seq,
+		at = M.epoch(state.at),
+		who = who,
+		text = first_line(text),
+		kind = kind,
+		detail = detail and first_line(detail) or nil,
+	}
 	if #log > 300 then
 		table.remove(log, 1)
 	end
@@ -276,36 +301,98 @@ local read_bins = {
 	ls = true, cat = true, head = true, tail = true, find = true, fd = true,
 	rg = true, grep = true, ag = true, wc = true, stat = true, file = true,
 	tree = true, pwd = true, ps = true, pgrep = true, lsof = true,
+	sort = true, uniq = true, cut = true, tr = true, diff = true,
+	uptime = true, sysctl = true, df = true, du = true, vm_stat = true,
+	iostat = true, memory_pressure = true, pmset = true, top = true,
+	uname = true, whoami = true, id = true, date = true, readlink = true,
+	realpath = true, basename = true, dirname = true, jq = true,
 }
+local read_noop = { cd = true, echo = true, printf = true, ["true"] = true }
 local read_git = {
 	status = true, log = true, diff = true, show = true, branch = true,
 	["rev-parse"] = true, ["ls-files"] = true, ["ls-tree"] = true,
 }
 
---- Whether a shell command is pure read-only inspection (routed into the
---- collapsible exploration bucket instead of cluttering `$` commands).
-function M.is_read_command(command)
-	local cmd = M.command(command):gsub("^%s+", "")
-	if cmd == "" then
-		return false
+--- Splits a single-line shell command on unquoted `;`, `&&`, `||`, or `|`.
+local function split_shell_segments(s)
+	local out, buf, quote, esc = {}, {}, nil, false
+	local i, len = 1, #s
+	local function flush()
+		if #buf > 0 then
+			local seg = table.concat(buf):gsub("^%s+", ""):gsub("%s+$", "")
+			if seg ~= "" then
+				out[#out + 1] = seg
+			end
+			buf = {}
+		end
 	end
-	cmd = cmd:gsub("^cd%s+[^&;]+&&%s*", "")
-	while cmd:match("^[%a_][%w_]*=%S+%s+") do
-		cmd = cmd:gsub("^[%a_][%w_]*=%S+%s+", "")
+	while i <= len do
+		local ch = s:sub(i, i)
+		if esc then
+			buf[#buf + 1] = ch
+			esc = false
+			i = i + 1
+		elseif ch == "\\" and quote ~= "'" then
+			buf[#buf + 1] = ch
+			esc = true
+			i = i + 1
+		elseif quote then
+			buf[#buf + 1] = ch
+			if ch == quote then
+				quote = nil
+			end
+			i = i + 1
+		elseif ch == "'" or ch == '"' then
+			quote = ch
+			buf[#buf + 1] = ch
+			i = i + 1
+		elseif ch == ";" or ch == "|" then
+			flush()
+			i = i + (s:sub(i, i + 1) == "||" and 2 or 1)
+		elseif s:sub(i, i + 1) == "&&" then
+			flush()
+			i = i + 2
+		else
+			buf[#buf + 1] = ch
+			i = i + 1
+		end
 	end
-	if cmd:find("[;&>]") then
-		return false
+	flush()
+	return out
+end
+
+--- Classifies one shell segment as `"read"`, `"skip"` (cd/echo/var), or false.
+local function read_segment_kind(seg)
+	if seg == "" then
+		return "skip"
 	end
-	local bin, rest = cmd:match("^(%S+)%s*(.*)$")
+	-- Strip env prefixes only when followed by a command token.
+	while seg:match("^[%a_][%w_]*=%S+%s+%S") do
+		seg = seg:gsub("^[%a_][%w_]*=%S+%s+", "")
+	end
+	if seg:match("^[%a_][%w_]*=") then
+		local sub = seg:match("^[%a_][%w_]*=%$%((.+)%)$")
+		if sub then
+			return M.is_read_command(sub) and "read" or false
+		end
+		if seg:find("%$%(") or seg:find("`", 1, true) then
+			return false
+		end
+		return "skip"
+	end
+	local bin, rest = seg:match("^(%S+)%s*(.*)$")
 	if not bin then
 		return false
 	end
 	bin = bin:match("[^/]+$") or bin
+	if read_noop[bin] then
+		return "skip"
+	end
 	if read_bins[bin] then
-		return true
+		return "read"
 	end
 	if bin == "sed" and rest:match("^%-n%s") then
-		return true
+		return "read"
 	end
 	if bin == "git" then
 		local sub = rest
@@ -313,9 +400,36 @@ function M.is_read_command(command)
 			sub = sub:gsub("^%-C%s+%S+%s+", "")
 		end
 		local verb = sub:match("^(%S+)")
-		return verb ~= nil and read_git[verb] == true
+		return (verb ~= nil and read_git[verb] == true) and "read" or false
 	end
 	return false
+end
+
+--- Whether a shell command is pure read-only inspection (routed into the
+--- collapsible exploration bucket instead of cluttering `$` commands).
+--- Allows compound `;` / `&&` / `|` commands only when every segment is read-only
+--- and no file output redirection is present.
+function M.is_read_command(command)
+	local raw = tostring(command or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if raw == "" or raw:find("\n", 1, true) then
+		return false
+	end
+	-- Strip stderr-to-null/stdout redirects before checking for output redirection.
+	local cleaned = raw:gsub("2>/dev/null", ""):gsub("2>&1", ""):gsub("2>&%-", "")
+	if cleaned:find(">", 1, true) then
+		return false
+	end
+	local segs = split_shell_segments(cleaned)
+	local has_read = false
+	for _, seg in ipairs(segs) do
+		local kind = read_segment_kind(seg)
+		if not kind then
+			return false
+		elseif kind == "read" then
+			has_read = true
+		end
+	end
+	return has_read
 end
 
 --- A background task Claude started: a shell named by its command, as Claude
@@ -483,25 +597,34 @@ end
 
 --- A shell command finished: a test run is recorded, and a failure with the
 --- first line of its error. Set `skip_log` when the caller already logged it
---- (e.g. a Codex parsed read command).
-function M.command_ran(state, command, failed, err, skip_log)
+--- (e.g. a Codex parsed read command); optional `description` replaces raw
+--- shell noise in `LOG` while preserving the raw command on click.
+function M.command_ran(state, command, failed, err, skip_log, description)
 	local cmd = M.command(command)
 	local test = M.test_command(command)
+	local desc = type(description) == "string" and first_line(description) or nil
+	if desc == "" then
+		desc = nil
+	end
+	local shown = M.mask(M.display_command(command))
+	local detail = desc and M.mask(cmd) or nil
 	if test then
 		state.tests[#state.tests + 1] = { command = test, ok = not failed }
 	end
 	if failed then
 		state.failures[#state.failures + 1] = { command = cmd, error = first_line(err) }
 		if not skip_log then
-			M.log(state, "main", "✗ " .. M.mask(cmd), "error")
+			M.log(state, "main", "✗ " .. (test and M.mask(test) or desc or shown), "error", test and nil or detail)
 		end
 	elseif not skip_log and cmd ~= "" then
 		if test then
 			M.log(state, "main", M.mask(test), "test_ok")
-		elseif M.is_read_command(cmd) then
-			M.log(state, "main", M.mask(cmd), "explore")
-		elseif not cmd:match("^sleep%s") and cmd ~= "true" then
-			M.log(state, "main", M.mask(cmd), "cmd")
+		elseif cmd:match("^sleep%s") or cmd == "true" or cmd:match("^rex%s+session%s+rename%s") then
+			return
+		elseif M.is_read_command(command) then
+			M.log(state, "main", desc or shown, "explore", detail)
+		else
+			M.log(state, "main", desc or shown, "cmd", detail)
 		end
 	end
 end
@@ -1775,8 +1898,9 @@ local function log_box(out, state, cols, o)
 		elseif not is_prompt and prev and prev.kind ~= "explore" and prev.who == e.who and prev.text == e.text and prev.kind == e.kind then
 			prev.count = prev.count + 1
 			prev.at = e.at or prev.at
+			prev.detail = e.detail or prev.detail
 		else
-			grouped[#grouped + 1] = { at = e.at, who = e.who, text = e.text, kind = e.kind, count = 1 }
+			grouped[#grouped + 1] = { id = e.id or i, at = e.at, who = e.who, text = e.text, kind = e.kind, detail = e.detail, count = 1 }
 		end
 	end
 	local theme = theme_of(state)
@@ -1790,8 +1914,16 @@ local function log_box(out, state, cols, o)
 			last_hm = hm
 			if e.kind == "explore" then
 				if #e.items == 1 then
-					local icon, body = format_log_entry(e.items[1], theme, math.max(8, n - 8))
+					local item = e.items[1]
+					local icon, body = format_log_entry(item, theme, math.max(8, n - 8))
 					out[#out + 1] = when .. " " .. icon .. " " .. body
+					if item.detail and item.detail ~= item.text then
+						local id = item.id or e.group_id
+						out.actions[#out] = { kind = "log_group", id = id }
+						if open_logs[id] == true then
+							out[#out + 1] = "        " .. dim .. "$ " .. item.detail .. reset
+						end
+					end
 				else
 					local is_open = open_logs[e.group_id] == true
 					local arrow = is_open and "▾" or "▸"
@@ -1816,6 +1948,12 @@ local function log_box(out, state, cols, o)
 					body = M.clip(body, budget) .. reset .. dim .. badge_c .. suffix .. reset
 				end
 				out[#out + 1] = when .. " " .. icon .. " " .. body
+				if e.detail and e.detail ~= e.text then
+					out.actions[#out] = { kind = "log_group", id = e.id }
+					if open_logs[e.id] == true then
+						out[#out + 1] = "        " .. dim .. "$ " .. e.detail .. reset
+					end
+				end
 			end
 		end
 	end)

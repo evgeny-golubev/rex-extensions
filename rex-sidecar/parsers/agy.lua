@@ -168,10 +168,10 @@ return function(P)
 					state.turn.errors = state.turn.errors + 1
 				end
 				local output = content:match("[Oo]utput:%s*(.-)%s*$") or content
-				P.command_ran(state, tostring(call.args.CommandLine or ""), failed, "exit " .. code .. ": " .. output)
+				P.command_ran(state, tostring(call.args.CommandLine or ""), failed, "exit " .. code .. ": " .. output, false, call.args.toolSummary)
 			elseif is_error then
 				state.turn.errors = state.turn.errors + 1
-				P.command_ran(state, tostring(call.args.CommandLine or ""), true, content:match("[^\n]+") or "error")
+				P.command_ran(state, tostring(call.args.CommandLine or ""), true, content:match("[^\n]+") or "error", false, call.args.toolSummary)
 			end
 		elseif call.name == "run_workflow" then
 			local desc = tostring(call.args.Description or "workflow")
