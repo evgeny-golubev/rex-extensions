@@ -16,16 +16,6 @@ local M = {}
 local terminal = "com.superlogical.terminal"
 
 M.colors = {
-	claude = "#D97757",
-	subagent = "#E89A7F",
-	codex = "#10A37F",
-	codex_subagent = "#5CC9A7",
-	agy = "#4285F4",
-	agy_subagent = "#8AB4F8",
-	pi = "#E06C9F",
-	pi_subagent = "#EE9BC0",
-	opencode = "#C9D1D9",
-	opencode_subagent = "#E4E8EC",
 	agent = "#4FB3A9",
 	editor = "#6A8FD8",
 	git = "#D9534F",
@@ -41,6 +31,18 @@ M.colors = {
 	idle = "#8A8A8A",
 	bad = "#E5484D",
 }
+
+--- Per-agent colours and gradients come directly from each adapter's theme.
+M.gradients = {}
+for _, adapter in ipairs(agents.list) do
+	local theme = agents.theme(adapter)
+	M.colors[adapter.id] = theme.accent
+	M.colors[adapter.id .. "_subagent"] = theme.agent or theme.accent
+	if theme.gradient then
+		M.gradients[adapter.id] = theme.gradient
+	end
+end
+M.colors.subagent = M.colors.claude_subagent
 
 --- Brand colours for an outfit's accent, such as the builder's hard hat. The
 --- body keeps its kind's colour.
@@ -509,14 +511,29 @@ end
 
 -- Drawing -------------------------------------------------------------------
 
-local function rgb(hex)
-	local r, g, b = hex:match("#?(%x%x)(%x%x)(%x%x)")
-	return { tonumber(r, 16), tonumber(g, 16), tonumber(b, 16) }
-end
+local rgb = agents.util.rgb
 
 local function shade(hex, factor)
 	local c = rgb(hex)
 	return string.format("%d;%d;%d", math.floor(c[1] * factor), math.floor(c[2] * factor), math.floor(c[3] * factor))
+end
+
+local function gradient_shade(stops, t, factor)
+	t = math.max(0, math.min(1, t))
+	local span = #stops - 1
+	if span <= 0 then
+		return shade(stops[1], factor)
+	end
+	local pos = t * span
+	local i = math.min(span, math.floor(pos) + 1)
+	local f = pos - (i - 1)
+	local a, b = rgb(stops[i]), rgb(stops[i + 1])
+	return string.format(
+		"%d;%d;%d",
+		math.floor((a[1] + (b[1] - a[1]) * f) * factor + 0.5),
+		math.floor((a[2] + (b[2] - a[2]) * f) * factor + 0.5),
+		math.floor((a[3] + (b[3] - a[3]) * f) * factor + 0.5)
+	)
 end
 
 --- A canvas of cols x rows cells, each 2 x 4 pixels, with text on top.
@@ -533,7 +550,7 @@ local function plot(c, x, y, color)
 	end
 end
 
---- Writes segments ({ text, color, bold }) from a column, up to width cells.
+--- Writes segments ({ text, color, bold, gradient }) from a column, up to width cells.
 function M.write(c, col, row, segments, width)
 	if row < 0 or row >= c.rows then
 		return
@@ -541,9 +558,14 @@ function M.write(c, col, row, segments, width)
 	local limit = math.min(c.cols, col + width)
 	for _, seg in ipairs(segments) do
 		local s = M.clip(seg[1], limit - col)
+		local grad = seg[4]
+		local span = grad and math.max(1, M.width(s) - 1) or 1
+		local idx = 0
 		for ch in s:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-			c.text[row * c.cols + col + 1] = { ch, shade(seg[2] or M.colors.text, 1), seg[3] }
+			local color = grad and gradient_shade(grad, idx / span, 1) or shade(seg[2] or M.colors.text, 1)
+			c.text[row * c.cols + col + 1] = { ch, color, seg[3] }
 			col = col + 1
+			idx = idx + 1
 		end
 		if col >= limit then
 			return
@@ -586,12 +608,20 @@ function M.draw_crab(c, col, oy, crab, frame, map)
 	local busy = crab.state == "busy"
 	local factor = busy and 1 or 0.6
 	local body = crab.color or M.colors.claude
+	local grad = crab.gradient
+	-- Quantise gradients per 2-pixel cell column so octant cells keep one body colour.
+	local function body_at(x, f)
+		if grad then
+			return gradient_shade(grad, math.floor(x / 2) / 5, f or factor)
+		end
+		return shade(body, f or factor)
+	end
 	local bob = (busy and (frame % 4 == 1 or frame % 4 == 2)) and -1 or 0
 	local lifted = busy and (frame % 2 + 1) or 0
-	local leg = shade(body, factor)
 	local bottom = sheet.height - 1
 	for pair, columns in ipairs(sheet.legs) do
 		for _, x in ipairs(columns) do
+			local leg = body_at(x)
 			for y = pair == lifted and sheet.leg_top + 1 or sheet.leg_top, bottom do
 				put(x, y, leg)
 			end
@@ -601,14 +631,14 @@ function M.draw_crab(c, col, oy, crab, frame, map)
 		end
 	end
 	local shut = crab.state == "sleep" or (not busy and frame % 20 == 0)
-	local eye = shut and shade(body, factor * 0.7) or shade(sheet.eye, 1)
+	local eye_open = shade(sheet.eye, 1)
 	for dy, line in ipairs(sheet.body.rows) do
 		for dx = 1, #line do
 			local ch = line:sub(dx, dx)
 			if ch == "c" then
-				put(dx - 1, sheet.body.y + dy - 1, shade(body, factor), bob)
+				put(dx - 1, sheet.body.y + dy - 1, body_at(dx - 1), bob)
 			elseif ch == "k" then
-				put(dx - 1, sheet.body.y + dy - 1, eye, bob)
+				put(dx - 1, sheet.body.y + dy - 1, shut and body_at(dx - 1, factor * 0.7) or eye_open, bob)
 			end
 		end
 	end
@@ -618,7 +648,7 @@ function M.draw_crab(c, col, oy, crab, frame, map)
 		local up = (side == "left" and wave == 0) or (side == "right" and wave == 1)
 		for dx = 0, arms.size - 1 do
 			for dy = 0, arms.size - 1 do
-				put(x + dx, arms.y + dy, shade(body, factor), bob - (up and 1 or 0))
+				put(x + dx, arms.y + dy, body_at(x + dx), bob - (up and 1 or 0))
 			end
 		end
 	end
@@ -632,12 +662,14 @@ function M.draw_crab(c, col, oy, crab, frame, map)
 			for dx = 1, #line do
 				local hex = part.legend[line:sub(dx, dx)]
 				if hex == "body" then
-					hex = body
-				elseif hex == "accent" then
-					hex = crab.accent or part.accent
-				end
-				if hex then
-					put(part.x + dx - 1, part.y + dy - 1, shade(hex, factor), part.fixed and 0 or bob)
+					put(part.x + dx - 1, part.y + dy - 1, body_at(part.x + dx - 1), part.fixed and 0 or bob)
+				else
+					if hex == "accent" then
+						hex = crab.accent or part.accent
+					end
+					if hex then
+						put(part.x + dx - 1, part.y + dy - 1, shade(hex, factor), part.fixed and 0 or bob)
+					end
 				end
 			end
 		end
@@ -732,7 +764,7 @@ function M.scene(cols, rows, view, frame, now)
 	local main_lines, main_width = nil, 0
 	if main then
 		main_lines = {
-			{ { main.name or "Claude", main.color or M.colors.claude, true } },
+			{ { main.name or "Claude", main.color or M.colors.claude, true, main.gradient } },
 			{ { main.detail or "", M.colors.text } },
 			{ { main.extra or "", M.colors.dim } },
 		}
@@ -798,7 +830,7 @@ function M.scene(cols, rows, view, frame, now)
 		local crab, slot = crabs[n], slots[n]
 		M.draw_crab(c, slot.x, oy(slot.line), crab, frame + n, map)
 		local lx, row = slot.x + M.crab_cols + 1, top(slot.line)
-		M.write(c, lx, row, { { crab.name or "?", crab.color, true } }, tile_label)
+		M.write(c, lx, row, { { crab.name or "?", crab.color, true, crab.gradient } }, tile_label)
 		M.write(c, lx, row + 1, { { crab.detail or "", M.colors.dim } }, tile_label)
 		if crab.extra then
 			M.write(c, lx, row + 2, { { crab.extra, M.colors.dim } }, tile_label)
@@ -844,13 +876,15 @@ local pond = {
 	monitors = {},
 }
 
---- An agent pane's crab, from its session.
+--- An agent pane's crab, from its session and adapter theme.
 local function agent_crab(adapter, sess, record, now)
 	sess = sess or {}
+	local theme = agents.theme(adapter)
 	local working = (record and record.state == "working") or sess.working
 	return {
 		kind = adapter.id,
-		color = M.colors[adapter.id] or M.colors.agent,
+		color = theme.accent or M.colors.agent,
+		gradient = theme.gradient,
 		outfit = M.agent_outfit(adapter.id, sess.model, sess.effort),
 		state = working and "busy" or "idle",
 		name = sess.name or adapter.name,
@@ -904,13 +938,14 @@ local function subagent_crabs(adapter, sess, into, now)
 	if not sess then
 		return
 	end
+	local theme = agents.theme(adapter)
 	for _, sub in ipairs(adapter.subagents(sess, now)) do
 		if sub.running then
 			local since = sub.started or (sub.transcript and started(sub.transcript))
 			into[#into + 1] = {
 				age = since and (now - since),
 				kind = "subagent",
-				color = M.colors[adapter.id .. "_subagent"] or M.colors.subagent,
+				color = theme.agent or theme.accent or M.colors.subagent,
 				outfit = M.subagent_outfit(sub.type, sub.description),
 				state = "busy",
 				name = sub.description or sub.type or "agent",
