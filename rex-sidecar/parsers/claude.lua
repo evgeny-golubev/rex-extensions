@@ -127,9 +127,11 @@ return function(P)
 				P.log(state, "main", tool.name .. " → " .. P.short_path(path, state.root))
 			end
 		elseif tool.name == "Bash" then
-			P.command_ran(state, input.command, failed, (text:gsub("^Exit code (%d+)\n?", "exit %1: ")))
+			P.command_ran(state, input.command, failed, (text:gsub("^Exit code (%d+)\n?", "exit %1: ")), false, input.description)
 		elseif tool.name == "Read" and not failed and input.file_path then
-			P.log(state, "main", "read " .. P.short_path(input.file_path, state.root), "explore")
+			if not tostring(input.file_path):find("/tool%-results/") then
+				P.log(state, "main", "read " .. P.short_path(input.file_path, state.root), "explore")
+			end
 		elseif (tool.name == "Grep" or tool.name == "Glob") and not failed then
 			local what = input.pattern or input.path or ""
 			if what ~= "" then
