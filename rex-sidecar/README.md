@@ -437,7 +437,8 @@ order other programs can read, so tasks come oldest first.
 Three Rex actions let an agent keep your lists in step with its work. Run them
 as `rex do tasks_list`. The
 [rex-sidecar-task-list](../plugins/rex-sidecar-task-list/README.md) skill
-teaches Claude Code to use them.
+teaches Claude Code to use them. To have any agent use them without being
+asked, see [Agents that keep the list without being asked](#agents-that-keep-the-list-without-being-asked).
 
 | Action | What it does |
 | --- | --- |
@@ -451,6 +452,78 @@ teaches Claude Code to use them.
 - In Reminders, the rating becomes the Priority, the task goes to the default
   list unless `list=` says otherwise, and `parent=` is refused: there are no
   steps.
+
+### Agents that keep the list without being asked
+
+By default an agent uses the task actions only when you ask, or when a skill
+tells it to. To have it add a task whenever you start a piece of work, and
+report the task done when the work is finished, set it up in up to three
+steps. Each step is optional, and later steps make the habit more reliable.
+The agent still only reports a task done: you confirm it with `y`.
+
+**1. A standing instruction.** Add this to the agent's global instruction
+file, so it applies in every folder, inside a repository or not:
+
+```markdown
+## Task list
+
+Keep my task list in the Rex sidecar current. Three Rex actions reach it:
+
+- `rex do tasks_list` lists the open tasks as JSON.
+- `rex do tasks_add title="A. Fix the CSV import (1h)" due=today` adds a task
+  and returns its ID.
+- `rex do tasks_report_done id=ID note="One sentence on the result"` reports
+  a task done. I confirm it in the sidecar.
+
+When I start a piece of work with you, anything beyond a quick question, run
+`tasks_list` and use the open task that describes the work, or add one. A
+title starts with a rating (`A. ` for work due today or tomorrow, `B. ` for
+longer-term work, `C. ` for low importance) and ends with an estimate such as
+`(30m)`. `due` is `today`, `tomorrow` or a date. Add a task for each
+follow-up that comes up. When the work is finished and verified, report it
+done. If an action fails, say so in one line and continue the work.
+```
+
+| Agent | Global instruction file |
+| --- | --- |
+| Claude Code | `~/.claude/CLAUDE.md`. With the [rex-sidecar-task-list](../plugins/rex-sidecar-task-list/README.md) plugin, the line "Track every piece of work in the sidecar task list with the rex-sidecar-task-list skill" is enough |
+| Codex | `~/.codex/AGENTS.md` |
+| Antigravity CLI (`agy`) | `~/.gemini/GEMINI.md` |
+| Pi | `~/.pi/agent/AGENTS.md` |
+| OpenCode | `~/.config/opencode/AGENTS.md` |
+
+**2. No approval prompts for the actions.** An agent that has to ask before
+each `rex do` tends to skip it. In Claude Code, add to `permissions.allow` in
+`~/.claude/settings.json`:
+
+```json
+"Bash(rex do tasks_list*)", "Bash(rex do tasks_add *)", "Bash(rex do tasks_report_done *)"
+```
+
+Other agents have their own approval settings; allow the same three commands
+there.
+
+**3. A reminder with every prompt (Claude Code).** An instruction read once at
+the start of a session can be lost in a long one. A `UserPromptSubmit` hook
+repeats it before each prompt you send. Add to `hooks` in
+`~/.claude/settings.json`:
+
+```json
+"UserPromptSubmit": [
+  {
+    "hooks": [
+      {
+        "type": "command",
+        "command": "command -v rex >/dev/null && echo 'Task tracking: if this prompt starts or finishes a piece of work, keep the sidecar task list current: match or add a task when work starts, report it done when the work is finished and verified.' || true",
+        "timeout": 5
+      }
+    ]
+  }
+]
+```
+
+The reminder adds about 40 words to each prompt, and only where the `rex`
+command exists. To stop, remove what you added; the tasks themselves stay.
 
 ### Providers
 
