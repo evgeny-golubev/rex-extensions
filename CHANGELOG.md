@@ -3,6 +3,21 @@
 Releases are tagged `vX.Y.Z` on GitHub. The skills keep their own versions,
 in each plugin's `plugin.json`.
 
+## v1.3.1 — 2026-11-24
+
+Fixes to v1.3.0.
+
+- **rex-sidecar:** after the Mac slept, every pane's clock fell behind by the
+  time it slept. The clock, turn timers, advisor times and running subagents'
+  times were wrong, and a running subagent showed `0:00`. The pane now keeps
+  to the wall clock.
+- **rex-sidecar:** Claude team members (agents started with a name, in the
+  background) show as done (✓) once they have reported to Claude, instead of
+  a grey ○ forever. Claude Code never marks them finished.
+- **rex-sidecar:** the LOG no longer says `done` the moment a team member or
+  background subagent starts. It says so when the team member reports idle,
+  or the background subagent's task ends.
+
 ## v1.3.0 — 2026-11-23
 
 A clearer LOG for all five agents, shared agent colours in the sidecar and

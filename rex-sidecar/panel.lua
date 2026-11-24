@@ -566,6 +566,9 @@ function M.new_state(parser)
 		turn = M.new_turn(),
 		gate = M.new_gate(),
 		consults = {},
+		teammate_report = {},
+		teammate_desc = {},
+		teammate_done = {},
 		log = {},
 		monitors = {},
 		monitor_names = {},
@@ -2374,7 +2377,8 @@ local function read_agents(state, sess, moved)
 	local done, active = {}, false
 	for id, a in pairs(state.agents) do
 		if a.finished then
-			done[id] = true
+			-- A team member can get more work, so it's read again.
+			done[id] = not a.teammate or nil
 		else
 			active = true
 		end
@@ -2392,9 +2396,21 @@ local function read_agents(state, sess, moved)
 			a = M.new_agent(sub.id, sess.agent.id)
 			state.agents[sub.id] = a
 		end
+		a.teammate = sub.teammate
 		-- Claude marks a finished subagent; a Codex parent's rollout says when
 		-- its subagent finished, or got more work.
 		local finished = sub.finished == true or status[sub.id] == "completed" or status[sub.id] == "interrupted"
+		if sub.teammate then
+			-- Done once it has reported to the lead and nothing came after, or it has
+			-- been quiet for 5 minutes since.
+			if sub.transcript then
+				M.read_agent(a, sub.transcript, state.gate)
+			end
+			local reported = state.teammate_report and state.teammate_report[sub.teammate]
+			local last = a.last or 0
+			finished = reported ~= nil and (reported >= last - 1 or now - last > 300)
+			a.finished = false
+		end
 		if a.finished and not finished then
 			a.finished = false
 		end
@@ -2759,6 +2775,18 @@ end
 
 local epoch_base = os.time() - os.clock()
 
+-- os.clock() is monotonic and stops while the Mac sleeps, so the epoch it
+-- gives drifts behind the wall clock; re-anchor it when it does.
+local function wall_now(clock)
+	local now = epoch_base + clock
+	if math.abs(now - os.time()) > 1.5 then
+		epoch_base = os.time() - clock
+		now = epoch_base + clock
+	end
+	return now
+end
+M.wall_now = wall_now
+
 local function build(tab)
 	if panel.arranging then
 		return tabs_view(panel.cols - 1, panel.arranging)
@@ -2794,7 +2822,7 @@ local function build(tab)
 			show = panel.show,
 			rows = M.page(panel.rows, 0),
 			processes = panel.processes,
-			now = epoch_base + now_clock,
+			now = wall_now(now_clock),
 			clock = now_clock,
 			precise = true,
 		})
@@ -2889,7 +2917,7 @@ local function patch_turn_header(now_clock)
 	local s = panel.scroll[panel.tab] or 0
 	local pinned = #(c.pinned or {})
 	local cols = panel.cols - 1
-	local lines = M.turn_box_lines(th, cols, epoch_base + now_clock, now_clock, true)
+	local lines = M.turn_box_lines(th, cols, wall_now(now_clock), now_clock, true)
 	local chunks = {}
 	for i, line in ipairs(lines) do
 		local idx = th.line + i - 1

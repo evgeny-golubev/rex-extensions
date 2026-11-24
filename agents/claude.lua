@@ -137,6 +137,7 @@ return function(U)
 				transcript = folder .. "agent-" .. id .. ".jsonl",
 				type = meta.agentType,
 				description = meta.description,
+				teammate = meta.taskKind == "in_process_teammate" and meta.name or nil,
 				finished = finished,
 				running = not finished and recent["agent-" .. id .. ".jsonl"] == true,
 			}

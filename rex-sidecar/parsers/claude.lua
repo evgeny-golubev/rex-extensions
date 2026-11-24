@@ -32,6 +32,33 @@ return function(P)
 			local status = body:match("<status>%s*(%w+)%s*</status>")
 			if id and status and status ~= "running" then
 				state.tasks_bg[id] = nil
+				local desc = state.teammate_desc["task:" .. id]
+				if desc then
+					state.teammate_desc["task:" .. id] = nil
+					P.log(state, "agent", "done · " .. desc)
+				end
+			end
+		end
+	end
+
+	--- Notes when team members last reported to the lead: Claude Code never
+	--- marks a team member finished, but it sends an idle notice, or the
+	--- member a message, when one is done.
+	function R.teammate_notice(state, text, at)
+		for name, body in tostring(text):gmatch('<teammate%-message teammate_id="([^"]+)"[^>]*>(.-)</teammate%-message>') do
+			local idle = body:find('"type":"idle_notification"', 1, true)
+			local when = idle and P.epoch(body:match('"timestamp":"([^"]+)"')) or at
+			if when and when > (state.teammate_report[name] or 0) then
+				state.teammate_report[name] = when
+			end
+			if idle then
+				if when then
+					local desc = state.teammate_desc[name]
+					if desc and state.teammate_done[name] ~= when then
+						state.teammate_done[name] = when
+						P.log(state, "agent", "done · " .. desc)
+					end
+				end
 			end
 		end
 	end
@@ -104,7 +131,16 @@ return function(P)
 			state.turn.errors = state.turn.errors + 1
 		end
 		if (tool.name == "Agent" or tool.name == "Task") and not failed then
-			P.log(state, "agent", "done · " .. tostring(input.description or input.subagent_type or "agent"))
+			local desc = tostring(input.description or input.subagent_type or "agent")
+			if extra.status == "teammate_spawned" then
+				-- A team member runs on; its idle notice says when it's done.
+				state.teammate_desc[tostring(extra.name or input.name)] = desc
+			elseif extra.status == "async_launched" then
+				-- A background subagent: its task notice says when it's done.
+				state.teammate_desc["task:" .. tostring(extra.agentId)] = desc
+			else
+				P.log(state, "agent", "done · " .. desc)
+			end
 		end
 		if type(decision) == "table" and decision.decision == "reject" and decision.source == "user_reject" then
 			return
@@ -230,6 +266,9 @@ return function(P)
 			if c:find("<task-notification>", 1, true) then
 				R.task_notice(state, c)
 			end
+			if c:find("<teammate-message", 1, true) then
+				R.teammate_notice(state, c, P.epoch(record.timestamp))
+			end
 			if not record.isMeta then
 				add_prompt(state, c)
 			end
@@ -242,6 +281,9 @@ return function(P)
 					texts[#texts + 1] = item.text
 					if item.text:find("<task-notification>", 1, true) then
 						R.task_notice(state, item.text)
+					end
+					if item.text:find("<teammate-message", 1, true) then
+						R.teammate_notice(state, item.text, P.epoch(record.timestamp))
 					end
 				end
 			end
@@ -279,7 +321,11 @@ return function(P)
 			and tostring(r.attachment.prompt or ""):find("<task-notification>", 1, true) then
 			R.task_notice(state, r.attachment.prompt)
 		elseif r.type == "attachment" and type(r.attachment) == "table" and r.attachment.type == "queued_command" then
-			add_prompt(state, tostring(r.attachment.prompt or ""))
+			local prompt = tostring(r.attachment.prompt or "")
+			if prompt:find("<teammate-message", 1, true) then
+				R.teammate_notice(state, prompt, P.epoch(r.timestamp))
+			end
+			add_prompt(state, prompt)
 		elseif r.type == "system" and r.subtype == "compact_boundary" then
 			state.compactions = state.compactions + 1
 			P.log(state, "main", "Compacted context", "lifecycle")

@@ -2769,6 +2769,48 @@ do
 	equal(SL.leaf_ask(base), false, "don't ask again is kept")
 	real.exec({ "rm", "-rf", base })
 end
+-- The clock: os.clock() stops while the Mac sleeps, so the time is re-anchored.
+do
+	equal(math.abs(P.wall_now(os.clock()) - os.time()) <= 2, true, "now is the wall clock")
+	equal(math.abs(P.wall_now(os.clock() - 30000) - os.time()) <= 2, true, "a clock behind after a sleep catches up")
+end
+
+-- Team members and background subagents end later than their Agent call.
+do
+	local s = P.new_state()
+	local function rec(t, r)
+		r.timestamp = "2026-11-24T10:" .. t .. ":00Z"
+		P.record(s, r)
+	end
+	local function call(id, desc)
+		return { type = "assistant", message = { content = { { type = "tool_use", id = id, name = "Agent", input = { description = desc, name = "rev-1" } } } } }
+	end
+	local function spawned(id, extra)
+		return { type = "user", toolUseResult = extra, message = { content = { { type = "tool_result", tool_use_id = id, content = "Spawned" } } } }
+	end
+	rec("00", call("t1", "Review PR 1"))
+	rec("00", spawned("t1", { status = "teammate_spawned", name = "rev-1" }))
+	rec("01", call("t2", "Map the cart"))
+	rec("01", spawned("t2", { status = "async_launched", agentId = "a77" }))
+	local function logged(text)
+		local n = 0
+		for _, e in ipairs(s.log) do
+			n = n + (e.text == text and 1 or 0)
+		end
+		return n
+	end
+	equal(logged("done · Review PR 1"), 0, "a spawned team member isn't done yet")
+	equal(logged("done · Map the cart"), 0, "a background subagent isn't done yet")
+	rec("05", { type = "user", message = { content = 'Another Claude session sent a message:\n<teammate-message teammate_id="rev-1" color="blue">\n{"type":"idle_notification","from":"rev-1","timestamp":"2026-11-24T10:05:30.000Z","idleReason":"available","result":"ok"}\n</teammate-message>' } })
+	equal(logged("done · Review PR 1"), 1, "its idle notice ends the team member")
+	equal(s.teammate_report["rev-1"], P.epoch("2026-11-24T10:05:30.000Z"), "and says when")
+	rec("06", { type = "user", message = { content = "<task-notification><task-id>a77</task-id><status>completed</status></task-notification>" } })
+	equal(logged("done · Map the cart"), 1, "its task notice ends the background subagent")
+	rec("09", { type = "user", message = { content = '<teammate-message teammate_id="rev-1" color="blue" summary="Fixed">\nAll fixed\n</teammate-message>' } })
+	equal(s.teammate_report["rev-1"], P.epoch("2026-11-24T10:09:00Z"), "a message from it counts as a report")
+	equal(logged("done · Review PR 1"), 1, "but only an idle notice logs it done")
+end
+
 -- The viewer hands documents and pictures to leaf; REX_LEAF stands in for it.
 do
 	local viewer = dir .. "viewer"
