@@ -332,7 +332,9 @@ of days in a row with a review.
 | `L` | Sign in, when the tab asks |
 | `?` | List the keys |
 
-The footer shows the keys that suit the selected task.
+The footer shows the keys that suit the selected task. A name too long for
+its row is cut with `…`; the selected task shows its whole name, wrapped
+under the first line.
 
 ### How changes are saved
 
@@ -523,7 +525,7 @@ panel module as its argument (`local sidecar = ...`) and returns a table:
 | Field | What it is |
 | --- | --- |
 | `name` | The tab's title, not one already in use. Required |
-| `view(cols)` | Returns `{ lines, actions, pinned, hits, sections, selected }`. Required. See below |
+| `view(cols)` | Returns `{ lines, actions, pinned, hits, sections, selected, selected_last }`. Required. See below |
 | `refresh()` | Runs as a background task when the pane starts, then every `interval` seconds, unless a key was pressed in the last second. A hidden tab doesn't refresh |
 | `interval` | Seconds between refreshes, 60 by default |
 | `hidden` | True to hide the tab until it's shown in the tab settings |
@@ -540,7 +542,9 @@ panel module as its argument (`local sidecar = ...`) and returns a table:
   column ranges of pinned line `n`.
 - `sections`, made with `sidecar.section`, are the boxes `n`, `p` and `Enter`
   fold.
-- `selected`, a line number, is scrolled into view after a key.
+- `selected`, a line number, is scrolled into view after a key. When the
+  selected item takes several lines, `selected_last` is its last line, and
+  the lines from `selected` to `selected_last` are scrolled into view.
 
 **Running commands.** `sidecar.run(argv, limit)` runs a command and returns
 `{ ok, code, stdout }`, or nil after `limit` seconds (5 by default).

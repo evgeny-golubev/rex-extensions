@@ -1651,9 +1651,22 @@ local function rating_mark(it)
 	return it.rating and (rating_colour[it.rating] .. it.rating .. c.reset .. " ") or "  "
 end
 
---- A row: selection mark, indent, the circle a click completes, the rating,
---- the name, and at the right the estimate (from 40 columns) and the date.
-local function row_line(m, row, cols, selected)
+--- A name wrapped to lines of n columns, each coloured as shown_name colours it.
+local function wrapped_name(it, n)
+	local recurring = it.recurring and not it.done
+	local colour = recurring and c.teal or (it.done or it.pending) and c.dim or nil
+	local out = {}
+	for _, l in ipairs(sidecar.wrap(it.name .. (recurring and " ↻" or ""), n, "", "")) do
+		out[#out + 1] = colour and (colour .. l .. c.reset) or l
+	end
+	return out
+end
+
+--- A row's lines and their clicks: selection mark, indent, the circle a click
+--- completes, the rating, the name, and at the right the estimate (from 40
+--- columns) and the date. A selected row shows its whole name, wrapped under
+--- the first line.
+local function row_lines(m, row, cols, selected)
 	local it = row.item
 	local indent = string.rep("  ", row.depth)
 	local due, late = lib.due_label(it.due, m.today)
@@ -1672,16 +1685,23 @@ local function row_line(m, row, cols, selected)
 	end
 	local mark = selected and (c.cyan .. "› " .. c.reset) or "  "
 	local circle = it.done and (c.green .. "✓" .. c.reset) or (c.grey .. "○" .. c.reset)
-	local left = mark .. indent .. circle .. " " .. rating_mark(it)
-	local room = cols - width(left) - (right ~= "" and width(right) + 1 or 0)
-	left = left .. shown_name(it, math.max(4, room))
-	local line = left .. string.rep(" ", math.max(1, cols - width(left) - width(right))) .. right
+	local prefix = mark .. indent .. circle .. " " .. rating_mark(it)
+	local room = math.max(4, cols - width(prefix) - (right ~= "" and width(right) + 1 or 0))
+	local mark_room = it.recurring and not it.done and 2 or 0
+	local names = selected and width(it.name) + mark_room > room and wrapped_name(it, room) or { shown_name(it, room) }
+	local left = prefix .. names[1]
+	local lines = { left .. string.rep(" ", math.max(1, cols - width(left) - width(right))) .. right }
 	local circle_at = 3 + #indent
-	local action = { ranges = {
+	local actions = { { ranges = {
 		{ from = circle_at, to = circle_at, action = { kind = "done", id = it.id } },
 		{ from = 1, to = cols, action = { kind = "select", id = it.id } },
-	} }
-	return line, action
+	} } }
+	local gap = string.rep(" ", width(prefix))
+	for i = 2, #names do
+		lines[i] = gap .. names[i]
+		actions[i] = { ranges = { { from = 1, to = cols, action = { kind = "select", id = it.id } } } }
+	end
+	return lines, actions
 end
 
 --- Words joined by `sep`, two spaces by default, into lines of n columns.
@@ -1704,7 +1724,7 @@ end
 
 --- Builds a view: lines, the click per line and the selected line.
 local function new_view()
-	local v = { lines = {}, actions = {} }
+	local v = { lines = {}, actions = {}, last_line = {} }
 	function v.add(line, action)
 		v.lines[#v.lines + 1] = line
 		v.actions[#v.lines] = action
@@ -1727,10 +1747,13 @@ end
 
 local function add_rows(v, m, rows, n)
 	for _, row in ipairs(rows) do
-		local line, action = row_line(m, row, n, row.item.id == state.selected and not state.input)
-		v.add(line, action)
+		local lines, actions = row_lines(m, row, n, row.item.id == state.selected and not state.input)
+		for i, line in ipairs(lines) do
+			v.add(line, actions[i])
+		end
 		if row.item.id == state.selected then
-			v.selected = #v.lines
+			v.selected = #v.lines - #lines + 1
+			v.last_line[v.selected] = #v.lines
 		end
 	end
 end
@@ -2229,7 +2252,8 @@ function tab.view(cols)
 		end
 		v.selected = at or v.selected
 	end
-	return { lines = v.lines, actions = v.actions, pinned = pinned, hits = hits, selected = v.selected }
+	return { lines = v.lines, actions = v.actions, pinned = pinned, hits = hits, selected = v.selected,
+		selected_last = v.selected and v.last_line[v.selected] }
 end
 
 return tab
