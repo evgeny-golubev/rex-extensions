@@ -488,7 +488,7 @@ done. If an action fails, say so in one line and continue the work.
 | --- | --- |
 | Claude Code | `~/.claude/CLAUDE.md`. With the [rex-sidecar-task-list](../plugins/rex-sidecar-task-list/README.md) plugin, the line "Track every piece of work in the sidecar task list with the rex-sidecar-task-list skill" is enough |
 | Codex | `~/.codex/AGENTS.md` |
-| Antigravity CLI (`agy`) | `~/.gemini/GEMINI.md` |
+| Antigravity CLI (`agy`) | `~/.gemini/AGENTS.md`. agy also reads `~/.gemini/GEMINI.md`, but Gemini CLI reads that file too. agy adds every rule file it finds, so use one of them |
 | Pi | `~/.pi/agent/AGENTS.md` |
 | OpenCode | `~/.config/opencode/AGENTS.md` |
 
@@ -500,8 +500,16 @@ each `rex do` tends to skip it. In Claude Code, add to `permissions.allow` in
 "Bash(rex do tasks_list*)", "Bash(rex do tasks_add *)", "Bash(rex do tasks_report_done *)"
 ```
 
-Other agents have their own approval settings; allow the same three commands
-there.
+In agy, add to `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`.
+A `command(...)` rule matches the start of a command, word by word, so it
+also covers the arguments:
+
+```json
+"command(rex do tasks_list)", "command(rex do tasks_add)", "command(rex do tasks_report_done)"
+```
+
+Codex, Pi and OpenCode have their own approval settings; allow the same
+three commands there.
 
 **3. A reminder with every prompt (Claude Code).** An instruction read once at
 the start of a session can be lost in a long one. A `UserPromptSubmit` hook
@@ -523,7 +531,12 @@ repeats it before each prompt you send. Add to `hooks` in
 ```
 
 The reminder adds about 40 words to each prompt, and only where the `rex`
-command exists. To stop, remove what you added; the tasks themselves stay.
+command exists.
+
+agy has no event for a submitted prompt. Its `PreInvocation` hook runs
+before every model call, several times in one turn, and the text it injects
+stays in the conversation. So in agy, rely on the rule file from step 1,
+which is active in every conversation. To stop, remove what you added; the tasks themselves stay.
 
 ### Providers
 
