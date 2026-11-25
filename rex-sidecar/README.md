@@ -361,7 +361,9 @@ of days in a row with a review.
 | `L` | Sign in, when the tab asks |
 | `?` | List the keys |
 
-The footer shows the keys that suit the selected task.
+The footer shows the keys that suit the selected task. A name too long for
+its row is cut with `…`; the selected task shows its whole name, wrapped
+under the first line.
 
 ### How changes are saved
 
@@ -464,7 +466,8 @@ order other programs can read, so tasks come oldest first.
 Three Rex actions let an agent keep your lists in step with its work. Run them
 as `rex do tasks_list`. The
 [rex-sidecar-task-list](../plugins/rex-sidecar-task-list/README.md) skill
-teaches Claude Code to use them.
+teaches Claude Code to use them. To have any agent use them without being
+asked, see [Agents that keep the list without being asked](#agents-that-keep-the-list-without-being-asked).
 
 | Action | What it does |
 | --- | --- |
@@ -478,6 +481,91 @@ teaches Claude Code to use them.
 - In Reminders, the rating becomes the Priority, the task goes to the default
   list unless `list=` says otherwise, and `parent=` is refused: there are no
   steps.
+
+### Agents that keep the list without being asked
+
+By default an agent uses the task actions only when you ask, or when a skill
+tells it to. To have it add a task whenever you start a piece of work, and
+report the task done when the work is finished, set it up in up to three
+steps. Each step is optional, and later steps make the habit more reliable.
+The agent still only reports a task done: you confirm it with `y`.
+
+**1. A standing instruction.** Add this to the agent's global instruction
+file, so it applies in every folder, inside a repository or not:
+
+```markdown
+## Task list
+
+Keep my task list in the Rex sidecar current. Three Rex actions reach it:
+
+- `rex do tasks_list` lists the open tasks as JSON.
+- `rex do tasks_add title="A. Fix the CSV import (1h)" due=today` adds a task
+  and returns its ID.
+- `rex do tasks_report_done id=ID note="One sentence on the result"` reports
+  a task done. I confirm it in the sidecar.
+
+When I start a piece of work with you, anything beyond a quick question, run
+`tasks_list` and use the open task that describes the work, or add one. A
+title starts with a rating (`A. ` for work due today or tomorrow, `B. ` for
+longer-term work, `C. ` for low importance) and ends with an estimate such as
+`(30m)`. `due` is `today`, `tomorrow` or a date. Add a task for each
+follow-up that comes up. When the work is finished and verified, report it
+done. If an action fails, say so in one line and continue the work.
+```
+
+| Agent | Global instruction file |
+| --- | --- |
+| Claude Code | `~/.claude/CLAUDE.md`. With the [rex-sidecar-task-list](../plugins/rex-sidecar-task-list/README.md) plugin, the line "Track every piece of work in the sidecar task list with the rex-sidecar-task-list skill" is enough |
+| Codex | `~/.codex/AGENTS.md` |
+| Antigravity CLI (`agy`) | `~/.gemini/AGENTS.md`. agy also reads `~/.gemini/GEMINI.md`, but Gemini CLI reads that file too. agy adds every rule file it finds, so use one of them |
+| Pi | `~/.pi/agent/AGENTS.md` |
+| OpenCode | `~/.config/opencode/AGENTS.md` |
+
+**2. No approval prompts for the actions.** An agent that has to ask before
+each `rex do` tends to skip it. In Claude Code, add to `permissions.allow` in
+`~/.claude/settings.json`:
+
+```json
+"Bash(rex do tasks_list*)", "Bash(rex do tasks_add *)", "Bash(rex do tasks_report_done *)"
+```
+
+In agy, add to `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`.
+A `command(...)` rule matches the start of a command, word by word, so it
+also covers the arguments:
+
+```json
+"command(rex do tasks_list)", "command(rex do tasks_add)", "command(rex do tasks_report_done)"
+```
+
+Codex, Pi and OpenCode have their own approval settings; allow the same
+three commands there.
+
+**3. A reminder with every prompt (Claude Code).** An instruction read once at
+the start of a session can be lost in a long one. A `UserPromptSubmit` hook
+repeats it before each prompt you send. Add to `hooks` in
+`~/.claude/settings.json`:
+
+```json
+"UserPromptSubmit": [
+  {
+    "hooks": [
+      {
+        "type": "command",
+        "command": "command -v rex >/dev/null && echo 'Task tracking: if this prompt starts or finishes a piece of work, keep the sidecar task list current: match or add a task when work starts, report it done when the work is finished and verified.' || true",
+        "timeout": 5
+      }
+    ]
+  }
+]
+```
+
+The reminder adds about 40 words to each prompt, and only where the `rex`
+command exists.
+
+agy has no event for a submitted prompt. Its `PreInvocation` hook runs
+before every model call, several times in one turn, and the text it injects
+stays in the conversation. So in agy, rely on the rule file from step 1,
+which is active in every conversation. To stop, remove what you added; the tasks themselves stay.
 
 ### Providers
 
@@ -553,7 +641,7 @@ panel module as its argument (`local sidecar = ...`) and returns a table:
 | Field | What it is |
 | --- | --- |
 | `name` | The tab's title, not one already in use. Required |
-| `view(cols)` | Returns `{ lines, actions, pinned, hits, sections, selected }`. Required. See below |
+| `view(cols)` | Returns `{ lines, actions, pinned, hits, sections, selected, selected_last }`. Required. See below |
 | `refresh()` | Runs as a background task when the pane starts, then every `interval` seconds, unless a key was pressed in the last second. A hidden tab doesn't refresh |
 | `interval` | Seconds between refreshes, 60 by default |
 | `hidden` | True to hide the tab until it's shown in the tab settings |
@@ -570,7 +658,9 @@ panel module as its argument (`local sidecar = ...`) and returns a table:
   column ranges of pinned line `n`.
 - `sections`, made with `sidecar.section`, are the boxes `n`, `p` and `Enter`
   fold.
-- `selected`, a line number, is scrolled into view after a key.
+- `selected`, a line number, is scrolled into view after a key. When the
+  selected item takes several lines, `selected_last` is its last line, and
+  the lines from `selected` to `selected_last` are scrolled into view.
 
 **Running commands.** `sidecar.run(argv, limit)` runs a command and returns
 `{ ok, code, stdout }`, or nil after `limit` seconds (5 by default).

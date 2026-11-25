@@ -1921,6 +1921,25 @@ do
 	equal(text:find("Daily review due · press v", 1, true) ~= nil, true, "review prompt shown after a key today")
 	equal(text:find("1 of 5 done", 1, true) ~= nil, true, "progress counts done today")
 
+	-- A long name is cut with an ellipsis, and shown whole while selected.
+	state.lists = fixture()
+	for _, t in ipairs(state.lists[1].tasks) do
+		if t.id == "reply" then
+			t.title = "A. Reply to the landlord about the broken boiler and the heating bill zebra"
+		end
+	end
+	state.selected = "piano"
+	local cut = check_view("all", 40)
+	local cut_text = strip(table.concat(cut.lines, "\n"))
+	hasnt(cut_text, "zebra", "an unselected long name is cut")
+	has(cut_text, "…", "the cut name ends with an ellipsis")
+	equal(cut.selected_last, cut.selected, "a selected short name takes one line")
+	state.selected = "reply"
+	local whole = check_view("all", 40)
+	has(strip(table.concat(whole.lines, "\n")), "zebra", "the selected name is shown whole")
+	equal(whole.selected_last > whole.selected, true, "the selected name takes several lines")
+	equal(whole.actions[whole.selected_last].ranges[1].action.id, "reply", "a click on a wrapped line selects the task")
+
 	-- A prompt to Claude today shows the review prompt without a key in the tab.
 	state.lists, state.key_day = fixture(), nil
 	P.panel.state = P.new_state()

@@ -84,6 +84,12 @@ The skill uses three Rex actions from rex-sidecar,
 They only use the providers of the tabs you've shown, so the rex-sidecar
 extension must be loaded and at least one task tab shown.
 
+The skill runs when Claude judges that the work calls for it. To have Claude
+track every piece of work without being asked, add a standing instruction,
+allow the actions and, optionally, a reminder hook, as described in
+[Agents that keep the list without being asked](../../rex-sidecar/README.md#agents-that-keep-the-list-without-being-asked).
+The same page covers Codex, agy, Pi and OpenCode.
+
 ## Install
 
 Through this repository's plugin marketplace:

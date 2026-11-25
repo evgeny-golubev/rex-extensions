@@ -2694,7 +2694,7 @@ local function plugin_view(tab)
 		v = { lines = M.wrap(tostring(v), cols, red, red) }
 	end
 	local pinned = v.pinned or { panel.notice and (red .. panel.notice .. reset) }
-	return { lines = v.lines or {}, pinned = pinned, hits = v.hits or {}, actions = v.actions or {}, sections = v.sections or {}, selected = v.selected }
+	return { lines = v.lines or {}, pinned = pinned, hits = v.hits or {}, actions = v.actions or {}, sections = v.sections or {}, selected = v.selected, selected_last = v.selected_last }
 end
 
 --- The tab settings, in place of the open tab's view: every tab in its order,
@@ -2870,7 +2870,7 @@ local function draw()
 	if panel.reveal then
 		panel.reveal = false
 		if c.selected then
-			s = math.max(c.selected - page, math.min(s, c.selected - 1))
+			s = math.max((c.selected_last or c.selected) - page, math.min(s, c.selected - 1))
 		end
 	end
 	s = math.max(0, math.min(s, #c.lines - page))
