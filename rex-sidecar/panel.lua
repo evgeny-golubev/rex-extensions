@@ -459,7 +459,9 @@ end
 
 --- A background task Claude started: a shell named by its command, as Claude
 --- Code's own list names it, credentials masked, or a monitor by its
---- description, which ends at its timeout unless it's persistent.
+--- description, which ends at its timeout unless it's persistent. One that
+--- calls a rex-hub action, as a poll of a hub run, is marked `hub`: the HUB box
+--- shows that run already.
 function M.task_started(state, id, name, input, extra)
 	local at = M.epoch(state.at)
 	local monitor = name == "Monitor"
@@ -468,6 +470,7 @@ function M.task_started(state, id, name, input, extra)
 		id = id,
 		at = at,
 		monitor = monitor,
+		hub = tostring(input.command or ""):find("rex%s+do%s+[^\n|;&]-hub_%a") ~= nil,
 		name = monitor and (input.description or "monitor") or M.mask(M.command(input.command or "")),
 		expires = (monitor and at and timeout and not extra.persistent) and (at + timeout / 1000) or nil,
 	}
@@ -2703,7 +2706,9 @@ local function gather()
 				local kept, procs = {}, {}
 				for _, t in ipairs(M.running_tasks(state, now, live)) do
 					kept[t.id] = true
-					procs[#procs + 1] = { name = t.name, kind = t.monitor and "monitor" or "shell", age = t.at and (now - t.at) or 0 }
+					if not t.hub then
+						procs[#procs + 1] = { name = t.name, kind = t.monitor and "monitor" or "shell", age = t.at and (now - t.at) or 0 }
+					end
 				end
 				panel.processes = procs
 				-- Prune stale background tasks whose shell already exited (e.g. after restart)
