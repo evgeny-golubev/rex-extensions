@@ -1,0 +1,7 @@
+{
+  "name": "rex-hub",
+  "version": "0.1.0",
+  "description": "Delegate tasks to other coding agents (Claude, Codex, agy, Pi, OpenCode) in minimized Rex floating panes you can expand, steer, or stop from the sidecar Info tab",
+  "repository": "https://github.com/evgeny-golubev/rex-extensions",
+  "license": "MIT"
+}

@@ -9,6 +9,11 @@
       "name": "rex-sidecar-task-list",
       "source": "./plugins/rex-sidecar-task-list",
       "description": "Set up the rex-sidecar Google Tasks or Reminders tab step by step, and keep its task lists in step with the work done in a Claude Code session"
+    },
+    {
+      "name": "rex-hub",
+      "source": "./plugins/rex-hub",
+      "description": "Delegate tasks to other coding agents (Claude, Codex, agy, Pi, OpenCode) in minimized Rex floating panes with Info tab controls"
     }
   ]
 }
