@@ -225,24 +225,27 @@ update = function(session_id, block_id, foreground, ancestors, rechecked)
 	end
 end
 
---- Opens the crab pane in the focused pane's tab, Claude or not. In a tab
---- without Claude it stays until the user closes it.
-local function show(session_id, focused)
-	if owners[focused] then
-		return
-	end
-	local window_id = window_of(session_id, focused)
+--- Opens the crab pane in the focused pane's tab, Claude or not, or closes
+--- the one it has. In a tab without Claude it stays until it's closed.
+local function toggle(session_id, focused)
+	local window_id = owners[focused] or window_of(session_id, focused)
 	if not window_id then
 		return
 	end
 	local tab = tabs[window_id]
+	if tab and tab.crabs then
+		close_crabs(tab)
+		tab.crabs = false
+		if tab.claudes <= 0 then
+			tabs[window_id] = nil
+		end
+		return
+	end
 	if not tab then
 		tab = { session_id = session_id, claudes = 0 }
 		tabs[window_id] = tab
 	end
-	if not tab.crabs then
-		tab.crabs = open(session_id, window_id, focused) or false
-	end
+	tab.crabs = open(session_id, window_id, focused) or false
 end
 
 for _, c in ipairs(check(rex.call("client.list")).clients) do
@@ -274,9 +277,9 @@ for _, s in ipairs(check(rex.call("session.list")).sessions) do
 end
 
 rex.every(0.5, function()
-	local request = settings.take_show_request(base)
+	local request = settings.take_toggle_request(base)
 	if request then
-		show(request.session_id, request.block_id)
+		toggle(request.session_id, request.block_id)
 	end
 end)
 

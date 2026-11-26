@@ -24,14 +24,14 @@ local base = home .. "/.config/rex/extensions/rex-crab-pond/"
 local settings = dofile(base .. "settings.lua")
 
 rex.action({
-	name = "rex_crab_pond_show",
-	title = "Show Crabs Pane",
+	name = "rex_crab_pond_toggle",
+	title = "Toggle Crabs Pane",
 	category = "Claude Code",
 	run = function(ctx)
 		if not ctx.session_id or not ctx.block_id then
-			error("no focused pane to show the crabs pane for", 0)
+			error("no focused pane to toggle the crabs pane for", 0)
 		end
-		settings.request_show(base, ctx.session_id, ctx.block_id)
+		settings.request_toggle(base, ctx.session_id, ctx.block_id)
 	end,
 })
 

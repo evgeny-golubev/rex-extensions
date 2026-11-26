@@ -205,19 +205,19 @@ pkill -f 'rex-crab-pond/watcher\.lua'; rex config reload
 
 Coming from cc-crab-pond, its earlier name: change the `require` line, then run
 `pkill -f 'cc-crab-pond/watcher\.lua'; rex config reload`. The palette actions
-are now named `rex_crab_pond_show` and `rex_crab_pond_auto_show`.
+are now named `rex_crab_pond_toggle` and `rex_crab_pond_auto_show`.
 
 ## Palette actions
 
 | Action | What it does |
 | --- | --- |
-| Show Crabs Pane | Opens the pane in the focused tab, with or without an agent in it |
+| Toggle Crabs Pane | Opens the pane in the focused tab, with or without an agent in it, or closes the one it has |
 | Disable / Enable Crabs Pane Auto-Show | Whether the pane opens by itself when an agent starts in a tab. On by default |
 
 The palette shows whichever of Disable and Enable applies. The choice is saved
 as `{"auto_show": false}` in `rex-crab-pond/settings.json`, which git ignores.
 It applies to tabs where an agent starts from then on; open panes stay. To
-bind a key, use `rex.bind` with `rex_crab_pond_show` or `rex_crab_pond_auto_show`.
+bind a key, use `rex.bind` with `rex_crab_pond_toggle` or `rex_crab_pond_auto_show`.
 
 ## Behavior
 
@@ -228,7 +228,7 @@ bind a key, use `rex.bind` with `rex_crab_pond_show` or `rex_crab_pond_auto_show
   cell), so it takes 7 columns by 3 rows. Rex draws these characters itself.
   In a pane under 3 rows, crabs get squatter and keep their hats.
 - A crab pane you close stays closed until the tab has no agent left, or you
-  run Show Crabs Pane.
+  run Toggle Crabs Pane.
 - When the watcher starts, it replaces leftover crab panes with new ones.
 - A pond in a tab you aren't looking at stops drawing and checking programs,
   and a visible one skips frames where nothing moved, so ponds cost little
@@ -245,7 +245,7 @@ Clawd, Claude Code's mascot by Anthropic.
 
 | Symptom | What to check |
 | --- | --- |
-| No pond opens | Start a supported agent, or run **Show Crabs Pane** from the palette. Check auto-show if you want new agent tabs to open it automatically. |
+| No pond opens | Start a supported agent, or run **Toggle Crabs Pane** from the palette. Check auto-show if you want new agent tabs to open it automatically. |
 | Claude has no model or effort outfit | Check `jq`, the [Claude status line setup](../agents/README.md#claude-code) and the saved session JSON. Wait for the next agent reply to refresh it. |
 | An agy crab always wears a robot outfit | Its model ID has no effort suffix. Configure `agy-statusline.sh` with `jq` and restart agy; see [agy setup](../agents/README.md#antigravity-cli-agy). |
 | A Pi crab shows the wrong session or generic agent crab | Link `pi-rex-status.ts` and restart Pi; see [Pi setup](../agents/README.md#pi). |
@@ -263,7 +263,7 @@ to disable the pond while preserving its settings.
 | File | What it does |
 | --- | --- |
 | `init.lua` | Starts the watcher and defines the palette actions |
-| `settings.lua` | Reads and writes `settings.json`, and passes Show requests to the watcher through `show-request.json` |
+| `settings.lua` | Reads and writes `settings.json`, and passes Toggle requests to the watcher through `toggle-request.json` |
 | `watcher.lua` | Opens and closes the panes |
 | `pond.lua` | Runs in each pane: finds what runs, lays out and draws the crabs. Finds each agent's session through [`../agents/`](../agents/README.md) |
 | `sprites.lua` | The pixel art |
