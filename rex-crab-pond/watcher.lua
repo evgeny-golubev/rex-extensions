@@ -91,7 +91,7 @@ local function keep_ratio(session_id, before, after, direction, ratio)
 	end)
 end
 
-local function open(session_id, window_id, claude)
+local function open(session_id, window_id, claude, retried)
 	local anchor = tab_root(session_id, window_id)
 	if not anchor then
 		return nil
@@ -116,7 +116,18 @@ local function open(session_id, window_id, claude)
 		},
 	})
 	if err ~= nil then
-		rex.log("warn", "opening a crab pane: " .. err)
+		-- The sidecar opening in the same tab at once replaces the split this
+		-- one was anchored to: try again once the tab has settled.
+		if not retried and tostring(err):find("not_found", 1, true) then
+			rex.after(1, function()
+				local tab = tabs[window_id]
+				if tab and tab.crabs == nil then
+					tab.crabs = open(session_id, window_id, claude, true)
+				end
+			end)
+		else
+			rex.log("warn", "opening a crab pane: " .. err)
+		end
 		return nil
 	end
 	local crabs = result.block_ids[1]

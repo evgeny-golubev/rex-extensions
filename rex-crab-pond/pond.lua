@@ -975,7 +975,7 @@ local function block_call(session_id, block_id, method)
 end
 
 local pond = {
-	session_id = os.getenv("REX_SESSION"),
+	session_id = agents.session_of(os.getenv("REX_BLOCK")),
 	block_id = os.getenv("REX_BLOCK"),
 	frame = 0,
 	gathered = 0,

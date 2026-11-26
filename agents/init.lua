@@ -77,6 +77,25 @@ function A.session(process, session_id, block_id)
 	return adapter, sess
 end
 
+--- The session holding a block. Rex no longer sets REX_SESSION in a pane, and
+--- session calls need a session ID, so it's looked up from the block's ID.
+function A.session_of(block_id)
+	local env = os.getenv("REX_SESSION")
+	if env and env ~= "" then
+		return env
+	end
+	local ok, list = pcall(rex.call, "session.list", {})
+	for _, s in ipairs(ok and list and list.sessions or {}) do
+		local found, blocks = pcall(rex.call, "session.list_blocks", { session_id = s.session_id })
+		for _, b in ipairs(found and blocks and blocks.blocks or {}) do
+			if b.block_id == block_id then
+				return s.session_id
+			end
+		end
+	end
+	return nil
+end
+
 --- The theme for an adapter or adapter ID, falling back to Claude's.
 function A.theme(agent)
 	local adapter = type(agent) == "table" and agent or A.by_id[agent]

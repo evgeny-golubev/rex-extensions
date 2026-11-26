@@ -2287,7 +2287,7 @@ M.project_dir = agents.claude.project_dir
 M.transcript = agents.claude.transcript
 
 local panel = {
-	session_id = os.getenv("REX_SESSION"),
+	session_id = agents.session_of(os.getenv("REX_BLOCK")),
 	block_id = os.getenv("REX_BLOCK"),
 	claude = rex.args and rex.args.claude,
 	root = rex.args and rex.args.cwd or os.getenv("PWD"),
