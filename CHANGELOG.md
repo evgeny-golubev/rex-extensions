@@ -3,6 +3,24 @@
 Releases are tagged `vX.Y.Z` on GitHub. The skills keep their own versions,
 in each plugin's `plugin.json`.
 
+## v1.4.1 — 2026-11-26
+
+Crab ponds draw again with the current Rex, and the sidecar's PROCESSES box
+leaves out polls of Hub runs.
+
+### Fixes
+
+- **Crab ponds were empty:** Rex no longer sets `REX_SESSION` in a pane and
+  now requires a session ID to view one, so the pond never found its tab. The
+  pond and sidecar find their session from the pane instead. The sidecar's
+  tab view (hiding in a background tab, a Hub float's state) works again too.
+- **A tab could get no pond:** when the sidecar and pond opened in a tab at
+  the same moment, the pond's split could vanish under it. It now tries again
+  a second later.
+- **PROCESSES leaves out Hub polls:** a background task that runs
+  `rex do hub_…` to wait for a Hub run isn't listed, since the HUB box shows
+  that run.
+
 ## v1.4.0 — 2026-11-26
 
 rex-hub, a new extension: one agent runs another in a minimized floating
