@@ -720,7 +720,7 @@ pkill -f 'rex-sidecar/watcher\.lua'; rex config reload
 
 | Action | What it does |
 | --- | --- |
-| Show Sidecar Pane | Opens the pane beside the focused supported agent, or another agent in the tab that has none |
+| Toggle Sidecar Pane | Opens the pane beside the focused supported agent, or another agent in the tab that has none; closes it when the focused agent has one or the sidecar itself is focused |
 | Disable / Enable Sidecar Pane Auto-Show | Whether a pane opens by itself when a supported agent starts. On by default |
 | Rex View: Search Panel | The [Search Panel](#search-panel); also `Cmd+Ctrl+Alt+Shift+O` |
 | Rex View: Set Editor | The command that [edits files](#editor) |
@@ -731,7 +731,7 @@ pkill -f 'rex-sidecar/watcher\.lua'; rex config reload
 - Auto-show is saved as `{"auto_show": false}` in `settings.json`. It applies
   from the next agent that starts; open panes stay. The palette shows
   whichever of Disable and Enable applies.
-- To bind keys with `rex.bind`, the action names are `rex_sidecar_show`,
+- To bind keys with `rex.bind`, the action names are `rex_sidecar_toggle`,
   `rex_sidecar_auto_show`, `rex_sidecar_view`, `rex_sidecar_view_editor` and
   `rex_sidecar_view_patterns`.
 
@@ -746,7 +746,7 @@ pkill -f 'rex-sidecar/watcher\.lua'; rex config reload
   label switch to the new folder's repository within a couple of seconds. They
   cover the whole repository, not only the agent's folder.
 - A pane you close stays closed until an agent starts again in that pane, or you
-  run Show Sidecar Pane.
+  run Toggle Sidecar Pane.
 - When the watcher starts, it replaces leftover sidecar panes with new ones,
   including `Changes:` panes from before this extension was renamed.
 - rex-resume doesn't save sidecar panes. They come back with the resumed
@@ -798,7 +798,7 @@ its child sessions.
 
 | Symptom | What to check |
 | --- | --- |
-| The pane stays closed | Run **Show Sidecar Pane** with an agent tab focused. A manually closed pane stays closed until the agent restarts; check auto-show for new panes. |
+| The pane stays closed | Run **Toggle Sidecar Pane** with an agent tab focused. A manually closed pane stays closed until the agent restarts; check auto-show for new panes. |
 | Last Turn is empty but files changed | Shell edits may not produce file-change events. Use Uncommitted inside a git repository. |
 | Info is missing boxes | Empty boxes are hidden. Check the agent-specific limits above and status line setup before treating this as a parsing failure. |
 | Task tabs are absent | Press `,` and show Tasks or Reminders. Follow that provider's setup above. |
@@ -824,8 +824,8 @@ without deleting them.
 - `../agents/` finds a pane's agent, its session and its subagents.
 - `parsers/claude.lua`, `parsers/codex.lua`, `parsers/agy.lua`, `parsers/pi.lua`
   and `parsers/opencode.lua` read each agent's transcript.
-- `settings.lua` reads and writes `settings.json`, and passes Show requests to
-  the watcher through `show-request.json`.
+- `settings.lua` reads and writes `settings.json`, and passes Toggle requests to
+  the watcher through `toggle-request.json`.
 - `diff-view` draws one diff in the floating pane.
 - `mentions.lua` finds the files, images and links in the agent's replies.
   `view-collect.lua` writes them as the Search Panel's list, and `view-picker`

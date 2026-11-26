@@ -170,11 +170,13 @@ update = function(session_id, block_id, foreground, ancestors, rechecked)
 	end
 end
 
---- The Claude pane "Show Sidecar Pane" means: the focused one, or else the
---- first one in the same tab without a sidecar pane.
-local function show_target(session_id, focused)
-	if claude_panes[focused] then
-		return focused
+--- The Claude pane "Toggle Sidecar Pane" means: the focused one, or the one
+--- whose sidecar is focused; or else, in the same tab, the first one without a
+--- sidecar pane to show one for, or the first one with one to hide it.
+local function toggle_target(session_id, focused)
+	local own = owners[focused] or (claude_panes[focused] and focused)
+	if own then
+		return own
 	end
 	local listed = rex.call("session.list_blocks", { session_id = session_id })
 	local blocks = listed and listed.blocks or {}
@@ -184,25 +186,34 @@ local function show_target(session_id, focused)
 			window_id = b.window_id
 		end
 	end
+	local shown
 	for _, b in ipairs(blocks) do
 		local pane = claude_panes[b.block_id]
-		if window_id and b.window_id == window_id and pane and not pane.sidecar then
-			return b.block_id
+		if window_id and b.window_id == window_id and pane then
+			if not pane.sidecar then
+				return b.block_id
+			end
+			shown = shown or b.block_id
 		end
 	end
+	return shown
 end
 
-local function show(session_id, focused)
-	if owners[focused] then
-		return
-	end
-	local target = show_target(session_id, focused)
+local function toggle(session_id, focused)
+	local target = toggle_target(session_id, focused)
 	if not target then
-		rex.log("warn", "no Claude pane in this tab to show a sidecar pane for")
+		rex.log("warn", "no Claude pane in this tab to toggle a sidecar pane for")
 		return
 	end
 	local pane = claude_panes[target]
-	if not pane.sidecar then
+	if pane.sidecar then
+		local sidecar = pane.sidecar
+		owners[sidecar], pane.sidecar = nil, nil
+		local _, err = rex.call("block.close", { session_id = pane.session_id, block_id = sidecar })
+		if err ~= nil then
+			rex.log("warn", "closing a sidecar pane: " .. err)
+		end
+	else
 		local r = rex.block.call(terminal, "process", { session_id = session_id, block_id = target })
 		pane.sidecar = open(session_id, target, r and r.foreground and r.foreground.cwd)
 	end
@@ -237,9 +248,9 @@ for _, s in ipairs(check(rex.call("session.list")).sessions) do
 end
 
 rex.every(0.5, function()
-	local request = settings.take_show_request(base)
+	local request = settings.take_toggle_request(base)
 	if request then
-		show(request.session_id, request.block_id)
+		toggle(request.session_id, request.block_id)
 	end
 end)
 

@@ -282,7 +282,7 @@ the named features; you can leave out tools for features you don't need.
 
 | Symptom | What to check |
 | --- | --- |
-| No sidecar or pond appears | Check the `require` lines in `~/.config/rex/init.lua`, run `rex config reload`, and start `claude`, `codex`, `agy`, `pi` or `opencode` in a pane. If you closed the sidecar, run **Show Sidecar Pane** from the palette. Check that auto-show is enabled if you want it to open automatically. |
+| No sidecar or pond appears | Check the `require` lines in `~/.config/rex/init.lua`, run `rex config reload`, and start `claude`, `codex`, `agy`, `pi` or `opencode` in a pane. If you closed the sidecar, run **Toggle Sidecar Pane** from the palette. Check that auto-show is enabled if you want it to open automatically. |
 | An update has no effect | Config reload does not replace an already running watcher. Run the watcher restart command under [Update](#update). |
 | Claude context or limits are missing | Check that the status line writes `~/.claude/state/statusline/<session-id>.json` (under `$CLAUDE_CONFIG_DIR` if set), and that `jq` is installed. See the [complete Claude setup](agents/README.md#claude-code). |
 | A Codex, agy, Pi or OpenCode pane has no conversation yet | Send the first prompt so the agent creates its conversation. For Pi, link the [Pi extension](agents/README.md#pi) so a session opened with `--session` or `/resume` is found too. For Codex panes in the same folder with identical thread names, rename one. See [session discovery](agents/README.md). |

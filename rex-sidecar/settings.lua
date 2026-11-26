@@ -109,12 +109,12 @@ function M.link_patterns(base)
 	return type(settings.link_patterns) == "table" and settings.link_patterns or {}
 end
 
-function M.request_show(base, session_id, block_id)
-	write_json(base .. "show-request.json", { session_id = session_id, block_id = block_id })
+function M.request_toggle(base, session_id, block_id)
+	write_json(base .. "toggle-request.json", { session_id = session_id, block_id = block_id })
 end
 
-function M.take_show_request(base)
-	local path = base .. "show-request.json"
+function M.take_toggle_request(base)
+	local path = base .. "toggle-request.json"
 	local request = read_json(path)
 	os.remove(path)
 	return request

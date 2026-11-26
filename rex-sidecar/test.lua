@@ -36,8 +36,8 @@ REX_SIDECAR_TEST_BASE = test_base
 local S = dofile(dir .. "settings.lua")
 local poll
 
-local function request_show(block_id)
-	S.request_show(test_base, "session:1", block_id)
+local function request_toggle(block_id)
+	S.request_toggle(test_base, "session:1", block_id)
 	poll()
 end
 
@@ -237,28 +237,33 @@ local ok, err = pcall(function()
 	equal(#splits, 0, "no pane with auto-show off")
 	poll()
 	equal(#splits, 0, "no request, no pane")
-	request_show("block:1")
+	request_toggle("block:1")
 	equal(#splits, 1, "shown for the focused Claude")
 	equal(splits[1].anchor_id, "block:1", "beside that Claude")
-	equal(io.open(test_base .. "show-request.json"), nil, "request used up")
-	request_show("block:1")
-	equal(#splits, 1, "already shown")
-	request_show("block:sidecar1")
-	equal(#splits, 1, "asked from the sidecar pane itself")
+	equal(io.open(test_base .. "toggle-request.json"), nil, "request used up")
+	request_toggle("block:1")
+	equal(#splits, 1, "toggled off: not opened again")
+	equal(closed[#closed], "block:sidecar1", "toggled off: closed")
+	request_toggle("block:1")
+	equal(#splits, 2, "toggled on again")
+	request_toggle("block:sidecar2")
+	equal(closed[#closed], "block:sidecar2", "toggled off from the sidecar pane itself")
 
 	-- From another pane in the tab, it means the Claude there.
 	reset()
 	blocks[1].window_id, blocks[2].window_id = "window:1", "window:1"
 	run()
-	request_show("block:2")
+	request_toggle("block:2")
 	equal(#splits, 1, "shown for the tab's Claude")
 	equal(splits[1].anchor_id, "block:1", "the tab's Claude")
+	request_toggle("block:2")
+	equal(closed[#closed], "block:sidecar1", "and hidden for it")
 
 	-- A tab without Claude gets nothing.
 	reset()
 	blocks[1].window_id, blocks[2].window_id = "window:1", "window:2"
 	run()
-	request_show("block:2")
+	request_toggle("block:2")
 	equal(#splits, 0, "no Claude in the tab")
 	S.set_auto_show(test_base, true)
 end)

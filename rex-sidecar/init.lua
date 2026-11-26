@@ -27,14 +27,14 @@ local settings = dofile(base .. "settings.lua")
 assert(loadfile(base .. "task-actions.lua"))(base)
 
 rex.action({
-	name = "rex_sidecar_show",
-	title = "Show Sidecar Pane",
+	name = "rex_sidecar_toggle",
+	title = "Toggle Sidecar Pane",
 	category = "Claude Code",
 	run = function(ctx)
 		if not ctx.session_id or not ctx.block_id then
-			error("no focused pane to show the sidecar pane for", 0)
+			error("no focused pane to toggle the sidecar pane for", 0)
 		end
-		settings.request_show(base, ctx.session_id, ctx.block_id)
+		settings.request_toggle(base, ctx.session_id, ctx.block_id)
 	end,
 })
 
