@@ -21,7 +21,9 @@ Antigravity CLI (`agy`), [Pi](https://github.com/badlogic/pi-mono) and
 | Extension | [rex-sidecar](#rex-sidecar) | What the agent changed, a dashboard of its work, what its replies mention, and your tasks | A pane beside the agent |
 | Extension | [rex-crab-pond](#rex-crab-pond) | Agents, subagents and programs as animated crabs | A strip along the tab's bottom |
 | Extension | [rex-resume](#rex-resume) | Claude Code, Codex, agy, Pi and OpenCode conversations, and programs like nvim, back after a restart | A background watcher |
+| Extension | [rex-hub](#rex-hub) | One agent runs another in a minimized floating pane, with its own HUB box in the sidecar | Rex actions + minimized floats |
 | Skill | [rex-sidecar-task-list](#rex-sidecar-task-list) | Claude keeps your task list in step with the work you do together | Plugin 0.2.0 |
+| Skill | [rex-hub](#rex-hub-skill) | Your agent runs other agents through rex-hub instead of a blind shell command | Plugin 0.1.0 |
 
 **Contents:** [Extensions](#extensions) · [Skills](#skills) ·
 [Install](#install) · [Update](#update) · [Requirements](#requirements) ·
@@ -78,10 +80,22 @@ nvim. It has nothing on screen.
 
 [Settings and limits →](rex-resume/README.md)
 
+### rex-hub
+
+Run another coding agent (`claude`, `codex`, `agy`, `pi`, or `opencode`) from
+inside your current agent—in a minimized floating pane in the same tab instead
+of a blind shell script. Supports `oneshot` tasks (auto-closes on completion)
+and `interactive` sessions (`hub_send` / `hub_read` / `hub_stop`), appears in
+`rex-sidecar`'s **Info → HUB** box with open/stop/view controls, and
+reuses the tab's existing sidecar and crab pond.
+
+[Actions and setup →](rex-hub/README.md)
+
 ## Skills
 
 Skills are Claude Code plugins, installed from this repository. Claude uses
-them when they fit what you ask. They need nothing in `init.lua`.
+them when they fit what you ask. The rex-hub skill needs its extension in
+`init.lua`; rex-sidecar-task-list needs nothing there.
 
 ### rex-sidecar-task-list
 
@@ -90,6 +104,14 @@ the task already there. When the work is done, Claude reports it, and you
 confirm with one key in the sidecar. It works with the Google Tasks and
 Reminders tabs. To set it up, ask Claude "set up the sidecar Tasks tab".
 [Details →](plugins/rex-sidecar-task-list/README.md)
+
+### rex-hub skill
+
+When you ask your agent to consult or hand work to another agent ("ask codex
+to review this"), it starts that agent through [rex-hub](#rex-hub) and reads
+its answer. Its own subagents still run the usual way. It needs the rex-hub
+extension in `init.lua`, and also works in `agy`.
+[Details →](plugins/rex-hub/README.md)
 
 ## Install
 
@@ -115,6 +137,7 @@ Reminders tabs. To set it up, ask Claude "set up the sidecar Tasks tab".
    require("extensions.rex-resume")
    require("extensions.rex-sidecar")
    require("extensions.rex-crab-pond")
+   require("extensions.rex-hub")
    ```
 
 3. Load them:
@@ -167,9 +190,11 @@ Quick commands for the three optional setups:
 ```sh
 claude plugin marketplace add evgeny-golubev/rex-extensions
 claude plugin install rex-sidecar-task-list@rex-extensions
+claude plugin install rex-hub@rex-extensions
 ```
 
-Then restart Claude Code, or run `/reload-plugins` in it.
+Then restart Claude Code, or run `/reload-plugins` in it. For `agy`, link the
+rex-hub skill [as its README shows](plugins/rex-hub/README.md#antigravity-cli-agy).
 
 ## Update
 
@@ -185,6 +210,7 @@ Skills:
 ```sh
 claude plugin marketplace update rex-extensions
 claude plugin update rex-sidecar-task-list@rex-extensions
+claude plugin update rex-hub@rex-extensions
 ```
 
 ### Coming from older versions
@@ -220,6 +246,8 @@ Claude Code plugins.
 | Crab pond: agent panes | Yes | Yes | Yes, with subagents | Yes, with subagents | Yes, with subagents |
 | Resume conversations | `claude --resume` | `codex resume` | `agy --conversation` | `pi --session` | `opencode --session` |
 | rex-sidecar-task-list plugin | Yes | Not packaged for this agent | Not packaged for this agent | Not packaged for this agent | Not packaged for this agent |
+| rex-hub: runs it as a delegated agent | Yes | Yes | Yes | Yes | Yes |
+| rex-hub skill | Yes | Not packaged for this agent | Yes, by linking the skill folder | Not packaged for this agent | Not packaged for this agent |
 
 The Info fields depend on what each agent records. Codex has no GATE approval
 history or per-pane background process list, and its OPEN box only shows
@@ -244,6 +272,7 @@ limits](agents/README.md) for session discovery and agent-specific behavior.
 | Colours in the Search Panel's viewer | [`bat`](https://github.com/sharkdp/bat) (`brew install bat`) |
 | Formatted Markdown in the Search Panel's viewer without leaf | [`glow`](https://github.com/charmbracelet/glow) (`brew install glow`) |
 | The Search Panel | [`fzf`](https://github.com/junegunn/fzf) (`brew install fzf`), and `jq` |
+| rex-hub | The CLI of each agent you delegate to, on your login shell's `PATH` |
 | PR scope and PR titles | [`gh`](https://cli.github.com), signed in (`brew install gh`, `gh auth login`) |
 
 Install the CLI for each agent you use. The remaining dependencies apply to
@@ -303,6 +332,7 @@ are in `~/.config/rex/state/opencode/` and can be deleted.
 
 ```sh
 claude plugin uninstall rex-sidecar-task-list@rex-extensions
+claude plugin uninstall rex-hub@rex-extensions
 ```
 
 Restart Claude Code, or run `/reload-plugins`. This removes the plugin;
@@ -330,7 +360,9 @@ agents/                           Claude Code, Codex, agy, Pi and OpenCode adapt
 rex-sidecar/                      extension
 rex-crab-pond/                    extension
 rex-resume/                       extension
+rex-hub/                          extension
 plugins/rex-sidecar-task-list/    skills, as a plugin
+plugins/rex-hub/                  skill, as a plugin
 docs/                             pictures
 ```
 
@@ -341,6 +373,7 @@ rex do ~/.config/rex/extensions/agents/test.lua
 rex do ~/.config/rex/extensions/rex-sidecar/test.lua
 rex do ~/.config/rex/extensions/rex-crab-pond/test.lua
 rex do ~/.config/rex/extensions/rex-resume/test.lua
+rex do ~/.config/rex/extensions/rex-hub/test.lua
 ```
 
 The tests mock Rex and don't touch live sessions.

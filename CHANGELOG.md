@@ -3,6 +3,56 @@
 Releases are tagged `vX.Y.Z` on GitHub. The skills keep their own versions,
 in each plugin's `plugin.json`.
 
+## v1.4.0 — 2026-11-26
+
+rex-hub, a new extension: one agent runs another in a minimized floating
+pane, with its own HUB box in the sidecar. Advisor consults from subagents and
+team members now count, and the task tabs show a selected task's whole name.
+
+### rex-hub (new)
+
+- **Delegate to another agent CLI:** Claude Code, Codex, agy, Pi or OpenCode
+  runs another of them with `rex do hub_run`, in a minimized float in the
+  same tab, instead of a blind shell command. Open it any time to watch,
+  approve or steer it.
+- **Two modes:** `oneshot` runs one task and returns its answer; the float
+  closes when the agent ends. `interactive` runs the agent's full interface
+  for a back-and-forth with `hub_send` and `hub_read`, until `hub_stop`.
+- **Answers as Markdown:** a oneshot run's answer is saved as `<id>.md` and
+  opens in leaf like an artifact; its errors go to `<id>.err`.
+- **Waiting and time limits:** Rex ends a `rex do` action after 30 seconds,
+  so `hub_run` waits up to 25 and otherwise returns the run's `id` to poll
+  with `hub_status`. A oneshot run is ended as `timeout` after `timeout`
+  seconds (default 600), even when nobody polls.
+- **Status you can trust:** `done`, `failed`, `stopped` (also when you close
+  the float) or `timeout`, with the exit code, from a record the run writes
+  once. Run files of runs that ended more than 7 days ago are pruned.
+- **The rex-hub skill:** a plugin for Claude Code, also linkable into agy,
+  that has the agent use Hub when you ask it to consult or hand work to
+  another agent. The agent's own subagents still run the usual way.
+
+### rex-sidecar
+
+- **HUB box:** the pane's Hub runs, newest first: the agent in its colour,
+  the task, its mode and time, and ● running, ✓ done, red ✗ failed or timed
+  out, or dim ■ stopped. Click a run for **Open**, **Stop**, **View output**
+  and the start of its answer. Hidden while there are none.
+- **ADVISOR:** consults by subagents and team members count too, as a dim
+  `◇` beside Claude's own `♦`, with how many came from subagents. A
+  subagent's consult also shows in its lane's tool calls.
+- **PROCESSES:** the box no longer blinks away for a moment while the
+  sidecar checks which background tasks still run.
+- **Tasks:** the selected task shows its whole name, wrapped under the first
+  line, and stays in view at the bottom of the pane. The README has optional
+  steps for each agent to keep the task list without being asked. Thanks to
+  Timofei Bogoliubov
+  ([#12](https://github.com/evgeny-golubev/rex-extensions/pull/12)).
+- Hub floats don't get a sidecar of their own.
+
+### rex-crab-pond and rex-resume
+
+- Hub floats don't open a second pond, and aren't saved in resume snapshots.
+
 ## v1.3.1 — 2026-11-24
 
 Fixes to v1.3.0.
