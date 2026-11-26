@@ -3,6 +3,21 @@
 Releases are tagged `vX.Y.Z` on GitHub. The skills keep their own versions,
 in each plugin's `plugin.json`.
 
+## v1.5.0 — 2026-11-26
+
+The sidecar and crab panes get toggles: one palette action shows a pane or
+hides it.
+
+### rex-sidecar and rex-crab-pond
+
+- **Toggle Sidecar Pane** and **Toggle Crabs Pane** replace the Show actions.
+  Rex reads action titles only when it loads the config, so a Show action
+  could never offer Hide. Toggle Sidecar Pane closes the focused agent's
+  sidecar, or the sidecar you're in, and otherwise opens one as before.
+  Toggle Crabs Pane closes the tab's crab pane when it has one.
+- **Renamed actions:** a key bound with `rex.bind` to `rex_sidecar_show` or
+  `rex_crab_pond_show` needs `rex_sidecar_toggle` or `rex_crab_pond_toggle`.
+
 ## v1.4.1 — 2026-11-26
 
 Crab ponds draw again with the current Rex, and the sidecar's PROCESSES box
