@@ -193,7 +193,7 @@ local function terminal_options(session_id, block_id)
 end
 
 local function is_helper(label)
-	return label ~= nil and (label:sub(1, 9) == "Sidecar: " or label == "Crabs")
+	return label ~= nil and (label:sub(1, 9) == "Sidecar: " or label == "Crabs" or label:sub(1, 5) == "Hub: ")
 end
 
 --- Turns a `session.view` layout node into a `session.create` layout node, or

@@ -23,6 +23,8 @@ local client_label = "rex-sidecar"
 local label_prefix = "Sidecar: "
 --- What panes were labelled before the rename; only ever closed.
 local old_label_prefix = "Changes: "
+--- Delegated Hub agents run in minimized floats and reuse the parent's sidecar.
+local hub_label_prefix = "Hub: "
 
 --- The share of the split the Claude pane keeps.
 local claude_ratio = 0.7
@@ -138,12 +140,25 @@ local function recheck_later(session_id, block_id)
 	end)
 end
 
+local function is_hub_pane(session_id, block_id)
+	local result = rex.call("session.list_blocks", { session_id = session_id })
+	for _, b in ipairs(result and result.blocks or {}) do
+		if b.block_id == block_id then
+			return b.label ~= nil and b.label:sub(1, #hub_label_prefix) == hub_label_prefix
+		end
+	end
+	return false
+end
+
 update = function(session_id, block_id, foreground, ancestors, rechecked)
 	if owners[block_id] then
 		return
 	end
 	if runs_claude(foreground, ancestors) then
 		if not claude_panes[block_id] then
+			if is_hub_pane(session_id, block_id) then
+				return
+			end
 			local cwd = foreground and foreground.cwd
 			local sidecar = settings.auto_show(base) and open(session_id, block_id, cwd) or nil
 			claude_panes[block_id] = { session_id = session_id, sidecar = sidecar }

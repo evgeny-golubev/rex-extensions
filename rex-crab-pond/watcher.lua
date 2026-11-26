@@ -50,6 +50,9 @@ local function window_of(session_id, block_id)
 	local result = rex.call("session.list_blocks", { session_id = session_id })
 	for _, b in ipairs(result and result.blocks or {}) do
 		if b.block_id == block_id then
+			if b.label and b.label:sub(1, 5) == "Hub: " then
+				return nil
+			end
 			return b.window_id
 		end
 	end

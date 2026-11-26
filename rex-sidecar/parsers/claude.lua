@@ -373,6 +373,17 @@ return function(P)
 					P.agent_tool(a, item.name, P.tool_target(item.name, item.input))
 				elseif item.type == "text" and item.text and item.text:match("%S") then
 					a.answer = item.text
+				elseif item.type == "server_tool_use" and tostring(item.name):lower():match("advisor") then
+					-- A subagent's or team member's own advisor consult.
+					a.consults = a.consults or {}
+					a.consults[#a.consults + 1] = { id = item.id, at = at }
+					P.agent_tool(a, "advisor", "consulted")
+				elseif item.tool_use_id and item.type ~= "tool_result" then
+					for _, c in ipairs(a.consults or {}) do
+						if c.id == item.tool_use_id and not c.done then
+							c.done = at
+						end
+					end
 				end
 			end
 		elseif r.type == "user" then

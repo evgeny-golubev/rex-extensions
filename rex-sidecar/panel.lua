@@ -15,6 +15,10 @@ local settings = dofile(dir .. "settings.lua")
 local agents = dofile(dir .. "../agents/init.lua")
 local mentions = dofile(dir .. "mentions.lua")
 local leaf = dofile(dir .. "leaf.lua")
+local hub_ok, hub_core = pcall(dofile, dir .. "../rex-hub/core.lua")
+if not hub_ok then
+	hub_core = nil
+end
 --- The folder of settings.json: a throwaway one in the tests.
 local settings_dir = REX_SIDECAR_TEST_BASE or dir
 local rex_binary = home
@@ -1457,27 +1461,47 @@ local function main_box(out, state, cols, o)
 	end)
 end
 
---- The advisor's consults on a timeline from the first prompt to now.
+--- The advisor's consults on a timeline from the first prompt to now: the
+--- agent's own (♦) and its subagents' and team members' (◇).
 local function advisor_box(out, state, cols, o)
-	local consults = state.consults
+	local consults, by_subs = {}, 0
+	for _, c in ipairs(state.consults) do
+		consults[#consults + 1] = c
+	end
+	for _, a in ipairs(o.agents or {}) do
+		-- A subagent that stopped mid-consult isn't consulting any more.
+		local live = M.agent_running(a, o.now)
+		for _, c in ipairs(a.consults or {}) do
+			consults[#consults + 1] = { at = c.at, done = c.done or (not live and (a.last or c.at)) or nil, sub = true }
+			by_subs = by_subs + 1
+		end
+	end
 	if #consults == 0 then
 		return
 	end
+	table.sort(consults, function(x, y)
+		return (x.at or 0) < (y.at or 0)
+	end)
 	local last = consults[#consults]
-	local open = last.done == nil
+	local open = false
+	for _, c in ipairs(consults) do
+		open = open or c.done == nil
+	end
 	section(out, cols, "Advisor", { colour = purple, title = "ADVISOR · " .. (open and "consulting" or "on call"), right = "consults " .. #consults }, function(n)
 		local from = (state.prompts[1] and M.epoch(state.prompts[1].at)) or consults[1].at or o.now
 		local span = math.max(1, o.now - from)
 		local marks = {}
 		for _, c in ipairs(consults) do
 			if c.at then
-				marks[math.max(1, math.min(n, math.floor((c.at - from) / span * (n - 1)) + 1))] = true
+				local i = math.max(1, math.min(n, math.floor((c.at - from) / span * (n - 1)) + 1))
+				-- The agent's own consult wins a shared cell.
+				marks[i] = marks[i] == "own" and "own" or (c.sub and "sub" or "own")
 			end
 		end
 		local line = {}
 		for i = 1, n do
 			if marks[i] then
-				line[i] = purple .. "♦" .. reset
+				line[i] = marks[i] == "own" and (purple .. "♦" .. reset) or (dim .. purple .. "◇" .. reset)
 			elseif marks[i - 1] and marks[i + 1] then
 				line[i] = " "
 			elseif marks[i + 1] then
@@ -1495,6 +1519,9 @@ local function advisor_box(out, state, cols, o)
 		end
 		if last.done and last.at then
 			facts[#facts + 1] = "took " .. M.span(last.done - last.at)
+		end
+		if by_subs > 0 then
+			facts[#facts + 1] = by_subs .. " by subagents"
 		end
 		out[#out + 1] = table.concat(facts, dim .. " · " .. reset)
 	end)
@@ -1626,6 +1653,71 @@ local function agents_box(out, state, cols, o)
 				end
 				if a.answer then
 					add(out, M.wrap(a.answer, n, "  " .. dim, "  " .. dim, 2))
+				end
+			end
+		end
+	end)
+end
+
+--- Delegated rex-hub runs of this pane, newest first: the latest 8, each with
+--- its agent, task, mode and time; a click opens its status, controls and the
+--- start of its answer. No box with none.
+local function hub_box(out, state, cols, o)
+	local runs = o.hub_runs or {}
+	if #runs == 0 then
+		return
+	end
+	local running = 0
+	for _, h in ipairs(runs) do
+		if h.run.status == "running" then
+			running = running + 1
+		end
+	end
+	section(out, cols, "Hub", { colour = lavender, title = "HUB · " .. running .. " running", right = #runs .. " total" }, function(n)
+		for i = #runs, math.max(1, #runs - 7), -1 do
+			local h = runs[i]
+			local r = h.run
+			local agent_c = (M.themes[r.agent] and M.themes[r.agent].accent) or lavender
+			local live = r.status == "running"
+			local mark = r.status == "done" and (mint .. "✓")
+				or (r.status == "failed" or r.status == "timeout") and (red .. "✗")
+				or r.status == "stopped" and (dim .. "■")
+				or ((math.floor(o.now) % 2 == 0 and bold or "") .. agent_c .. "●")
+			local took = r.started and M.clock((live and o.now or (r.finished or r.started)) - r.started) or ""
+			local tag = n >= 40 and ("  " .. dim .. (r.mode or "oneshot") .. reset) or ""
+			local head = mark .. reset .. " " .. agent_c .. "[" .. r.agent .. "]" .. reset .. " "
+			local room = n - M.width(head) - M.width(tag) - M.width(took) - 1
+			local task = (r.task or "") ~= "" and M.mask(r.task):gsub("%s+", " ") or "interactive"
+			out[#out + 1] = pad(head .. M.clip(task, math.max(1, room)) .. tag, n - M.width(took) - 1) .. " " .. took
+			out.actions[#out] = { kind = "hub_row", id = r.id }
+			if o.open_hub and o.open_hub[r.id] then
+				local float = r.layer_state == "closed" and "float closed"
+					or r.layer_state == "normal" and "float open"
+					or "float minimized"
+				out[#out + 1] = "  " .. dim .. (r.status or "running") .. " · " .. float .. reset
+				local btns, ranges, col = {}, {}, 3
+				local function add_btn(text, colour, action)
+					if #btns > 0 then
+						col = col + 2
+					end
+					local w = M.width(text)
+					btns[#btns + 1] = colour .. text .. reset
+					ranges[#ranges + 1] = { from = col, to = col + w - 1, action = action }
+					col = col + w
+				end
+				if r.layer_state ~= "closed" then
+					add_btn("[Open]", agent_c, { kind = "hub_open", id = r.id })
+					add_btn("[Stop]", red, { kind = "hub_stop", id = r.id })
+				end
+				if h.has_output then
+					add_btn("[View output]", teal, { kind = "hub_view", id = r.id, path = r.result_file })
+				end
+				if #btns > 0 then
+					out[#out + 1] = "  " .. table.concat(btns, "  ")
+					out.actions[#out] = { ranges = ranges }
+				end
+				if h.answer then
+					add(out, M.wrap(h.answer, n, "  " .. dim, "  " .. dim, 2))
 				end
 			end
 		end
@@ -2012,6 +2104,7 @@ function M.info_lines(state, cols, opts)
 	advisor_box(out, state, cols, o)
 	gate_box(out, state, cols, o)
 	agents_box(out, state, cols, o)
+	hub_box(out, state, cols, o)
 	processes_box(out, state, cols, o)
 	open_box(out, state, cols)
 	receipt_box(out, state, cols, o)
@@ -2020,6 +2113,9 @@ function M.info_lines(state, cols, opts)
 	local other = #(o.processes or {}) > 0
 	for _, a in ipairs(o.agents or {}) do
 		other = other or M.agent_running(a, o.now)
+	end
+	for _, h in ipairs(o.hub_runs or {}) do
+		other = other or h.run.status == "running"
 	end
 	out.fast = running
 	out.other_ticking = other
@@ -2208,6 +2304,7 @@ local panel = {
 	gate_open = nil,
 	--- Subagent ID -> true when its lane is open on Info.
 	open_agents = {},
+	open_hub = {},
 	--- Log exploration burst ID -> true when expanded on Info.
 	open_logs = {},
 	--- Whether this sidecar's tab is the session's active window.
@@ -2372,8 +2469,48 @@ end
 
 --- The session's subagents, as its agent lists them, oldest first. A
 --- finished one is read no more.
+--- This pane's delegated rex-hub runs, oldest first, in `state.hub_list`.
+--- Each keeps what was read of its output in `state.hub`, by run id.
+local function read_hub_runs(state)
+	if not (hub_core and panel.claude) then
+		return
+	end
+	local cache, list = state.hub or {}, {}
+	local kept = {}
+	for _, r in ipairs(hub_core.list_runs(nil, { parent_block_id = panel.claude })) do
+		local h = cache[r.id] or {}
+		kept[r.id] = h
+		-- A float closed without the wrapper recording it (the agent was killed
+		-- with it) shows as stopped; the run's file is rex-hub's to change.
+		if r.status == "running" and r.layer_id and panel.layer_ids and not panel.layer_ids[r.layer_id]
+			and os.time() - (r.started or 0) > 5 then
+			r.status, r.layer_state = "stopped", "closed"
+		end
+		h.run = r
+		if r.status ~= "running" and r.result_file and h.has_output == nil then
+			-- The start of the answer, for the preview.
+			local f = io.open(r.result_file, "r")
+			h.has_output = f ~= nil
+			if f then
+				local raw = f:read(600) or ""
+				-- Only a cut read can end inside a character.
+				if #raw == 600 then
+					raw = raw:gsub("[\192-\255][\128-\191]*$", "")
+				end
+				local text = hub_core.strip_ansi(raw):gsub("^%s+", "")
+				f:close()
+				h.answer = text ~= "" and M.mask(text) or nil
+			end
+		end
+		list[#list + 1] = h
+	end
+	state.hub, state.hub_list = kept, list
+end
+M.read_hub_runs = read_hub_runs
+
 local function read_agents(state, sess, moved)
 	state.agents = state.agents or {}
+	local now = os.time()
 	local done, active = {}, false
 	for id, a in pairs(state.agents) do
 		if a.finished then
@@ -2383,7 +2520,6 @@ local function read_agents(state, sess, moved)
 			active = true
 		end
 	end
-	local now = os.time()
 	if state.agent_list and not moved and not active and not M.running(state) and not (sess and sess.working)
 		and state.agents_checked and now - state.agents_checked < 10 then
 		return
@@ -2450,6 +2586,9 @@ local function gather_sig()
 	for _, a in ipairs(st.agent_list or {}) do
 		agent_sig[#agent_sig + 1] = a.id .. ":" .. (a.steps or 0) .. ":" .. tostring(a.finished)
 	end
+	for _, h in ipairs(st.hub_list or {}) do
+		agent_sig[#agent_sig + 1] = h.run.id .. ":" .. tostring(h.run.status) .. ":" .. tostring(h.run.layer_state)
+	end
 	local lim_sig = {}
 	for _, l in ipairs((panel.status and panel.status.limits) or {}) do
 		lim_sig[#lim_sig + 1] = tostring(l.label) .. "=" .. tostring(l.used) .. ":" .. tostring(l.resets_at)
@@ -2483,7 +2622,15 @@ local function check_visible()
 	end
 	local ok, view = pcall(rex.call, "session.view", { session_id = panel.session_id })
 	if not (ok and type(view) == "table" and view.active_window_id) then
+		panel.layer_ids = nil
 		return true
+	end
+	-- The session's floats, for Hub runs whose float is gone.
+	panel.layer_ids = {}
+	for _, w in ipairs(view.windows or {}) do
+		for _, layer in ipairs(w.layers or {}) do
+			panel.layer_ids[layer.layer_id or ""] = true
+		end
 	end
 	for _, w in ipairs(view.windows or {}) do
 		for _, layer in ipairs(w.layers or {}) do
@@ -2540,19 +2687,25 @@ local function gather()
 		panel.state = state
 		panel.status = sess.status
 		read_agents(state, sess, state.offset ~= prev_offset)
-		panel.processes = {}
-		if pid and next(state.tasks_bg) ~= nil then
+		-- Read on every poll: run files change without the transcript.
+		read_hub_runs(state)
+		-- `ps` runs while the screen keeps drawing, so the list is swapped in
+		-- whole: a draw in between would otherwise find it empty.
+		if not (pid and next(state.tasks_bg) ~= nil) then
+			panel.processes = {}
+		else
 			local ps = run({ "/bin/ps", "-axo", "pid=,ppid=,etime=,comm=" })
 			-- The tasks come from the transcript, as Claude Code lists them, each
 			-- with a live shell of Claude's.
 			if ps and ps.ok then
 				local now = os.time()
 				local live = M.processes(pid, ps.stdout, state.monitors, now)
-				local kept = {}
+				local kept, procs = {}, {}
 				for _, t in ipairs(M.running_tasks(state, now, live)) do
 					kept[t.id] = true
-					panel.processes[#panel.processes + 1] = { name = t.name, kind = t.monitor and "monitor" or "shell", age = t.at and (now - t.at) or 0 }
+					procs[#procs + 1] = { name = t.name, kind = t.monitor and "monitor" or "shell", age = t.at and (now - t.at) or 0 }
 				end
+				panel.processes = procs
 				-- Prune stale background tasks whose shell already exited (e.g. after restart)
 				-- so we don't keep spawning `/bin/ps` every 2 seconds forever.
 				for id, t in pairs(state.tasks_bg) do
@@ -2816,6 +2969,8 @@ local function build(tab)
 			folded = panel.folded,
 			focus = panel.focus.Info,
 			agents = panel.state.agent_list,
+			hub_runs = panel.state.hub_list,
+			open_hub = panel.open_hub,
 			gate = panel.gate_open,
 			open_agents = panel.open_agents,
 			open_logs = panel.open_logs,
@@ -3087,6 +3242,22 @@ local function act(action)
 	elseif action.kind == "agent" then
 		panel.open_agents[action.id] = not panel.open_agents[action.id] or nil
 		panel.cache = nil
+	elseif action.kind == "hub_row" then
+		panel.open_hub[action.id] = not panel.open_hub[action.id] or nil
+		panel.cache = nil
+	elseif action.kind == "hub_open" then
+		spawn("hub_open", function()
+			run({ rex_binary, "--autostart=false", "do", "hub_toggle", "id=" .. action.id, "open=true" }, 5)
+		end)
+	elseif action.kind == "hub_stop" then
+		spawn("hub_stop", function()
+			run({ rex_binary, "--autostart=false", "do", "hub_stop", "id=" .. action.id }, 5)
+		end)
+	elseif action.kind == "hub_view" and action.path then
+		spawn("hub_view", function()
+			-- Opened as the Artifacts tab opens a file: leaf shows the Markdown.
+			open_float(view_label .. (action.path:match("[^/]+$") or action.path), { dir .. "viewer", action.path }, action.path:match("^(.*)/[^/]*$"))
+		end)
 	elseif action.kind == "log_group" then
 		panel.open_logs[action.id] = not panel.open_logs[action.id] or nil
 		panel.cache = nil

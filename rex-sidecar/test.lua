@@ -1125,6 +1125,29 @@ local ok2, err2 = pcall(function()
 	has(advice, "last 7s ago · took 27s", "the last consult")
 	hasnt(plain(P.info_lines(P.new_state(), 60)), "ADVISOR", "no box without consults")
 
+	-- A subagent's or team member's own consults count too.
+	local sub = P.new_agent("a-sub")
+	local function sub_rec(t, content)
+		P.agent_record(sub, { type = "assistant", timestamp = string.format("1970-01-01T00:00:%02dZ", t), message = { content = content } })
+	end
+	sub_rec(10, { { type = "server_tool_use", id = "srv1", name = "advisor", input = {} } })
+	sub_rec(40, { { type = "advisor_tool_result", tool_use_id = "srv1", content = {} } })
+	equal(#sub.consults, 1, "a subagent's consult")
+	equal(sub.consults[1].done, 40, "and when its advice came")
+	has(table.concat(sub.tools, " "), "advisor", "its tool list shows the consult")
+	sub.finished = true
+	local with_sub = plain(P.info_lines(advised, 60, { now = 134, agents = { sub } }))
+	has(with_sub, "consults 2", "the agent's and the subagent's consults")
+	has(with_sub, "◇", "a subagent's consult on the timeline")
+	has(with_sub, "♦", "the agent's own")
+	has(with_sub, "1 by subagents", "how many came from subagents")
+	local only_sub = P.new_state()
+	only_sub.prompts[1] = { text = "start", seq = 1, at = "1970-01-01T00:00:00Z" }
+	has(plain(P.info_lines(only_sub, 60, { now = 134, agents = { sub } })), "ADVISOR · on call", "a box for subagents' consults alone")
+	local stuck = P.new_agent("a-stuck")
+	stuck.consults, stuck.finished, stuck.start, stuck.last = { { id = "x", at = 50 } }, true, 40, 60
+	has(plain(P.info_lines(only_sub, 60, { now = 134, agents = { stuck } })), "ADVISOR · on call", "a finished subagent isn't consulting")
+
 	local folds = dir .. "fold-test/"
 	real.exec({ "mkdir", "-p", folds })
 	local S = dofile(dir .. "settings.lua")
@@ -2848,5 +2871,92 @@ do
 	local opened = real.exec({ "/usr/bin/env", "REX_LEAF=/bin/echo", viewer, tmp .. "/a.md" })
 	equal(opened.stdout, "open " .. tmp .. "/a.md\n", "leaf opens the document")
 	real.exec({ "rm", "-rf", tmp })
+end
+-- The HUB box: delegated runs, newest first, apart from AGENTS.
+do
+	local now = 1000
+	local runs = {
+		{ run = { id = "codex-1", agent = "codex", mode = "oneshot", task = "Review auth", status = "done", started = 900, finished = 960, layer_state = "closed", result_file = "/x.md" },
+			has_output = true, answer = "All good." },
+		{ run = { id = "agy-2", agent = "agy", mode = "interactive", task = "Explain TOKEN=abc123", status = "running", started = 980, layer_state = "minimized" } },
+	}
+	local lines = P.info_lines(P.new_state(), 60, { now = now, hub_runs = runs, open_hub = { ["agy-2"] = true, ["codex-1"] = true } })
+	local shown = plain(lines)
+	has(shown, "HUB · 1 running", "the HUB box's running count")
+	has(shown, "2 total", "and its total")
+	equal(shown:find("[agy]", 1, true) < shown:find("[codex]", 1, true), true, "newest run first")
+	has(shown, "✓ [codex] Review auth", "a done run")
+	has(shown, "1:00", "its time")
+	has(shown, "interactive", "a run's mode")
+	has(shown, "TOKEN=•••", "a secret in a task is masked")
+	has(shown, "running · float minimized", "an open run's state")
+	has(shown, "[Open]  [Stop]", "an open run's float controls")
+	has(shown, "[View output]", "a finished run's output")
+	has(shown, "All good.", "the start of its answer")
+	equal(shown:find("AGENTS", 1, true), nil, "Hub runs aren't agents")
+	local kinds = {}
+	for _, a in pairs(lines.actions) do
+		if a.kind then
+			kinds[a.kind] = (kinds[a.kind] or 0) + 1
+		end
+		for _, r in ipairs(a.ranges or {}) do
+			kinds[r.action.kind] = (kinds[r.action.kind] or 0) + 1
+			equal(type(r.from), "number", "a button's start column")
+		end
+	end
+	equal(kinds.hub_row, 2, "a click on a run opens it")
+	equal(kinds.hub_open, 1, "Open")
+	equal(kinds.hub_view, 1, "View output")
+	equal(lines.other_ticking, true, "a running run ticks the clock")
+	local function has_hub(l)
+		for _, sec in ipairs(l.sections) do
+			if sec.name == "Hub" then
+				return true
+			end
+		end
+		return false
+	end
+	equal(has_hub(lines), true, "a HUB box with runs")
+	equal(has_hub(P.info_lines(P.new_state(), 60, { now = now })), false, "no HUB box without runs")
+end
+
+-- Hub runs: one comes in with its run file, and goes once the file is gone.
+do
+	local stub = rex
+	rex = real
+	local hub_dir = real.exec({ "mktemp", "-d" }).stdout:gsub("%s+$", "")
+	REX_HUB_STATE_DIR = hub_dir
+	local f = assert(io.open(hub_dir .. "/agy-1.json", "w"))
+	f:write(real.json.encode({ id = "agy-1", agent = "agy", mode = "interactive", task = "Review", parent_block_id = "block:p",
+		started = 100, status = "running", layer_state = "minimized" }))
+	f:close()
+	local was = P.panel.claude
+	P.panel.claude = "block:p"
+	local s = P.new_state()
+	P.read_hub_runs(s)
+	equal(#s.hub_list, 1, "a Hub run")
+	equal(s.hub_list[1].run.status, "running", "it's running")
+	equal(s.agents == nil or next(s.agents) == nil, true, "it isn't an agent")
+	local entry = s.hub_list[1]
+	P.read_hub_runs(s)
+	equal(s.hub_list[1], entry, "an unchanged run keeps its entry")
+	f = assert(io.open(hub_dir .. "/agy-1.json", "w"))
+	f:write(real.json.encode({ id = "agy-1", agent = "agy", mode = "interactive", task = "Review", parent_block_id = "block:p",
+		started = 100, status = "running", layer_state = "minimized", layer_id = "layer:gone" }))
+	f:close()
+	P.panel.layer_ids = { ["layer:other"] = true }
+	P.read_hub_runs(s)
+	equal(s.hub_list[1].run.status, "stopped", "a run whose float is gone shows as stopped")
+	P.panel.layer_ids = { ["layer:gone"] = true }
+	P.read_hub_runs(s)
+	equal(s.hub_list[1].run.status, "running", "a run whose float is there keeps running")
+	P.panel.layer_ids = nil
+	real.exec({ "rm", "-f", hub_dir .. "/agy-1.json" })
+	P.read_hub_runs(s)
+	equal(#s.hub_list, 0, "a run whose file is gone is dropped")
+	P.panel.claude = was
+	REX_HUB_STATE_DIR = nil
+	real.exec({ "rm", "-rf", hub_dir })
+	rex = stub
 end
 return "rex-sidecar: all tests passed"

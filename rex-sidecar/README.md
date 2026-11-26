@@ -107,9 +107,10 @@ Info opens first. Its top line shows the time and date, such as
 | Box | What's in it |
 | --- | --- |
 | **Model · main** | Running or idle, with `code` before it in Claude's Code Mode. The session's title. The branch (`⎇`), read live from git, and `⑂` with the worktree's name when the folder is a linked worktree. Reasoning effort, permission mode and the number of requests. Context used against the model's window, and ⟲ with how often it was compacted. Your 5-hour and 7-day limits, with the time to each reset (↻). Claude's working time |
-| **ADVISOR** | The advisor tool's consults on a timeline: how long ago the last one was, and how long it took. Shows only once Claude has consulted it |
+| **ADVISOR** | The advisor tool's consults on a timeline, Claude's own (♦) and its subagents' and team members' (dim ◇): how long ago the last one was, how long it took, and how many came from subagents. A subagent's consult also shows in its lane's tool calls. Shows only once anyone has consulted it |
 | **GATE** | One dotted cell (`⣿`) per permission check. Green: allowed by a rule or the mode. Cyan: allowed by the auto-mode classifier. Blue: allowed by you. Red ✗: denied. Dim: made inside a subagent. Then the totals by family: click `file`, `shell` or `other`, or press `f`, `s` or `o`, to list that family's last 5 checks |
 | **AGENTS** | The latest 8 subagents as lanes on one time axis, newest first. A running one has a pulsing ● and a ticking clock. A team member is done (✓) once it has reported to Claude and nothing came after, or it has been quiet for 5 minutes since. Any other one that hasn't changed for 5 minutes without finishing shows a grey ○. Click a lane for its type, context, steps, last 3 tool calls and the start of its answer |
+| **HUB** | Runs that this agent handed to another agent CLI through [rex-hub](../rex-hub/README.md), newest first, the latest 8: the agent in its colour, the task, its mode (oneshot or interactive) and how long it ran. ● running, ✓ done, red ✗ failed or timed out, dim ■ stopped. Click a run for its status and float state, **Open** (show and focus its float), **Stop**, **View output** (its answer, opened like an artifact) and the start of its answer. Hidden while there are none |
 | **PROCESSES** | Claude's background tasks running right now, newest first, as Claude Code's own list shows them: a monitor by its description, a shell by its command. Green for a shell, blue for a monitor, with how long it has run. Hidden while none run |
 | **OPEN** | Questions and plans waiting for your answer, questions at the end of Claude's last reply, and unfinished tasks |
 | **Receipt** | The running turn, or the last one: how long it took, the agents it started, its edits and errors. Then tests and failed commands; click either to list the latest 8. A command counts as a test when it's `pytest`, `npm test`, `go test`, or a script named test or spec |
@@ -140,7 +141,7 @@ Info opens first. Its top line shows the time and date, such as
 | `⬡` | An MCP tool, as `server·tool` |
 | `▷` | A workflow |
 | `✦` | A subagent starting or finishing |
-| `♦` | An advisor consult |
+| `♦` `◇` | An advisor consult: Claude's own, or a subagent's |
 | `✗` | An error or a denied check, in red |
 | `⟲` | A compaction or an interrupt |
 | `•` | Anything else |
