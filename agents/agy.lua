@@ -4,7 +4,8 @@
 -- pane's conversation is found in this order:
 --   1. the presence lock its agy process holds open, from lsof;
 --   2. the last conversation in the pane's directory, from
---      cache/last_conversations.json.
+--      cache/last_conversations.json, if written since agy started: a new
+--      agy has none until its first prompt.
 -- The model's effort, the context window and the usage quota come from agy's
 -- status line input, which agents/agy-statusline.sh saves to
 -- state/statusline/<conversation>.json. Conversation titles and subagents
@@ -150,11 +151,20 @@ return function(U)
 		local r = U.exec({ "/usr/sbin/lsof", "-p", tostring(pane.pid), "-n", "-P", "-Fn" })
 		local id = r and r.ok and M.locked_id(r.stdout) or nil
 		local cwd = pane.cwd
+		local started = U.started(pane.pid, now)
+		local locked = id ~= nil
 		if not id then
 			local last = U.read_json(M.home() .. "/cache/last_conversations.json")
 			id = type(last) == "table" and type(last[cwd or ""]) == "string" and last[cwd] or nil
 		end
 		local sess
+		if id and id:match("^[%w%-]+$") and not locked then
+			local st = U.exec({ "/usr/bin/stat", "-f", "%m", M.transcript(id) })
+			local mtime = st and st.ok and tonumber(st.stdout:match("%d+"))
+			if not (mtime and started and mtime >= started - 2) then
+				id = nil
+			end
+		end
 		if id and id:match("^[%w%-]+$") then
 			local transcript = M.transcript(id)
 			local f = io.open(transcript, "rb")
@@ -178,7 +188,7 @@ return function(U)
 					effort = effort,
 					mode = mode,
 					status = M.status(sl, model),
-					started = U.started(pane.pid, now),
+					started = started,
 				}
 			end
 		end

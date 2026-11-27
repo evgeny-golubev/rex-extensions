@@ -269,9 +269,14 @@ local ok, err = pcall(function()
 	equal(as.id, "conv-1", "the locked conversation first")
 	equal(as.transcript, base .. "brain/conv-1" .. logs, "its transcript")
 	equal(as.model, "gemini-b", "the latest model")
+	etime_of[52] = "00:10"
 	as = agy.session({ pid = 52, cwd = "/src/app" })
 	equal(as.id, "conv-2", "else the folder's last conversation")
 	equal(agy.session({ pid = 53, cwd = "/elsewhere" }), nil, "none found")
+	-- A new agy has no conversation yet: the folder's last one is older.
+	real_exec({ "touch", "-t", "202601010000", base .. "brain/conv-2" .. logs })
+	etime_of[55] = "00:10"
+	equal(agy.session({ pid = 55, cwd = "/src/app" }), nil, "an older conversation of the folder")
 	equal(#agy.subagents(as), 0, "no subagents")
 
 	-- agy's quota, from its saved status line input.
