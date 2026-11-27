@@ -250,6 +250,10 @@ ln -s ~/.config/rex/extensions/agents/pi-rex-status.ts ~/.pi/agent/extensions/re
 Then restart Pi. If you set `PI_CODING_AGENT_DIR`, link into
 `$PI_CODING_AGENT_DIR/extensions/` instead.
 
+The extension also tells Rex how to resume Pi (`pi --session <file>`), so Rex
+can restart it by itself after a restart; see
+[rex-resume](../rex-resume/README.md#rexs-own-restart).
+
 ### How it works
 
 [Pi](https://github.com/badlogic/pi-mono) keeps each session as a JSONL file
