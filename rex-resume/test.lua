@@ -15,6 +15,17 @@ local function equal(actual, expected, what)
 	end
 end
 
+-- report.lua signs reports with the real shasum, before Rex is faked.
+local report = dofile(dir .. "report.lua")
+equal(report.base64("abc"), "YWJj", "base64")
+equal(report.base64("/src/app"), "L3NyYy9hcHA=", "base64 with padding")
+equal(
+	report.body(7, { "agy", "--conversation", "abc" }, "/src/app", "dummy-token-replace-me-0123", 1795543200),
+	"pid=7:time=1795543200:argv=YWd5,LS1jb252ZXJzYXRpb24=,YWJj:cwd=L3NyYy9hcHA="
+		.. ":mac=1b313fe780ba2fcc6747ab4118517687f79a7be69cefc60e7114f28f5432ff9b",
+	"signed report"
+)
+
 local function write(path, text)
 	local f = assert(io.open(path, "w"))
 	f:write(text)
@@ -41,6 +52,13 @@ local function shell(id, label)
 end
 
 local clients, views, processes, created, timers, stopped, written, ps_calls, codex_thread, codex_asked
+local records, reports, records_asked, handlers
+REX_RESUME_REPORTER = {
+	report = function(pid, argv, cwd)
+		table.insert(reports, { pid = pid, command = table.concat(argv, " "), cwd = cwd })
+		return true
+	end,
+}
 REX_RESUME_CODEX = {
 	session = function(pane)
 		codex_asked = pane
@@ -67,6 +85,7 @@ REX_RESUME_OPENCODE = {
 local function reset()
 	clients, created, timers, stopped, written, ps_calls = {}, {}, {}, false, {}, {}
 	codex_thread, codex_asked = nil, nil
+	records, reports, records_asked, handlers = {}, {}, 0, {}
 	views = {
 		["session:1"] = {
 			session_id = "session:1",
@@ -152,6 +171,9 @@ rex = {
 			if method == "write" then
 				table.insert(written, { block_id = params.block_id, data = params.data })
 				return {}
+			elseif method == "program_resume_records" then
+				records_asked = records_asked + 1
+				return { records = records[params.block_id] or {} }
 			end
 			return processes[params.block_id]
 		end,
@@ -165,7 +187,9 @@ rex = {
 		return { ok = true }
 	end,
 	json = real.json,
-	on = function() end,
+	on = function(event, fn)
+		handlers[event] = fn
+	end,
 	after = function(delay, fn)
 		local t = { delay = delay, fn = fn }
 		function t:cancel()
@@ -268,6 +292,72 @@ local ok, err = pcall(function()
 	equal(shell_options().initial_input, "opencode --session ses_42\n", "opencode resume")
 	opencode_session = nil
 
+	-- Codex doesn't tell Rex how to resume it, so this reports for it, until
+	-- Rex has the record; the snapshot then says Rex restarts it itself.
+	reset()
+	processes["block:1"].foreground.argv0 = "codex"
+	codex_thread = { id = "thread-7", cwd = "/src/app/api" }
+	run()
+	equal(#reports, 1, "report for codex")
+	equal(reports[1].pid, 41, "reported pid")
+	equal(reports[1].command, "codex resume thread-7", "reported command")
+	equal(reports[1].cwd, "/src/app/api", "reported directory")
+	equal(read_json(snapshot).sessions[1].initial_windows[1].layout.split.before.block.native, nil, "native before Rex has it")
+	equal(#timers, 1, "check that Rex took the report")
+	fire()
+	equal(#reports, 2, "report again while Rex has none")
+	records["block:1"] = { {
+		owner = { pid = 41 }, chosen = true, trusted = true, rule = "codex", command = { "codex", "resume", "thread-7" },
+	} }
+	fire()
+	equal(#reports, 2, "report once Rex has it")
+	equal(read_json(snapshot).sessions[1].initial_windows[1].layout.split.before.block.native, true, "native")
+	equal(shell_options().initial_input, "codex resume thread-7\n", "typed command kept as the fallback")
+
+	-- A new thread in the same Codex is reported again.
+	codex_thread = { id = "thread-8" }
+	handlers["terminal.process_changed"]()
+	fire()
+	equal(#reports, 3, "report for the new thread")
+	equal(reports[3].command, "codex resume thread-8", "new thread reported")
+
+	-- The reports stop for a pane where Rex never takes them.
+	reset()
+	processes["block:1"].foreground.argv0 = "codex"
+	codex_thread = { id = "thread-7" }
+	run()
+	for _ = 1, 10 do
+		fire()
+	end
+	equal(#reports, 6, "reports for a pane Rex ignores")
+	equal(#timers, 0, "checks after the last report")
+
+	-- A program's own record is left alone.
+	reset()
+	processes["block:1"].foreground.argv0 = "codex"
+	codex_thread = { id = "thread-7" }
+	records["block:1"] = { { owner = { pid = 41 }, chosen = true, trusted = true, command = { "codex", "resume", "other" } } }
+	run()
+	equal(#reports, 0, "report over the program's own record")
+
+	-- "native": "off" sends nothing and asks Rex nothing.
+	reset()
+	write(settings, '{"native":"off"}')
+	processes["block:1"].foreground.argv0 = "codex"
+	codex_thread = { id = "thread-7" }
+	write(claude_file, '{"pid":42,"sessionId":"abc-123","cwd":"/src/app"}')
+	run()
+	equal(#reports, 0, "reports with native off")
+	equal(records_asked, 0, "records read with native off")
+
+	-- A Claude that reports itself is marked, and never reported for.
+	reset()
+	write(claude_file, '{"pid":42,"sessionId":"abc-123","cwd":"/src/app"}')
+	records["block:2"] = { { owner = { pid = 42 }, chosen = true, trusted = true, command = { "claude", "--resume", "abc-123" } } }
+	run()
+	equal(read_json(snapshot).sessions[1].initial_windows[1].layout.split.after.block.native, true, "claude native")
+	equal(#reports, 0, "report for claude")
+
 	-- Before Codex has a thread, its command is kept and the save repeated.
 	reset()
 	processes["block:1"].foreground.argv0 = "codex"
@@ -322,6 +412,7 @@ local ok, err = pcall(function()
 			layout = {
 				block = {
 					flavor = "com.superlogical.terminal.shell",
+					native = true,
 					options = { cwd = "/x", initial_input = "claude --resume abc-123\n" },
 				},
 			},
@@ -332,6 +423,7 @@ local ok, err = pcall(function()
 	equal(#created, 1, "sessions restored")
 	equal(created[1].label, "gone", "restored session")
 	equal(created[1].initial_windows[1].layout.block.options.initial_input, "claude --resume abc-123\n", "restored input")
+	equal(created[1].initial_windows[1].layout.block.native, nil, "native mark sent to session.create")
 	equal(read_json(snapshot .. ".prev").instance_id, "server-1", "previous snapshot")
 	equal(read_json(snapshot).instance_id, "server-2", "new snapshot")
 
@@ -371,6 +463,24 @@ local ok, err = pcall(function()
 	equal(written[1].block_id, "block:2", "pane in the same place")
 	equal(written[1].data, "cd '/it'\\''s/here' && claude --resume abc-123\n", "cd before resuming")
 
+	-- Where Rex was to restart Claude but the pane stayed a shell, it is
+	-- still typed back, after giving Rex its time.
+	reset()
+	processes["block:1"] = { foreground = { pid = 51, argv0 = "zsh", cwd = "/src/app" } }
+	processes["block:2"] = { foreground = { pid = 52, argv0 = "zsh", cwd = "/src/app/sub" } }
+	local native_work = saved_work("/src/app/sub")
+	native_work.initial_windows[1].layout.split.after.block.native = true
+	native_work.initial_windows[1].layout.split.before.block.native = true
+	native_work.initial_windows[1].layout.split.before.block.options.initial_input = "claude --resume def-456\n"
+	local slept = 0
+	rex.sleep = function() slept = slept + 1 end
+	write(snapshot, assert(real.json.encode({ instance_id = "server-1", sessions = { native_work } })))
+	run()
+	rex.sleep = function() end
+	equal(#written, 2, "typed after Rex's turn")
+	equal(written[2].data, "claude --resume abc-123\n", "second pane typed")
+	equal(slept >= 20 and slept < 30, true, "one shared wait for Rex, slept " .. slept)
+
 	-- A pane already running Claude, or another program, is left alone.
 	reset()
 	processes["block:1"] = { foreground = { pid = 51, argv0 = "zsh", cwd = "/src/app" } }
@@ -408,7 +518,7 @@ local ok, err = pcall(function()
 	equal(read_json(snapshot), nil, "second copy's snapshot")
 end)
 rex, os.getenv = real, real_getenv
-REX_RESUME_CODEX, REX_RESUME_AGY, REX_RESUME_PI, REX_RESUME_OPENCODE = nil, nil, nil, nil
+REX_RESUME_CODEX, REX_RESUME_AGY, REX_RESUME_PI, REX_RESUME_OPENCODE, REX_RESUME_REPORTER = nil, nil, nil, nil, nil
 real.exec({ "/bin/rm", "-rf", tmp })
 if not ok then
 	error(err, 0)

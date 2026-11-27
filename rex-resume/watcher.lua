@@ -3,7 +3,9 @@
 -- now brings sessions back itself, with new IDs and without the programs
 -- that ran in them, so for those this only types the programs back into the
 -- panes that ran them: Claude Code always, Codex's thread and other programs
--- as settings.json says.
+-- as settings.json says. Rex can also restart a program itself, at once, when
+-- the program reports how: for agents that don't, this reports for them
+-- (report.lua), and typing stays the fallback.
 -- init.lua starts it with every config load (`rex do --all watcher.lua`); it
 -- then saves a snapshot a second after each layout, label, directory or
 -- program change. `state=/tmp/x.json` points it at another snapshot file.
@@ -34,18 +36,35 @@ local codex = REX_RESUME_CODEX or agents.codex
 local agy = REX_RESUME_AGY or agents.agy
 local pi = REX_RESUME_PI or agents.pi
 local opencode = REX_RESUME_OPENCODE or agents.opencode
+local reporter = REX_RESUME_REPORTER or dofile(dir .. "report.lua")
 
 local function quoted(s)
 	return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
 end
 
 --- Each agent that comes back in its own conversation: its adapter and the
---- command that resumes a session.
+--- command that resumes a session, as argv for Rex and as typed input.
 local resumable = {
-	codex = { adapter = function() return codex end, command = function(s) return "codex resume " .. s.id end },
-	agy = { adapter = function() return agy end, command = function(s) return "agy --conversation " .. s.id end },
-	pi = { adapter = function() return pi end, command = function(s) return "pi --session " .. quoted(s.transcript) end },
-	opencode = { adapter = function() return opencode end, command = function(s) return "opencode --session " .. s.id end },
+	codex = {
+		adapter = function() return codex end,
+		argv = function(s) return { "codex", "resume", s.id } end,
+		command = function(s) return "codex resume " .. s.id end,
+	},
+	agy = {
+		adapter = function() return agy end,
+		argv = function(s) return { "agy", "--conversation", s.id } end,
+		command = function(s) return "agy --conversation " .. s.id end,
+	},
+	pi = {
+		adapter = function() return pi end,
+		argv = function(s) return { "pi", "--session", s.transcript } end,
+		command = function(s) return "pi --session " .. quoted(s.transcript) end,
+	},
+	opencode = {
+		adapter = function() return opencode end,
+		argv = function(s) return { "opencode", "--session", s.id } end,
+		command = function(s) return "opencode --session " .. s.id end,
+	},
 }
 
 local default_programs = {
@@ -56,7 +75,8 @@ local modes = { allow_name = true, allow_full = true, any_full = true }
 
 local shells = { zsh = true, bash = true, fish = true, sh = true, dash = true, ksh = true, tcsh = true }
 
---- settings.json's mode and program list, with defaults for what it leaves out.
+--- settings.json's mode, program list and whether to use Rex's own restart
+--- ("native": "prefer" or "off"), with defaults for what it leaves out.
 --- Read on every save, so an edit applies without a restart.
 local function settings()
 	local s
@@ -72,7 +92,7 @@ local function settings()
 	for _, name in ipairs(type(s.programs) == "table" and s.programs or default_programs) do
 		allowed[name] = true
 	end
-	return mode, allowed
+	return mode, allowed, s.native ~= "off"
 end
 
 local function program(r)
@@ -154,19 +174,68 @@ local function allowed_program(name)
 	return mode == "any_full" or allowed[name] == true
 end
 
+--- What Rex already knows about resuming process pid: whether Rex will
+--- restart it itself (a trusted, chosen record), and whether the record is
+--- the program's own, which this then leaves alone.
+local sent, report_tries = {}, {}
+local function native_record(session_id, block_id, pid, argv)
+	local r = rex.block.call(terminal, "program_resume_records", { session_id = session_id, block_id = block_id })
+	local want = argv and table.concat(argv, "\0")
+	local trusted, own = false, false
+	for _, rec in ipairs(r and r.records or {}) do
+		if rec.owner and rec.owner.pid == pid then
+			local command = table.concat(rec.command or {}, "\0")
+			if rec.trusted and rec.chosen and (not want or command == want) then
+				trusted = true
+			end
+			if not (sent[pid] and sent[pid][command]) then
+				own = true
+			end
+		end
+	end
+	return trusted, own
+end
+
+--- Reports argv as the way to resume an agent that has no record of its own,
+--- and returns whether Rex will restart it. Rex says nothing back, so a
+--- report it hasn't taken is sent again with the next save, a few times.
+local function report_agent(session_id, block_id, pid, argv, dir)
+	local trusted, own = native_record(session_id, block_id, pid, argv)
+	if trusted or own then
+		return trusted
+	end
+	local key = pid .. "\0" .. table.concat(argv, "\0")
+	local tries = report_tries[key] or 0
+	if tries >= claude_retries then
+		return false
+	end
+	report_tries[key] = tries + 1
+	if reporter.report(pid, argv, dir) then
+		sent[pid] = sent[pid] or {}
+		sent[pid][table.concat(argv, "\0")] = true
+		claude_starting = true
+	else
+		report_tries[key] = claude_retries
+	end
+	return false
+end
+
 --- A terminal's `session.create` options: its directory, and the command that
 --- brings back its foreground program: Claude Code's session, a Codex thread
 --- when settings.json allows codex, or another program it allows. The command is typed into a shell, so
 --- quitting the program leaves the shell, as before.
+--- The second value says whether Rex will restart the program itself.
 local function terminal_options(session_id, block_id)
 	local r = rex.block.call(terminal, "process", { session_id = session_id, block_id = block_id })
 	if not r then
 		return {}
 	end
 	local fg = r.foreground
+	local _, _, native = settings()
 	local claude = fg and claude_session(fg.pid)
 	if claude then
-		return { cwd = claude.cwd, initial_input = "claude --resume " .. claude.sessionId .. "\n" }
+		local trusted = native and native_record(session_id, block_id, fg.pid)
+		return { cwd = claude.cwd, initial_input = "claude --resume " .. claude.sessionId .. "\n" }, trusted
 	end
 	if fg and fg.argv0 and program(r) == "claude" then
 		local waits = claude_waits[fg.pid] or 0
@@ -180,7 +249,9 @@ local function terminal_options(session_id, block_id)
 	if agent and allowed_program(program(r)) then
 		local ok, sess = pcall(agent.adapter().session, { pid = fg.pid, cwd = cwd(r), session_id = session_id, block_id = block_id })
 		if ok and sess and sess.id then
-			return { cwd = sess.cwd or cwd(r), initial_input = agent.command(sess) .. "\n" }
+			local dir = sess.cwd or cwd(r)
+			local trusted = native and report_agent(session_id, block_id, fg.pid, agent.argv(sess), dir)
+			return { cwd = dir, initial_input = agent.command(sess) .. "\n" }, trusted
 		end
 		-- Until the session is known, the plain command is kept.
 		local waits = claude_waits[fg.pid] or 0
@@ -221,7 +292,8 @@ local function capture(node, view, blocks)
 	end
 	local block = { flavor = b.flavor, label = b.label, options = {} }
 	if b.creator_name == terminal then
-		block.options = terminal_options(view.session_id, node.block_id)
+		local options, native = terminal_options(view.session_id, node.block_id)
+		block.options, block.native = options, native or nil
 	end
 	return { block = block }
 end
@@ -339,9 +411,15 @@ local function quote(text)
 	return "'" .. text:gsub("'", "'\\''") .. "'"
 end
 
+--- Half-second steps left to wait for Rex to restart programs itself: 10
+--- seconds in all, shared by every pane, so nothing waits long when Rex
+--- restarts none.
+local native_wait = 20
+
 --- Types a saved command into an open pane once its shell is up: a pane
---- already running a program is left alone.
-local function resume_in(session_id, block_id, saved)
+--- already running a program is left alone. Where Rex was to restart the
+--- program itself, it gets its time to do so first.
+local function resume_in(session_id, block_id, saved, native)
 	local r
 	for _ = 1, 20 do
 		r = rex.block.call(terminal, "process", { session_id = session_id, block_id = block_id })
@@ -349,6 +427,11 @@ local function resume_in(session_id, block_id, saved)
 			break
 		end
 		rex.sleep(0.5)
+	end
+	while native and native_wait > 0 and shells[program(r) or ""] do
+		native_wait = native_wait - 1
+		rex.sleep(0.5)
+		r = rex.block.call(terminal, "process", { session_id = session_id, block_id = block_id })
 	end
 	if not shells[program(r) or ""] then
 		return false
@@ -370,6 +453,7 @@ end
 --- Each saved tab is matched by its label, or else its place; each program's
 --- pane in it by its directory, or else its place.
 local function resume_programs(open, saved)
+	local _, _, native = settings()
 	local view = check(rex.call("session.attach", { session_id = open.session_id })).view
 	local windows = {}
 	for _, w in ipairs(view.windows) do
@@ -415,7 +499,7 @@ local function resume_programs(open, saved)
 					target = target or (at and not used[at] and at) or nil
 					if target then
 						used[target] = true
-						resume_in(open.session_id, target, o)
+						resume_in(open.session_id, target, o, native and block.native)
 					end
 				end
 			end
@@ -446,6 +530,11 @@ if snapshot and snapshot.instance_id ~= status.instance_id then
 				rex.log("warn", "resuming in " .. s.label .. ": " .. tostring(err))
 			end
 		else
+			for _, w in ipairs(s.initial_windows or {}) do
+				for _, block in ipairs(saved_panes(w.layout)) do
+					block.native = nil
+				end
+			end
 			local _, err = rex.call("session.create", s)
 			if err ~= nil then
 				rex.log("warn", "restoring " .. s.label .. ": " .. err)

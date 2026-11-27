@@ -16,3 +16,10 @@ rex.exec.start({
 	"--all",
 	home .. "/.config/rex/extensions/rex-resume/watcher.lua",
 }, { detach = true, stdout = false, stderr = false })
+
+-- Lets Rex restart agy and Pi itself from the reports watcher.lua sends for
+-- them (Codex and OpenCode have rules built in).
+local pi_home = os.getenv("PI_CODING_AGENT_DIR")
+pi_home = (pi_home and pi_home ~= "") and pi_home or "~/.pi/agent"
+rex.set("resume.trust.agy", { command = { "agy", "--conversation", rex.match.uuid } })
+rex.set("resume.trust.pi", { command = { "pi", "--session", rex.match.under(pi_home .. "/sessions") } })
