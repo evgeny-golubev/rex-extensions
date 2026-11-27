@@ -45,6 +45,38 @@ that ran in them. rex-resume fills that gap:
 A pane that's already running a program is left alone. A snapshot is only
 used after a real restart, and the used one is kept as `sessions.json.prev`.
 
+### Rex's own restart
+
+Rex can also restart a program by itself, as soon as it starts, if the
+program has [told it how](https://www.superlogical.com/rex/docs/features/session-restore)
+and a trust rule allows the command. Claude Code does this on its own.
+rex-resume helps the others:
+
+| Agent | Who tells Rex | Trust rule |
+| --- | --- | --- |
+| Claude Code | Claude Code itself | Built into Rex |
+| Codex, OpenCode | rex-resume, on their behalf | Built into Rex |
+| agy | rex-resume, on its behalf | `agy --conversation <uuid>`, added by rex-resume |
+| Pi | The bundled Pi extension, [when linked](../agents/README.md#pi) | `pi --session <file under ~/.pi/agent/sessions>`, added by rex-resume |
+
+To report for a program, rex-resume reads the pane's report token from the
+program's environment and writes a signed report to the pane. The token is
+only used for that. A program that already reports for itself is left alone.
+
+The snapshot marks the panes Rex will restart. After a restart, rex-resume
+gives Rex up to 10 seconds in all to restart them, and types the saved
+command only into those still at a shell. Typing stays the fallback for everything else: ordinary
+programs like nvim or ssh, agents Rex didn't restart, and the sessions Rex
+didn't bring back.
+
+To check a pane, run this in it:
+
+```sh
+rex block call -b "$REX_BLOCK" program_resume_records
+```
+
+`"trusted": true` means Rex will restart it.
+
 ## Settings
 
 Settings are optional. They live in `settings.json` in this folder, which git
@@ -56,6 +88,9 @@ ignores. The file is read on every save, so an edit applies straight away.
   "programs": ["nvim", "vim", "less", "htop", "codex", "agy", "pi", "opencode"]
 }
 ```
+
+`"native": "off"` stops rex-resume from reporting to Rex and waiting for it
+([Rex's own restart](#rexs-own-restart)). It's `"prefer"` by default.
 
 `mode` decides which programs come back, and how:
 
@@ -183,6 +218,7 @@ The snapshot stays where it was, so nothing is lost.
 | A program returns as a shell | Check `mode` and `programs`. A custom array replaces the defaults, and shells themselves have no command to replay. |
 | Codex, agy, Pi or OpenCode starts a new conversation | Send a first prompt before restarting Rex so its conversation ID can be saved. Check [agent discovery](../agents/README.md) if the ID is still missing. |
 | Claude does not resume with a custom config directory | The restoration lookup currently only reads `~/.claude/sessions/`. |
+| An agent's record says `untrusted_reason` | Rex won't restart it, and rex-resume types it back instead. `no_rule` means no rule covers the command. See `rex config check` for the rules in force. |
 | The watcher does not start | Inspect `tail -n 50 ~/.config/rex/state/sessions.log` and verify the install path and `require` line. |
 
 Keep `sessions.json` and `sessions.json.prev` when diagnosing restoration;
@@ -197,6 +233,7 @@ to disable the extension while preserving both snapshots and your settings.
 | `~/.config/rex/state/sessions.json.prev` | The snapshot used at the last restore |
 | `~/.config/rex/state/sessions.log` | Errors from starting the watcher |
 | `settings.json`, in this folder | Your settings |
+| `init.lua`, `watcher.lua`, `report.lua`, in this folder | The trust rules, the watcher, and the reports to Rex |
 
 ## Manual use
 
